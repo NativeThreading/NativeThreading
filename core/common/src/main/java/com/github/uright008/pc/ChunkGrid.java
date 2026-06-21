@@ -10,6 +10,11 @@ import org.jetbrains.annotations.Nullable;
 
 public final class ChunkGrid {
 
+    public static final class SectionRef {
+        @Nullable public ChunkAccess chunk;
+        @Nullable public LevelChunkSection section;
+    }
+
     private final ChunkAccess[][] chunks;
     private final LevelChunkSection[][][] sections;
     private final int minSectionX;
@@ -66,5 +71,59 @@ public final class ChunkGrid {
             chunkSections[secIdx] = section;
         }
         return section != null ? section.getBlockState(localX, localY, localZ) : Blocks.AIR.defaultBlockState();
+    }
+
+    @Nullable
+    public LevelChunkSection getSection(int sectionX, int sectionZ, int blockY) {
+        int gx = sectionX - minSectionX;
+        int gz = sectionZ - minSectionZ;
+        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return null;
+
+        ChunkAccess chunk = chunks[gx][gz];
+        if (chunk == null) return null;
+
+        int secIdx = chunk.getSectionIndex(blockY);
+        if (secIdx < 0 || secIdx >= chunk.getSectionsCount()) return null;
+
+        LevelChunkSection[] chunkSections = sections[gx][gz];
+        LevelChunkSection section = chunkSections[secIdx];
+        if (section == null) {
+            section = chunk.getSection(secIdx);
+            chunkSections[secIdx] = section;
+        }
+        return section;
+    }
+
+    public void getSection(int sectionX, int sectionZ, int blockY, SectionRef out) {
+        int gx = sectionX - minSectionX;
+        int gz = sectionZ - minSectionZ;
+        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) {
+            out.chunk = null;
+            out.section = null;
+            return;
+        }
+
+        ChunkAccess chunk = chunks[gx][gz];
+        if (chunk == null) {
+            out.chunk = null;
+            out.section = null;
+            return;
+        }
+
+        int secIdx = chunk.getSectionIndex(blockY);
+        if (secIdx < 0 || secIdx >= chunk.getSectionsCount()) {
+            out.chunk = chunk;
+            out.section = null;
+            return;
+        }
+
+        LevelChunkSection[] chunkSections = sections[gx][gz];
+        LevelChunkSection section = chunkSections[secIdx];
+        if (section == null) {
+            section = chunk.getSection(secIdx);
+            chunkSections[secIdx] = section;
+        }
+        out.chunk = chunk;
+        out.section = section;
     }
 }

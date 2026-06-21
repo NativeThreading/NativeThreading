@@ -1,6 +1,7 @@
 package com.github.uright008.rp;
 
 import com.github.uright008.pc.ParallelThreadPool;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -95,7 +96,7 @@ public final class RedstoneWireHelper {
             BlockPos pos = queue.poll();
             int srcIdx = posToIdx.get(pos.asLong());
             while (edgeList.size() <= srcIdx) edgeList.add(null);
-            List<Integer> dsts = new ArrayList<>(4);
+            IntArrayList dsts = new IntArrayList(4);
 
             for (Direction dir : Direction.Plane.HORIZONTAL) {
                 BlockPos neighborPos = pos.relative(dir);
@@ -120,7 +121,7 @@ public final class RedstoneWireHelper {
                 }
             }
             int[] dstArr = new int[dsts.size()];
-            for (int j = 0; j < dstArr.length; j++) dstArr[j] = dsts.get(j);
+            for (int j = 0; j < dstArr.length; j++) dstArr[j] = dsts.getInt(j);
             edgeList.set(srcIdx, dstArr);
         }
 

@@ -6,6 +6,7 @@ import com.github.uright008.pc.ParallelWorker;
 import com.github.uright008.pc.SafeLevelAccess;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -22,9 +23,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -46,6 +45,9 @@ public abstract class EntityTickMixin {
 
     @Unique
     private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:entity");
+
+    @Unique
+    private static final Long2ObjectOpenHashMap<List<Entity>> BUCKETS = new Long2ObjectOpenHashMap<>();
 
     @Shadow
     public abstract Iterable<Entity> getAllEntities();
@@ -79,17 +81,22 @@ public abstract class EntityTickMixin {
         // Tick safe entities in parallel
         if (!safeEntities.isEmpty()) {
             // Bucket by chunk-section (16×16×16)
-            Map<Long, List<Entity>> buckets = new HashMap<>();
+            BUCKETS.clear();
             for (Entity entity : safeEntities) {
                 long key = SectionPos.asLong(
                         SectionPos.blockToSectionCoord(entity.blockPosition().getX()),
                         SectionPos.blockToSectionCoord(entity.blockPosition().getY()),
                         SectionPos.blockToSectionCoord(entity.blockPosition().getZ())
                 );
-                buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(entity);
+                List<Entity> bucket = BUCKETS.get(key);
+                if (bucket == null) {
+                    bucket = new ArrayList<>();
+                    BUCKETS.put(key, bucket);
+                }
+                bucket.add(entity);
             }
 
-            List<List<Entity>> bucketLists = new ArrayList<>(buckets.values());
+            List<List<Entity>> bucketLists = new ArrayList<>(BUCKETS.values());
 
             try {
                 SafeLevelAccess.runSafe(() -> {

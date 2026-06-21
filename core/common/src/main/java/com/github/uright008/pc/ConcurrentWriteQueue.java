@@ -32,7 +32,7 @@ public final class ConcurrentWriteQueue implements WriteQueue {
         List<Runnable> current = localQueue.get();
         if (!current.isEmpty()) {
             drainQueue.add(current);
-            localQueue.remove();
+            localQueue.set(new ArrayList<>());
         }
         List<Runnable> batch;
         while ((batch = drainQueue.poll()) != null) {

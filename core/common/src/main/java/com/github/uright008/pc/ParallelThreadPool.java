@@ -60,7 +60,7 @@ public final class ParallelThreadPool {
                 };
                 ThreadPoolExecutor tpe = new ThreadPoolExecutor(
                         size, size, 60L, TimeUnit.SECONDS,
-                        new LinkedBlockingQueue<>(), factory);
+                        new SpinBlockingQueue<>(), factory);
                 tpe.prestartAllCoreThreads();
                 tpe.allowCoreThreadTimeOut(true);
                 LOGGER.info("Pool '{}' ready - THREAD_POOL x{}", name, size);
@@ -78,8 +78,12 @@ public final class ParallelThreadPool {
                 yield fjp;
             }
             case VIRTUAL -> {
-                ExecutorService vtp = Executors.newVirtualThreadPerTaskExecutor();
-                LOGGER.info("Pool '{}' ready - VIRTUAL", name);
+                ThreadFactory vtf = Thread.ofVirtual().name("ParallelV-" + name + "-", 0).factory();
+                ThreadPoolExecutor vtp = new ThreadPoolExecutor(
+                        size, size, 60L, TimeUnit.SECONDS,
+                        new SpinBlockingQueue<>(), vtf);
+                vtp.prestartAllCoreThreads();
+                LOGGER.info("Pool '{}' ready - VIRTUAL x{}", name, size);
                 yield vtp;
             }
         };

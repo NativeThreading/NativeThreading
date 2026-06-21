@@ -20,26 +20,25 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public final class DiodeTickBatcher {
 
-    private static final Map<ServerLevel, ConcurrentLinkedQueue<Long>> PENDING = new ConcurrentHashMap<>();
+    private record DiodeTick(BlockPos pos, BlockState state) {}
+
+    private static final Map<ServerLevel, ConcurrentLinkedQueue<DiodeTick>> PENDING = new ConcurrentHashMap<>();
 
     private DiodeTickBatcher() {}
 
     public static void add(ServerLevel level, BlockPos pos, BlockState state) {
-        PENDING.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(pos.asLong());
+        PENDING.computeIfAbsent(level, k -> new ConcurrentLinkedQueue<>()).add(new DiodeTick(pos, state));
     }
 
     public static void flush(ServerLevel level) {
-        ConcurrentLinkedQueue<Long> queue = PENDING.remove(level);
+        ConcurrentLinkedQueue<DiodeTick> queue = PENDING.remove(level);
         if (queue == null || queue.isEmpty()) return;
 
-        record DiodeTick(BlockPos pos, BlockState state) {}
         List<DiodeTick> ticks = new ArrayList<>();
-        Long p;
-        while ((p = queue.poll()) != null) {
-            BlockPos pos = BlockPos.of(p);
-            BlockState state = level.getBlockState(pos);
-            if (state.getBlock() instanceof DiodeBlock) {
-                ticks.add(new DiodeTick(pos, state));
+        DiodeTick dt;
+        while ((dt = queue.poll()) != null) {
+            if (dt.state.getBlock() instanceof DiodeBlock) {
+                ticks.add(dt);
             }
         }
         int n = ticks.size();

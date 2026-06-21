@@ -10,7 +10,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EntityTypeTags;
-import net.minecraft.util.Util;
 import net.minecraft.util.profiling.Profiler;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.damagesource.DamageSource;
@@ -22,8 +21,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.ServerExplosion;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.minecraft.world.level.material.FluidState;
@@ -387,9 +387,13 @@ public abstract class ServerExplosionMixin {
                 }
 
                 if (entities.isEmpty()) return true;
-                ParallelWorker.Batch<Entity, ExplosionHelper.EntityDamageResult> entityBatch = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Explosion"));
-                for (Entity entity : entities) entityBatch.add(entity);
-                results = entityBatch.flush(entity -> computeEntityDamage(entity, dr), 5);
+                if (entities.size() < 50) {
+                    results = new ArrayList<>(entities.size());
+                    for (Entity entity : entities) results.add(computeEntityDamage(entity, dr));
+                } else {
+                    results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), entities,
+                            entity -> computeEntityDamage(entity, dr), ParallelWorker.autoBatchSize(entities.size()), 5);
+                }
             } else {
                 AABB bb = new AABB(x0, y0, z0, x1, y1, z1);
                 final List<Entity> allEntities = this.level.getEntities(this.source, bb);
@@ -402,9 +406,13 @@ public abstract class ServerExplosionMixin {
                     entities.add(e);
                 }
                 if (entities.isEmpty()) return true;
-                ParallelWorker.Batch<Entity, ExplosionHelper.EntityDamageResult> entityBatch2 = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Explosion"));
-                for (Entity entity : entities) entityBatch2.add(entity);
-                results = entityBatch2.flush(entity -> computeEntityDamage(entity, dr), 5);
+                if (entities.size() < 50) {
+                    results = new ArrayList<>(entities.size());
+                    for (Entity entity : entities) results.add(computeEntityDamage(entity, dr));
+                } else {
+                    results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), entities,
+                            entity -> computeEntityDamage(entity, dr), ParallelWorker.autoBatchSize(entities.size()), 5);
+                }
             }
         } catch (RuntimeException e) {
             LOGGER.error("Explosion entity workers failed; falling back to vanilla", e);
@@ -464,9 +472,13 @@ public abstract class ServerExplosionMixin {
 
         if (filtered.isEmpty()) return List.of();
 
-        ParallelWorker.Batch<Entity, ExplosionHelper.EntityDamageResult> entityBatch3 = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Explosion"));
-        for (Entity entity : filtered) entityBatch3.add(entity);
-        return entityBatch3.flush(entity -> computeEntityDamage(entity, doubleRadius), 5);
+        if (filtered.size() < 50) {
+            List<ExplosionHelper.EntityDamageResult> results = new ArrayList<>(filtered.size());
+            for (Entity entity : filtered) results.add(computeEntityDamage(entity, doubleRadius));
+            return results;
+        }
+        return ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), filtered,
+                entity -> computeEntityDamage(entity, doubleRadius), ParallelWorker.autoBatchSize(filtered.size()), 5);
     }
 
     @Unique
@@ -521,14 +533,17 @@ public abstract class ServerExplosionMixin {
     @Unique
     private float getSeenPercentSafe(Vec3 center, Entity entity) {
         AABB bb = entity.getBoundingBox();
-        double xs = 1.0 / ((bb.maxX - bb.minX) * ExplosionParallelConfig.getSamplingFactor() + 1.0);
-        double ys = 1.0 / ((bb.maxY - bb.minY) * ExplosionParallelConfig.getSamplingFactor() + 1.0);
-        double zs = 1.0 / ((bb.maxZ - bb.minZ) * ExplosionParallelConfig.getSamplingFactor() + 1.0);
+        float f = ExplosionParallelConfig.getSamplingFactor();
+        double xs = 1.0 / ((bb.maxX - bb.minX) * f + 1.0);
+        double ys = 1.0 / ((bb.maxY - bb.minY) * f + 1.0);
+        double zs = 1.0 / ((bb.maxZ - bb.minZ) * f + 1.0);
         double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
         double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
         if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
 
         ChunkGrid chunkGrid = this.cachedChunkGrid;
+        Vec3 toVec = new Vec3(center.x, center.y, center.z);
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         int hits = 0, count = 0;
         for (double xx = 0.0; xx <= 1.0; xx += xs) {
             for (double yy = 0.0; yy <= 1.0; yy += ys) {
@@ -536,7 +551,8 @@ public abstract class ServerExplosionMixin {
                     double x = net.minecraft.util.Mth.lerp(xx, bb.minX, bb.maxX);
                     double y = net.minecraft.util.Mth.lerp(yy, bb.minY, bb.maxY);
                     double z = net.minecraft.util.Mth.lerp(zz, bb.minZ, bb.maxZ);
-                    if (!rayCastHitsBlock(x + xOffset, y, z + zOffset, center.x, center.y, center.z, chunkGrid)) hits++;
+                    if (!rayCastHitsBlock(x + xOffset, y, z + zOffset, center.x, center.y, center.z,
+                            chunkGrid, toVec, pos)) hits++;
                     count++;
                 }
             }
@@ -545,14 +561,10 @@ public abstract class ServerExplosionMixin {
     }
 
     @Unique
-    private boolean rayCastHitsBlock(double fx, double fy, double fz, double tx, double ty, double tz, Entity entity) {
-        return rayCastHitsBlock(fx, fy, fz, tx, ty, tz, this.cachedChunkGrid);
-    }
-
-    @Unique
     private static boolean rayCastHitsBlock(double fx, double fy, double fz,
                                             double tx, double ty, double tz,
-                                            ChunkGrid chunkGrid) {
+                                            ChunkGrid chunkGrid, Vec3 toVec,
+                                            BlockPos.MutableBlockPos pos) {
         double dx = tx - fx, dy = ty - fy, dz = tz - fz;
         if (dx * dx + dy * dy + dz * dz < 1.0E-7) return false;
 
@@ -562,10 +574,6 @@ public abstract class ServerExplosionMixin {
         double toX   = net.minecraft.util.Mth.lerp(-1.0E-7, tx, fx);
         double toY   = net.minecraft.util.Mth.lerp(-1.0E-7, ty, fy);
         double toZ   = net.minecraft.util.Mth.lerp(-1.0E-7, tz, fz);
-
-        // Pre-create immutable Vec3 once for the entire DDA traversal
-        final Vec3 fromVec = new Vec3(fx, fy, fz);
-        final Vec3 toVec   = new Vec3(tx, ty, tz);
 
         int x = net.minecraft.util.Mth.floor(fromX);
         int y = net.minecraft.util.Mth.floor(fromY);
@@ -586,22 +594,69 @@ public abstract class ServerExplosionMixin {
         double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - net.minecraft.util.Mth.frac(fromY) : net.minecraft.util.Mth.frac(fromY));
         double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - net.minecraft.util.Mth.frac(fromZ) : net.minecraft.util.Mth.frac(fromZ));
 
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        int cachedSectionX = Integer.MIN_VALUE;
+        int cachedSectionY = Integer.MIN_VALUE;
+        int cachedSectionZ = Integer.MIN_VALUE;
+        LevelChunkSection cachedSection = null;
+        boolean cachedSectionAir = true;
 
         while (true) {
             if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
             if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
             if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
 
-            int cx = SectionPos.blockToSectionCoord(x);
-            int cz = SectionPos.blockToSectionCoord(z);
-            BlockState state = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
+            int cx = x >> 4;
+            int cy = y >> 4;
+            int cz = z >> 4;
+            if (cx != cachedSectionX || cy != cachedSectionY || cz != cachedSectionZ) {
+                cachedSectionX = cx;
+                cachedSectionY = cy;
+                cachedSectionZ = cz;
+                cachedSection = chunkGrid.getSection(cx, cz, y);
+                cachedSectionAir = cachedSection == null || cachedSection.hasOnlyAir();
+            }
+
+            if (cachedSectionAir) {
+                int nx = 0, ny = 0, nz = 0;
+                if (stepX > 0) nx = ((cx + 1) << 4) - x; else if (stepX < 0) nx = x - ((cx << 4) - 1);
+                if (stepY > 0) ny = ((cy + 1) << 4) - y; else if (stepY < 0) ny = y - ((cy << 4) - 1);
+                if (stepZ > 0) nz = ((cz + 1) << 4) - z; else if (stepZ < 0) nz = z - ((cz << 4) - 1);
+
+                int ex = 0, ey = 0, ez = 0;
+                if (stepX > 0) ex = endX - x + 1; else if (stepX < 0) ex = x - endX + 1;
+                if (stepY > 0) ey = endY - y + 1; else if (stepY < 0) ey = y - endY + 1;
+                if (stepZ > 0) ez = endZ - z + 1; else if (stepZ < 0) ez = z - endZ + 1;
+
+                double sectionT = Double.MAX_VALUE; char exitA = 0;
+                if (nx > 0) { double t = tMaxX + (nx - 1) * tDeltaX; if (t < sectionT) { sectionT = t; exitA = 'x'; } }
+                if (ny > 0) { double t = tMaxY + (ny - 1) * tDeltaY; if (t < sectionT) { sectionT = t; exitA = 'y'; } }
+                if (nz > 0) { double t = tMaxZ + (nz - 1) * tDeltaZ; if (t < sectionT) { sectionT = t; exitA = 'z'; } }
+                double endT = Double.MAX_VALUE;
+                if (ex > 0) { double t = tMaxX + (ex - 1) * tDeltaX; if (t < endT) endT = t; }
+                if (ey > 0) { double t = tMaxY + (ey - 1) * tDeltaY; if (t < endT) endT = t; }
+                if (ez > 0) { double t = tMaxZ + (ez - 1) * tDeltaZ; if (t < endT) endT = t; }
+                if (endT <= sectionT || exitA == 0) return false;
+
+                int cX = 0, cY = 0, cZ = 0;
+                if (exitA == 'x') { cX = nx; if (ny > 0) { double r = (sectionT - tMaxY - 1e-12) / tDeltaY; if (r > 0) cY = (int) r + 1; } if (nz > 0) { double r = (sectionT - tMaxZ - 1e-12) / tDeltaZ; if (r > 0) cZ = (int) r + 1; } }
+                else if (exitA == 'y') { cY = ny; if (nx > 0) { double r = (sectionT - tMaxX - 1e-12) / tDeltaX; if (r > 0) cX = (int) r + 1; } if (nz > 0) { double r = (sectionT - tMaxZ - 1e-12) / tDeltaZ; if (r > 0) cZ = (int) r + 1; } }
+                else { cZ = nz; if (nx > 0) { double r = (sectionT - tMaxX - 1e-12) / tDeltaX; if (r > 0) cX = (int) r + 1; } if (ny > 0) { double r = (sectionT - tMaxY - 1e-12) / tDeltaY; if (r > 0) cY = (int) r + 1; } }
+                x += stepX * cX; y += stepY * cY; z += stepZ * cZ;
+                tMaxX += cX * tDeltaX; tMaxY += cY * tDeltaY; tMaxZ += cZ * tDeltaZ;
+                if (stepX > 0 ? x > endX : (stepX < 0 && x < endX)) return false;
+                if (stepY > 0 ? y > endY : (stepY < 0 && y < endY)) return false;
+                if (stepZ > 0 ? z > endZ : (stepZ < 0 && z < endZ)) return false;
+                continue;
+            }
+
+            BlockState state = cachedSection.getBlockState(x & 15, y & 15, z & 15);
             if (!state.isAir()) {
                 pos.set(x, y, z);
-                int id = Block.getId(state);
-                if (id < ExplosionHelper.FULL_CUBE.length && ExplosionHelper.FULL_CUBE[id]) return true;
-                VoxelShape shape = state.getCollisionShape(chunkGrid.getChunk(cx, cz), pos);
+                if (ExplosionHelper.isFullCube(state)) return true;
+                ChunkAccess chunk = chunkGrid.getChunk(cx, cz);
+                VoxelShape shape = state.getCollisionShape(chunk, pos);
                 if (!shape.isEmpty()) {
+                    Vec3 fromVec = new Vec3(fx, fy, fz);
                     BlockHitResult hit = shape.clip(fromVec, toVec, pos);
                     if (hit != null && hit.getType() != HitResult.Type.MISS) return true;
                 }
@@ -624,8 +679,6 @@ public abstract class ServerExplosionMixin {
     @Unique
     @Nullable
     private ExplosionHelper.EntityDamageResult computeEntityDamage(Entity entity, float doubleRadius) {
-        if (entity.ignoreExplosion((ServerExplosion) (Object) this)) return null;
-
         // feet position — used for distance (vanilla: entity.distanceToSqr)
         double fx = entity.getX();
         double fy = entity.getY();

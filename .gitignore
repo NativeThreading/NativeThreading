@@ -8,3 +8,4 @@ classes/
 *.log
 gradle/wrapper/gradle-wrapper.jar
 
+.omo/

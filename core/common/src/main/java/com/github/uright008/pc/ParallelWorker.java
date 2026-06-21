@@ -333,21 +333,21 @@ public final class ParallelWorker {
 
     public static final class Batch<T, R> {
         private final ExecutorService pool;
-        private final List<T> items = new ArrayList<>();
+        private List<T> items = new ArrayList<>();
 
         public Batch(ExecutorService pool) { this.pool = pool; }
 
         public void add(T item) { items.add(item); }
 
         public List<R> flush(Function<T, R> mapper, int timeoutSec) {
-            List<T> snapshot = new ArrayList<>(items);
-            items.clear();
+            List<T> snapshot = items;
+            items = new ArrayList<>();
             return ParallelWorker.mapBatched(pool, snapshot, mapper, autoBatchSize(snapshot.size()), timeoutSec);
         }
 
         public void flushVoid(Consumer<T> action, int timeoutSec) {
-            List<T> snapshot = new ArrayList<>(items);
-            items.clear();
+            List<T> snapshot = items;
+            items = new ArrayList<>();
             ParallelWorker.forEachBatched(pool, snapshot, action, autoBatchSize(snapshot.size()), timeoutSec);
         }
     }
@@ -360,13 +360,13 @@ public final class ParallelWorker {
     }
 
     private static void awaitLatch(CountDownLatch latch, int timeoutSeconds) {
-        boolean done;
         try {
-            done = latch.await(timeoutSeconds, TimeUnit.SECONDS);
+            if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+                throw new RuntimeException("Workers timed out after " + timeoutSeconds + "s");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Workers interrupted", e);
         }
-        if (!done) throw new RuntimeException("Workers timed out after " + timeoutSeconds + "s");
     }
 }

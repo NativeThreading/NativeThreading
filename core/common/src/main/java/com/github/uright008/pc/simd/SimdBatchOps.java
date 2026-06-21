@@ -1,6 +1,5 @@
 package com.github.uright008.pc.simd;
 
-import java.util.Arrays;
 import java.util.BitSet;
 import com.github.uright008.pc.ParallelCoreConfig;
 
@@ -251,9 +250,9 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
                                     double qMaxX, double qMaxY, double qMaxZ,
                                     int[] result) {
         // Build and sort index array by morton key
-        Integer[] idx = new Integer[count];
+        int[] idx = new int[count];
         for (int i = 0; i < count; i++) idx[i] = i;
-        Arrays.sort(idx, (a, b) -> Long.compare(keys[a], keys[b]));
+        sortIndicesByKeys(idx, keys, 0, count - 1);
 
         // Sweep through sorted indices; check a sliding window
         int out = 0;
@@ -274,5 +273,26 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
             }
         }
         return out;
+    }
+
+    private static void sortIndicesByKeys(int[] idx, long[] keys, int lo, int hi) {
+        if (lo >= hi) return;
+        int mid = (lo + hi) >>> 1;
+        long a = keys[idx[lo]], b = keys[idx[mid]], c = keys[idx[hi]];
+        int pi = (a < b) ? ((b < c) ? mid : (a < c) ? hi : lo)
+                         : ((a < c) ? lo : (b < c) ? hi : mid);
+        int tmp = idx[pi]; idx[pi] = idx[hi]; idx[hi] = tmp;
+        long pivot = keys[idx[hi]];
+        int i = lo - 1;
+        for (int j = lo; j < hi; j++) {
+            if (keys[idx[j]] < pivot) {
+                i++;
+                tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+            }
+        }
+        i++;
+        tmp = idx[i]; idx[i] = idx[hi]; idx[hi] = tmp;
+        sortIndicesByKeys(idx, keys, lo, i - 1);
+        sortIndicesByKeys(idx, keys, i + 1, hi);
     }
 }
