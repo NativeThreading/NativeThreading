@@ -214,7 +214,7 @@ public final class ParallelWorker {
             return results;
         }
 
-        int workers = Math.min(computeWorkers(batches), batches);
+        int workers = Math.min(Runtime.getRuntime().availableProcessors(), batches);
         R[] results = (R[]) new Object[n];
         AtomicReference<Throwable> firstError = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(workers);
@@ -277,7 +277,7 @@ public final class ParallelWorker {
             return;
         }
 
-        int workers = Math.min(computeWorkers(batches), batches);
+        int workers = Math.min(Runtime.getRuntime().availableProcessors(), batches);
         AtomicReference<Throwable> firstError = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(workers);
 
