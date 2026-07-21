@@ -25,8 +25,8 @@ public final class SoAStore implements EntityDataView {
 
     private volatile int[] idToSlot;
     private volatile int[] slotToId;
-    private int[] idToSlotCache;
-    private final double[][] fields;
+    public volatile int[] idToSlotCache;
+    public final double[][] fields;
     private long[] keys;
     private int[] freeSlots;
     private final AtomicInteger freeHead = new AtomicInteger();

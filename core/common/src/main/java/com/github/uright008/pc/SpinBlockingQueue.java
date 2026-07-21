@@ -6,22 +6,42 @@ import java.util.Iterator;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * {@link BlockingQueue} that spin-waits instead of parking threads.
- * Workers spin for up to 100µs, then parkNanos(1ms), avoiding the
- * pthread_cond_wait kernel transition on short idle periods.
+ * {@link BlockingQueue} backed by a concurrent queue with condition-based
+ * waiting for task arrivals.
  */
 public final class SpinBlockingQueue<E> extends AbstractQueue<E> implements BlockingQueue<E> {
 
     private final ConcurrentLinkedQueue<E> delegate = new ConcurrentLinkedQueue<>();
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition notEmpty = lock.newCondition();
 
     @Override
-    public boolean offer(E e) { return delegate.offer(e); }
+    public boolean offer(E e) {
+        lock.lock();
+        try {
+            boolean enqueued = delegate.offer(e);
+            if (enqueued) notEmpty.signal();
+            return enqueued;
+        } finally {
+            lock.unlock();
+        }
+    }
 
     @Override
-    public boolean offer(E e, long timeout, TimeUnit unit) { return delegate.offer(e); }
+    public boolean offer(E e, long timeout, TimeUnit unit) throws InterruptedException {
+        lock.lockInterruptibly();
+        try {
+            boolean enqueued = delegate.offer(e);
+            if (enqueued) notEmpty.signal();
+            return enqueued;
+        } finally {
+            lock.unlock();
+        }
+    }
 
     @Override
     public E poll() { return delegate.poll(); }
@@ -36,29 +56,43 @@ public final class SpinBlockingQueue<E> extends AbstractQueue<E> implements Bloc
     public Iterator<E> iterator() { return delegate.iterator(); }
 
     @Override
-    public void put(E e) { delegate.offer(e); }
+    public void put(E e) throws InterruptedException {
+        lock.lockInterruptibly();
+        try {
+            if (delegate.offer(e)) notEmpty.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
 
     @Override
     public E take() throws InterruptedException {
-        E item;
-        while ((item = delegate.poll()) == null) {
-            if (Thread.interrupted()) throw new InterruptedException();
-            LockSupport.parkNanos(1_000_000);
+        lock.lockInterruptibly();
+        try {
+            E item;
+            while ((item = delegate.poll()) == null) {
+                notEmpty.await();
+            }
+            return item;
+        } finally {
+            lock.unlock();
         }
-        return item;
     }
 
     @Override
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
-        long deadline = System.nanoTime() + nanos;
-        E item;
-        while ((item = delegate.poll()) == null) {
-            if (Thread.interrupted()) throw new InterruptedException();
-            if (System.nanoTime() > deadline) return null;
-            LockSupport.parkNanos(100_000);
+        lock.lockInterruptibly();
+        try {
+            E item;
+            while ((item = delegate.poll()) == null) {
+                if (nanos <= 0) return null;
+                nanos = notEmpty.awaitNanos(nanos);
+            }
+            return item;
+        } finally {
+            lock.unlock();
         }
-        return item;
     }
 
     @Override

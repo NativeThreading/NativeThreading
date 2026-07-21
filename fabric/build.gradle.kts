@@ -68,6 +68,9 @@ tasks.processResources {
     from("../hopper/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../redstone/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../vectorial/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
+    from(project(":vectorial").tasks.named<Jar>("agentJar").flatMap { it.archiveFile }) {
+        into("META-INF")
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -104,14 +107,4 @@ tasks.jar {
         rename { "${it}_$projectName" }
     }
 
-    // Agent-Class manifest — required for Vectorial's self-attachment
-    // via the JDK Attach API at preLaunch time.
-    manifest {
-        attributes(
-            "Agent-Class" to "com.github.uright008.vec.core.VectorialAgent",
-            "Can-Redefine-Classes" to "true",
-            "Can-Retransform-Classes" to "true"
-        )
-    }
 }
-

@@ -4,12 +4,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class ParallelCommand {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("parallel-core");
-    private static final Map<String, ParallelSubCommand> SUB_COMMANDS = new ConcurrentHashMap<>();
+    private static final Map<String, ParallelSubCommand> SUB_COMMANDS = new ConcurrentSkipListMap<>();
 
     private ParallelCommand() {}
 

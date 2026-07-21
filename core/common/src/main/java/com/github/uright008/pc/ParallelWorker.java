@@ -4,10 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -22,6 +23,7 @@ import java.util.function.Function;
 public final class ParallelWorker {
 
     private static final Logger LOG = LoggerFactory.getLogger("mc-parallel:worker");
+    private static final long ZERO_TIMEOUT_START_GRACE_MILLIS = 100;
 
     private ParallelWorker() {}
 
@@ -55,40 +57,23 @@ public final class ParallelWorker {
             return results;
         }
 
-        R[] results = (R[]) new Object[n];
-        AtomicReference<Throwable> firstError = new AtomicReference<>();
+        List<R> results = new ArrayList<>(Collections.nCopies(n, null));
         int perWorker = n / workers;
         int extra = n % workers;
-        CountDownLatch latch = new CountDownLatch(workers);
-
+        List<Runnable> work = new ArrayList<>(workers);
         int offset = 0;
         for (int w = 0; w < workers; w++) {
             final int start = offset;
             final int end = offset + perWorker + (w < extra ? 1 : 0);
             offset = end;
-            if (start >= end) {
-                latch.countDown();
-                continue;
-            }
-            executor.execute(() -> {
-                SafeLevelAccess.runSafe(() -> {
-                    try {
-                        for (int i = start; i < end; i++) {
-                            results[i] = mapper.apply(items.get(i));
-                        }
-                    } catch (Throwable t) {
-                        firstError.compareAndSet(null, t);
-                        LOG.error("Worker [{},{}) failed", start, end, t);
-                    }
-                });
-                latch.countDown();
+            work.add(() -> {
+                for (int i = start; i < end; i++) {
+                    results.set(i, mapper.apply(items.get(i)));
+                }
             });
         }
-
-        awaitLatch(latch, timeoutSeconds);
-        throwOnError(firstError.get());
-        SafeOps.drainWrites();
-        return Arrays.asList(results);
+        executePhase(executor, work, timeoutSeconds);
+        return results;
     }
 
     /**
@@ -118,38 +103,21 @@ public final class ParallelWorker {
             return;
         }
 
-        AtomicReference<Throwable> firstError = new AtomicReference<>();
         int perWorker = n / workers;
         int extra = n % workers;
-        CountDownLatch latch = new CountDownLatch(workers);
-
+        List<Runnable> work = new ArrayList<>(workers);
         int offset = 0;
         for (int w = 0; w < workers; w++) {
             final int start = offset;
             final int end = offset + perWorker + (w < extra ? 1 : 0);
             offset = end;
-            if (start >= end) {
-                latch.countDown();
-                continue;
-            }
-            executor.execute(() -> {
-                SafeLevelAccess.runSafe(() -> {
-                    try {
-                        for (int i = start; i < end; i++) {
-                            action.accept(items.get(i));
-                        }
-                    } catch (Throwable t) {
-                        firstError.compareAndSet(null, t);
-                        LOG.error("Worker [{},{}) failed", start, end, t);
-                    }
-                });
-                latch.countDown();
+            work.add(() -> {
+                for (int i = start; i < end; i++) {
+                    action.accept(items.get(i));
+                }
             });
         }
-
-        awaitLatch(latch, timeoutSeconds);
-        throwOnError(firstError.get());
-        SafeOps.drainWrites();
+        executePhase(executor, work, timeoutSeconds);
     }
 
     /**
@@ -164,28 +132,16 @@ public final class ParallelWorker {
         int n = tasks.size();
         if (n == 0) return List.of();
 
-        R[] results = (R[]) new Object[n];
-        AtomicReference<Throwable> firstError = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(n);
-
+        List<R> results = new ArrayList<>(Collections.nCopies(n, null));
+        List<Runnable> work = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             final int slot = i;
-            executor.execute(() -> {
-                SafeLevelAccess.runSafe(() -> {
-                    try {
-                        results[slot] = mapper.apply(tasks.get(slot));
-                    } catch (Throwable t) {
-                        firstError.compareAndSet(null, t);
-                        LOG.error("Worker {} failed", slot, t);
-                    }
-                });
-                latch.countDown();
+            work.add(() -> {
+                results.set(slot, mapper.apply(tasks.get(slot)));
             });
         }
-
-        awaitLatch(latch, timeoutSeconds);
-        throwOnError(firstError.get());
-        return Arrays.asList(results);
+        executePhase(executor, work, timeoutSeconds);
+        return results;
     }
 
     /**
@@ -215,10 +171,7 @@ public final class ParallelWorker {
         }
 
         int workers = Math.min(Runtime.getRuntime().availableProcessors(), batches);
-        R[] results = (R[]) new Object[n];
-        AtomicReference<Throwable> firstError = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(workers);
-
+        List<R> results = new ArrayList<>(Collections.nCopies(n, null));
         int[] batchRange = new int[batches + 1];
         for (int b = 0; b <= batches; b++) {
             batchRange[b] = Math.min(b * batchSize, n);
@@ -226,38 +179,24 @@ public final class ParallelWorker {
 
         int perWorker = batches / workers;
         int extra = batches % workers;
+        List<Runnable> work = new ArrayList<>(workers);
         int offset = 0;
         for (int w = 0; w < workers; w++) {
             final int start = offset;
             final int end = offset + perWorker + (w < extra ? 1 : 0);
             offset = end;
-            if (start >= end) {
-                latch.countDown();
-                continue;
-            }
-            executor.execute(() -> {
-                SafeLevelAccess.runSafe(() -> {
-                    try {
-                        for (int b = start; b < end; b++) {
-                            int from = batchRange[b];
-                            int to = batchRange[b + 1];
-                            for (int i = from; i < to; i++) {
-                                results[i] = mapper.apply(items.get(i));
-                            }
-                        }
-                    } catch (Throwable t) {
-                        firstError.compareAndSet(null, t);
-                        LOG.error("Batched worker [{},{}) failed", start, end, t);
+            work.add(() -> {
+                for (int b = start; b < end; b++) {
+                    int from = batchRange[b];
+                    int to = batchRange[b + 1];
+                    for (int i = from; i < to; i++) {
+                        results.set(i, mapper.apply(items.get(i)));
                     }
-                });
-                latch.countDown();
+                }
             });
         }
-
-        awaitLatch(latch, timeoutSeconds);
-        throwOnError(firstError.get());
-        SafeOps.drainWrites();
-        return Arrays.asList(results);
+        executePhase(executor, work, timeoutSeconds);
+        return results;
     }
 
     public static <T> void forEachBatched(
@@ -278,9 +217,6 @@ public final class ParallelWorker {
         }
 
         int workers = Math.min(Runtime.getRuntime().availableProcessors(), batches);
-        AtomicReference<Throwable> firstError = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(workers);
-
         int[] batchRange = new int[batches + 1];
         for (int b = 0; b <= batches; b++) {
             batchRange[b] = Math.min(b * batchSize, n);
@@ -288,37 +224,23 @@ public final class ParallelWorker {
 
         int perWorker = batches / workers;
         int extra = batches % workers;
+        List<Runnable> work = new ArrayList<>(workers);
         int offset = 0;
         for (int w = 0; w < workers; w++) {
             final int start = offset;
             final int end = offset + perWorker + (w < extra ? 1 : 0);
             offset = end;
-            if (start >= end) {
-                latch.countDown();
-                continue;
-            }
-            executor.execute(() -> {
-                SafeLevelAccess.runSafe(() -> {
-                    try {
-                        for (int b = start; b < end; b++) {
-                            int from = batchRange[b];
-                            int to = batchRange[b + 1];
-                            for (int i = from; i < to; i++) {
-                                action.accept(items.get(i));
-                            }
-                        }
-                    } catch (Throwable t) {
-                        firstError.compareAndSet(null, t);
-                        LOG.error("Batched forEach [{},{}) failed", start, end, t);
+            work.add(() -> {
+                for (int b = start; b < end; b++) {
+                    int from = batchRange[b];
+                    int to = batchRange[b + 1];
+                    for (int i = from; i < to; i++) {
+                        action.accept(items.get(i));
                     }
-                });
-                latch.countDown();
+                }
             });
         }
-
-        awaitLatch(latch, timeoutSeconds);
-        throwOnError(firstError.get());
-        SafeOps.drainWrites();
+        executePhase(executor, work, timeoutSeconds);
     }
 
     static int computeWorkers(int itemCount) {
@@ -352,21 +274,110 @@ public final class ParallelWorker {
         }
     }
 
-    private static void throwOnError(Throwable err) {
-        if (err != null) {
-            if (err instanceof RuntimeException re) throw re;
-            throw new RuntimeException("Worker failed", err);
+    private static void executePhase(ExecutorService executor, List<Runnable> work, int timeoutSeconds) {
+        ConcurrentWriteQueue.Phase phase = ConcurrentWriteQueue.beginPhase();
+        CountDownLatch completion = new CountDownLatch(work.size());
+        AtomicReference<Throwable> firstError = new AtomicReference<>();
+        List<Future<?>> submitted = new ArrayList<>(work.size());
+
+        for (Runnable task : work) {
+            try {
+                submitted.add(executor.submit(() -> runWorker(task, phase, completion, firstError)));
+            } catch (Throwable submissionFailure) {
+                recordFailure(firstError, submissionFailure);
+                completion.countDown();
+            }
+        }
+
+        boolean interrupted = false;
+        boolean completed = false;
+        try {
+            if (timeoutSeconds == 0) {
+                completed = completion.await(ZERO_TIMEOUT_START_GRACE_MILLIS, TimeUnit.MILLISECONDS);
+            } else {
+                completed = completion.await(timeoutSeconds, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException interruption) {
+            interrupted = true;
+        }
+
+        Throwable failure = firstError.get();
+        if (!completed || interrupted || failure != null) {
+            phase.discard();
+            cancel(submitted);
+            boolean quiescent = awaitQuiescence(completion);
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+                failure = new RuntimeException("Workers interrupted", failure);
+            } else if (!completed && failure == null) {
+                failure = new RuntimeException("Workers timed out after " + timeoutSeconds + "s");
+            }
+            if (!quiescent) {
+                throw new RuntimeException("Workers failed to reach quiescence after cancellation", failure);
+            }
+            throwAsRuntime(failure);
+        }
+
+        phase.drain();
+        SafeOps.drainWrites();
+    }
+
+    private static void runWorker(Runnable task, ConcurrentWriteQueue.Phase phase,
+                                  CountDownLatch completion, AtomicReference<Throwable> firstError) {
+        boolean succeeded = false;
+        try {
+            SafeLevelAccess.runSafe(task);
+            succeeded = true;
+        } catch (Throwable workerFailure) {
+            recordFailure(firstError, workerFailure);
+        } finally {
+            try {
+                if (succeeded) {
+                    ConcurrentWriteQueue.publishCurrent(phase);
+                } else {
+                    ConcurrentWriteQueue.discardCurrent();
+                }
+            } catch (Throwable publicationFailure) {
+                recordFailure(firstError, publicationFailure);
+                ConcurrentWriteQueue.discardCurrent();
+            } finally {
+                completion.countDown();
+            }
         }
     }
 
-    private static void awaitLatch(CountDownLatch latch, int timeoutSeconds) {
+    private static void recordFailure(AtomicReference<Throwable> firstError, Throwable failure) {
+        firstError.compareAndSet(null, failure);
         try {
-            if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Workers timed out after " + timeoutSeconds + "s");
+            LOG.error("Parallel worker failed", failure);
+        } catch (Throwable reportingFailure) {
+            if (reportingFailure != failure) {
+                failure.addSuppressed(reportingFailure);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Workers interrupted", e);
         }
+    }
+
+    private static void cancel(List<Future<?>> submitted) {
+        for (Future<?> future : submitted) {
+            if (!future.isDone()) {
+                future.cancel(true);
+            }
+        }
+    }
+
+    private static boolean awaitQuiescence(CountDownLatch completion) {
+        try {
+            return completion.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException interruption) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static void throwAsRuntime(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        throw new RuntimeException("Worker failed", failure);
     }
 }

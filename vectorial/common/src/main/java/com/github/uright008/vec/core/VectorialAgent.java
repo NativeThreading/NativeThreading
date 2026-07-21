@@ -3,39 +3,32 @@ package com.github.uright008.vec.core;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public final class VectorialAgent {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(VectorialAgent.class);
-
-    private static volatile Instrumentation instrumentation;
+    private static final String ENTITY_CLASS = "net.minecraft.world.entity.Entity";
+    private static volatile boolean diagnosticsEnabled;
 
     private VectorialAgent() {}
 
     public static void premain(String agentArgs, Instrumentation inst) {
-        LOGGER.info("Vectorial agent loaded via -javaagent");
-        init(inst);
+        init(inst, false);
     }
 
     public static void agentmain(String agentArgs, Instrumentation inst) {
-        LOGGER.info("Vectorial agent attached dynamically");
-        init(inst);
+        diagnosticsEnabled = true;
+        init(inst, true);
     }
 
-    private static synchronized void init(Instrumentation inst) {
-        if (instrumentation != null) return;
-        instrumentation = inst;
-
-        inst.addTransformer(new ClassFileTransformer() {
+    private static synchronized void init(Instrumentation inst, boolean reportStatus) {
+        try {
+            inst.addTransformer(new ClassFileTransformer() {
             @Override
             public byte[] transform(ClassLoader loader, String className,
                                     Class<?> classBeingRedefined,
                                     ProtectionDomain protectionDomain,
                                     byte[] classfileBuffer) {
-                byte[] result = VectorialTransformer.transform(className, classfileBuffer);
-                return result != null ? result : classfileBuffer;
+                return VectorialTransformer.transform(loader, className, classfileBuffer);
             }
 
             @Override
@@ -45,10 +38,32 @@ public final class VectorialAgent {
                                     byte[] classfileBuffer) {
                 return transform(loader, className, classBeingRedefined, protectionDomain, classfileBuffer);
             }
-        });
+            }, true);
+
+            for (Class<?> loadedClass : inst.getAllLoadedClasses()) {
+                if (ENTITY_CLASS.equals(loadedClass.getName())) {
+                    inst.retransformClasses(loadedClass);
+                    if (reportStatus) {
+                        report(VectorialTransformer.isTransformed()
+                                ? "retransformed Entity class"
+                                : "Entity retransformation completed without a SoA transform");
+                    }
+                    return;
+                }
+            }
+            if (reportStatus) report("registered transformer; Entity has not loaded yet");
+        } catch (Throwable throwable) {
+            if (reportStatus) report("agent initialization failed; SoA remains disabled", throwable);
+        }
     }
 
-    public static Instrumentation getInstrumentation() {
-        return instrumentation;
+    static void report(String message) {
+        if (!diagnosticsEnabled) return;
+        System.err.println("[Vectorial] " + message);
+    }
+
+    static void report(String message, Throwable throwable) {
+        report(message);
+        throwable.printStackTrace(System.err);
     }
 }

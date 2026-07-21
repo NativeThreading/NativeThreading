@@ -1,6 +1,6 @@
 # NativeThreading
 
-Multi-module Fabric mod for Minecraft 26.2, parallelizing 5 subsystems via mixins.
+Multi-module Fabric mod for Minecraft 26.2, parallelizing 4 subsystems via mixins.
 
 ## Modules
 
@@ -9,7 +9,6 @@ Multi-module Fabric mod for Minecraft 26.2, parallelizing 5 subsystems via mixin
 | **explosion** | TNT/creepers — ray tracing + entity damage |
 | **hopper** | Two-phase hopper transfers (plan in parallel, execute sequentially) |
 | **redstone** | Wire power propagation + diode ticks |
-| **entity** | Entity ticking bucketed by chunk-section |
 | **vectorial** | Structure-of-Arrays entity data + SIMD batch operations |
 
 All share `core/` (thread pool, safe world access, deferred writes, config).

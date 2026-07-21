@@ -9,3 +9,9 @@ classes/
 gradle/wrapper/gradle-wrapper.jar
 
 .omo/
+
+# Generated and temp
+__pycache__/
+*.pyc
+*.log.gz
+logs/

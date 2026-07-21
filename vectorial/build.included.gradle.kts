@@ -3,6 +3,9 @@ plugins {
     `maven-publish`
 }
 
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.bundling.Jar
+
 repositories {
     mavenCentral()
 }
@@ -141,18 +144,32 @@ tasks.test {
     )
 }
 
-tasks.jar {
-    from(configurations.runtimeClasspath.get().filter {
-        it.name.contains("javassist") || it.name.contains("byte-buddy-agent")
-    }.map { zipTree(it) })
-
+val agentJar by tasks.registering(Jar::class) {
+    archiveFileName.set("vectorial-agent.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("agent"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.main.get().output) {
+        include("com/github/uright008/vec/core/VectorialAgent*.class")
+        include("com/github/uright008/vec/core/VectorialTransformer.class")
+    }
+    from(configurations.runtimeClasspath.get().filter { it.name.contains("javassist") }.map { zipTree(it) })
     manifest {
         attributes(
+            "Premain-Class" to "com.github.uright008.vec.core.VectorialAgent",
             "Agent-Class" to "com.github.uright008.vec.core.VectorialAgent",
             "Can-Redefine-Classes" to "true",
             "Can-Retransform-Classes" to "true"
         )
     }
+}
+
+tasks.jar {
+    dependsOn(agentJar)
+    from(agentJar.flatMap { it.archiveFile }) { into("META-INF") }
+    from(configurations.runtimeClasspath.get().filter {
+        it.name.contains("javassist") || it.name.contains("byte-buddy-agent")
+    }.map { zipTree(it) })
+
 }
 
 publishing {

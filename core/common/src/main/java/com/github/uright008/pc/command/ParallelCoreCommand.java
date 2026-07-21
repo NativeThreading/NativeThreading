@@ -73,7 +73,7 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
         ParallelCoreConfig.setPoolImplementation(impl);
         ParallelThreadPool.recreateAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aPool set to " + impl.name() + " — all pools recreated."), true);
+                () -> Component.literal("\u00a7aPool set to " + impl.name() + " — all pools recreated."), false);
         return 1;
     }
 
@@ -88,7 +88,7 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
         ParallelCoreConfig.setPoolParallelism(count);
         ParallelThreadPool.recreateAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aParallelism set to " + count + " — all pools recreated."), true);
+                () -> Component.literal("\u00a7aParallelism set to " + count + " — all pools recreated."), false);
         return 1;
     }
 
@@ -96,7 +96,7 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
         ParallelCoreConfig.reloadConfig();
         ParallelThreadPool.recreateAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aCore config reloaded — all pools recreated."), true);
+                () -> Component.literal("\u00a7aCore config reloaded — all pools recreated."), false);
         return 1;
     }
 }

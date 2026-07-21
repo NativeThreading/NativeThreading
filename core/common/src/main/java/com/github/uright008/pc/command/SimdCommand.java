@@ -63,7 +63,7 @@ public final class SimdCommand implements ParallelSubCommand {
                 ? " (needs vectorial to take effect)" : "";
         ctx.getSource().sendSuccess(
                 () -> Component.literal("\u00a7aSIMD " + (value ? "enabled" : "disabled") + note + "."),
-                true);
+                false);
         return 1;
     }
 

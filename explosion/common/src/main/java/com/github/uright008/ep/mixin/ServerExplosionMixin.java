@@ -65,6 +65,7 @@ public abstract class ServerExplosionMixin {
 
     @Unique private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:explosion");
 
+
     // ──────────────────────────────────────────────
     // ──────────────────────────────────────────────
     //  Inject: intercept calculatedExplodedPositions
@@ -357,21 +358,17 @@ public abstract class ServerExplosionMixin {
         final float dr = doubleRadius;
         List<ExplosionHelper.EntityDamageResult> results;
         try {
-            if (SimdBatchOps.simdEnabled() && ExplosionParallelConfig.isSimdEntityDamage()) {
+            if (SimdBatchOps.VECTORIAL_AVAILABLE && ExplosionParallelConfig.isSimdEntityDamage()) {
                 // ── SoA AABB query + direct SoA position extraction ──
                 int[] hits = new int[SimdBatchOps.slotCount()];
                 int nHits = SimdBatchOps.intersectAABB(hits, x0, y0, z0, x1, y1, z1);
 
                 if (nHits == 0) return true;
 
-                double[] posX = new double[nHits];
-                double[] posY = new double[nHits];
-                double[] posZ = new double[nHits];
                 double[] distSq = new double[nHits];
-                SimdBatchOps.extractPositions(hits, nHits, posX, posY, posZ);
-                SimdBatchOps.distanceSqBatch(posX, posY, posZ,
+                SimdBatchOps.distanceSqBySlotBatch(hits, nHits,
                         this.center.x, this.center.y, this.center.z,
-                        distSq, 0, nHits);
+                        distSq);
 
                 double radiusSq = (double) dr * (double) dr;
                 List<Entity> entities = new ArrayList<>(nHits);
@@ -649,7 +646,7 @@ public abstract class ServerExplosionMixin {
                 continue;
             }
 
-            BlockState state = cachedSection.getBlockState(x & 15, y & 15, z & 15);
+            BlockState state = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
             if (!state.isAir()) {
                 pos.set(x, y, z);
                 if (ExplosionHelper.isFullCube(state)) return true;

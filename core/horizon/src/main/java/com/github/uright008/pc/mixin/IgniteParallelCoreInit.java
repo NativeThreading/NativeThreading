@@ -2,7 +2,7 @@ package com.github.uright008.pc.mixin;
 
 import com.github.uright008.pc.ParallelCore;
 import com.github.uright008.pc.ParallelCoreHorizon;
-import com.github.uright008.pc.command.ParallelCommandFabric;
+import com.github.uright008.pc.command.ParallelCommandRegistration;
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,6 +19,6 @@ public class IgniteParallelCoreInit {
     @Inject(method = "runServer", at = @At("HEAD"))
     private void onServerStart(CallbackInfo ci) {
         ParallelCoreHorizon.init();
-        ParallelCommandFabric.register(((MinecraftServer) (Object) this).getCommands().getDispatcher());
+        ParallelCommandRegistration.register(((MinecraftServer) (Object) this).getCommands().getDispatcher());
     }
 }

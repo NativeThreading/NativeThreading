@@ -2,10 +2,8 @@ package com.github.uright008.pc;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -53,18 +51,15 @@ public final class ParallelThreadPool {
 
         return switch (ParallelCoreConfig.poolImplementation()) {
             case THREAD_POOL -> {
-                ThreadFactory factory = r -> {
-                    Thread t = new Thread(r, "Parallel-" + name + "-" + COUNTER.incrementAndGet());
+                ForkJoinPool.ForkJoinWorkerThreadFactory factory = pool -> {
+                    ForkJoinWorkerThread t = new ForkJoinWorkerThread(pool) {};
+                    t.setName("Parallel-" + name + "-" + COUNTER.incrementAndGet());
                     t.setDaemon(true);
                     return t;
                 };
-                ThreadPoolExecutor tpe = new ThreadPoolExecutor(
-                        size, size, 60L, TimeUnit.SECONDS,
-                        new SpinBlockingQueue<>(), factory);
-                tpe.prestartAllCoreThreads();
-                tpe.allowCoreThreadTimeOut(true);
-                LOGGER.info("Pool '{}' ready - THREAD_POOL x{}", name, size);
-                yield tpe;
+                ForkJoinPool fjp = new ForkJoinPool(size, factory, null, true);
+                LOGGER.info("Pool '{}' ready - THREAD_POOL x{} (async FJ)", name, size);
+                yield fjp;
             }
             case FORK_JOIN -> {
                 ForkJoinPool.ForkJoinWorkerThreadFactory fjFactory = fjPool -> {

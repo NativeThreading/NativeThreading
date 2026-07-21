@@ -1,6 +1,5 @@
 package com.github.uright008.ep;
 
-import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
@@ -32,7 +31,6 @@ public final class ExplosionHelper {
 
     /** Pre-computed: block state id → has full cube collision.  Indexed by {@code Block.getId(BlockState)}. */
     public static boolean[] FULL_CUBE;
-    private static ReferenceOpenHashSet<BlockState> FULL_CUBE_STATES;
 
     /** Must be called once during mod init. */
     public static void initFullCubeCache() {
@@ -43,14 +41,12 @@ public final class ExplosionHelper {
             }
         }
         FULL_CUBE = new boolean[maxId + 1]; // defaults to false
-        FULL_CUBE_STATES = new ReferenceOpenHashSet<>();
         net.minecraft.core.BlockPos zero = net.minecraft.core.BlockPos.ZERO;
         for (Block block : BuiltInRegistries.BLOCK) {
             for (BlockState state : block.getStateDefinition().getPossibleStates()) {
                 try {
                     boolean fullCube = state.isCollisionShapeFullBlock(null, zero);
                     FULL_CUBE[Block.getId(state)] = fullCube;
-                    if (fullCube) FULL_CUBE_STATES.add(state);
                 } catch (NullPointerException ignored) {
                     // Some blocks (shulker boxes etc.) require a Level context
                     // for collision shape checks. Skip them — they won't be
@@ -63,8 +59,9 @@ public final class ExplosionHelper {
     }
 
     public static boolean isFullCube(BlockState state) {
-        ReferenceOpenHashSet<BlockState> fullCubeStates = FULL_CUBE_STATES;
-        return fullCubeStates != null && fullCubeStates.contains(state);
+        boolean[] fullCube = FULL_CUBE;
+        int id = net.minecraft.world.level.block.Block.getId(state);
+        return fullCube != null && id >= 0 && id < fullCube.length && fullCube[id];
     }
 
     // ── Ray generation ───────────────────────────

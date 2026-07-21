@@ -57,14 +57,14 @@ public final class HopperParallelCommand implements ParallelSubCommand {
         boolean enabled = BoolArgumentType.getBool(ctx, "enabled");
         HopperParallelConfig.setEnabled(enabled);
         Component msg = Component.literal("§aParallel hopper is now " + (enabled ? "§eON" : "§cOFF"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
     private int reloadConfig(CommandContext<CommandSourceStack> ctx) {
         HopperParallelConfig.reloadConfig();
         Component msg = Component.literal("§aHopper config reloaded.");
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 }

@@ -64,14 +64,14 @@ public final class RedstoneParallelCommand implements ParallelSubCommand {
         boolean enabled = BoolArgumentType.getBool(ctx, "enabled");
         RedstoneParallelConfig.setEnabled(enabled);
         Component msg = Component.literal("\u00a7aRedstone is now " + (enabled ? "\u00a7eON" : "\u00a7cOFF"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
     private int reloadConfig(CommandContext<CommandSourceStack> ctx) {
         RedstoneParallelConfig.reloadConfig();
         Component msg = Component.literal("\u00a7aRedstone config reloaded.");
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -94,7 +94,7 @@ public final class RedstoneParallelCommand implements ParallelSubCommand {
         boolean enabled = BoolArgumentType.getBool(ctx, "enabled");
         RedstoneParallelConfig.setWireEnabled(enabled);
         Component msg = Component.literal("\u00a7aRedstone wire is now " + (enabled ? "\u00a7eON" : "\u00a7cOFF"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -102,7 +102,7 @@ public final class RedstoneParallelCommand implements ParallelSubCommand {
         int count = IntegerArgumentType.getInteger(ctx, "count");
         RedstoneParallelConfig.setWireThreshold(count);
         Component msg = Component.literal("\u00a7aWire threshold set to \u00a7e" + count);
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -110,7 +110,7 @@ public final class RedstoneParallelCommand implements ParallelSubCommand {
         int count = IntegerArgumentType.getInteger(ctx, "count");
         RedstoneParallelConfig.setMaxWorkers(count);
         Component msg = Component.literal("\u00a7aWire max workers set to \u00a7e" + count);
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 }

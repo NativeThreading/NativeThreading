@@ -86,7 +86,7 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
         boolean enabled = BoolArgumentType.getBool(ctx, "enabled");
         ExplosionParallelConfig.setEnabled(enabled);
         Component msg = Component.literal("§aParallel explosion is now " + (enabled ? "§eON" : "§cOFF"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -105,7 +105,7 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
         ExplosionParallelConfig.setSamplingQuality(quality);
         Component msg = Component.literal("§aSampling quality set to §e" + ExplosionParallelConfig.getSamplingQuality() +
                 " (§7~" + estimateSamples(quality) + " samples/entity§7)");
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -124,7 +124,7 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
         boolean on = BoolArgumentType.getBool(ctx, "enabled");
         ExplosionParallelConfig.setRayLookup(on);
         Component msg = Component.literal("§aRay lookup is now " + (on ? "§eON" : "§cOFF"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -144,7 +144,7 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
         int gs = IntegerArgumentType.getInteger(ctx, "gridSize");
         ExplosionParallelConfig.setAdaptiveRays(gs);
         Component msg = Component.literal("§aAdaptive rays: " + (gs > 0 ? "§e" + gs : "§cOFF (vanilla 16)"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
@@ -164,14 +164,14 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
         boolean on = BoolArgumentType.getBool(ctx, "enabled");
         ExplosionParallelConfig.setPreciseRays(on);
         Component msg = Component.literal("§aPrecise rays: " + (on ? "§eON" : "§6fast-delta"));
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
     private int reloadConfig(CommandContext<CommandSourceStack> ctx) {
         ExplosionParallelConfig.reloadConfig();
         Component msg = Component.literal("§aConfig reloaded from file.");
-        ctx.getSource().sendSuccess(() -> msg, true);
+        ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 

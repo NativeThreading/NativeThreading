@@ -1,29 +1,29 @@
 {
-	"schemaVersion": 1,
-	"id": "core",
-	"version": "${version}",
-	"name": "Parallel Core",
-	"description": "Thread pool, safe-zone pattern, and /parallel command framework shared by all MC Parallel modules. Supports SIMD batch entity queries via optional Vectorial dependency.",
-	"authors": [
-		"uright008"
-	],
-	"license": "MIT",
-	"environment": "server",
-	"entrypoints": {
-		"main": [
-           "com.github.uright008.pc.ParallelCoreFabric"
-		]
-	},
-	"mixins": [
-		"core.mixins.json"
-	],
-	"depends": {
-		"fabricloader": ">=0.19.2",
-		"minecraft": "~26.2",
-		"java": ">=25",
-		"fabric-api": "*"
-	},
-	"suggests": {
-		"vectorial": "*"
-	}
+  "schemaVersion": 1,
+  "id": "core",
+  "version": "${version}",
+  "name": "Parallel Core",
+  "description": "Thread pool, safe-zone pattern, and /parallel command framework shared by all MC Parallel modules. Supports SIMD batch entity queries via optional Vectorial dependency.",
+  "authors": [
+    "uright008"
+  ],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.github.uright008.pc.ParallelCoreFabric"
+    ]
+  },
+  "mixins": [
+    "core.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.2",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "vectorial": "*"
+  }
 }

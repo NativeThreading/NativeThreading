@@ -28,13 +28,6 @@ tasks.register<Jar>("releaseJar") {
     val fabricJar = project(":fabric").tasks.named<Jar>("jar").flatMap { it.archiveFile }
     from(zipTree(fabricJar))
 
-    manifest {
-        attributes(
-            "Agent-Class" to "com.github.uright008.vec.core.VectorialAgent",
-            "Can-Redefine-Classes" to "true",
-            "Can-Retransform-Classes" to "true"
-        )
-    }
 }
 
 tasks.named("assemble") {

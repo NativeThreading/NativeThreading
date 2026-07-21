@@ -22,6 +22,20 @@ public final class ConcurrentWriteQueue implements WriteQueue {
 
     private ConcurrentWriteQueue() {}
 
+    static Phase beginPhase() {
+        return new Phase();
+    }
+
+    static void publishCurrent(Phase phase) {
+        List<Runnable> writes = INSTANCE.localQueue.get();
+        INSTANCE.localQueue.set(new ArrayList<>());
+        phase.publish(writes);
+    }
+
+    static void discardCurrent() {
+        INSTANCE.localQueue.set(new ArrayList<>());
+    }
+
     @Override
     public void addDeferred(Runnable write) {
         localQueue.get().add(write);
@@ -38,6 +52,41 @@ public final class ConcurrentWriteQueue implements WriteQueue {
         while ((batch = drainQueue.poll()) != null) {
             for (Runnable r : batch) {
                 r.run();
+            }
+        }
+    }
+
+    static final class Phase {
+        private final List<List<Runnable>> batches = new ArrayList<>();
+        private boolean accepting = true;
+
+        private synchronized void publish(List<Runnable> writes) {
+            if (accepting && !writes.isEmpty()) {
+                batches.add(writes);
+            }
+        }
+
+        void drain() {
+            List<List<Runnable>> ready;
+            synchronized (this) {
+                if (!accepting) {
+                    throw new IllegalStateException("Deferred-write phase is no longer active");
+                }
+                accepting = false;
+                ready = new ArrayList<>(batches);
+                batches.clear();
+            }
+            for (List<Runnable> batch : ready) {
+                for (Runnable write : batch) {
+                    write.run();
+                }
+            }
+        }
+
+        void discard() {
+            synchronized (this) {
+                accepting = false;
+                batches.clear();
             }
         }
     }

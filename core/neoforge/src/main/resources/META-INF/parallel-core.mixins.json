@@ -5,7 +5,9 @@
   "mixins": [
     "BlockGetterMixin",
     "EntitySectionStorageMixin",
+    "LevelBlockStateCacheMixin",
     "LevelRandomMixin",
+    "LevelSafeAccessMixin",
     "ServerChunkCacheMixin",
     "ServerLevelSafeIterationMixin",
     "TickBlockEntitiesNullGuardMixin",

@@ -1,38 +1,38 @@
 {
-    "schemaVersion": 1,
-    "id": "native-threading",
-    "version": "${version}",
-    "name": "Native Threading",
-    "description": "Native threading optimizations: parallel explosions, hoppers, redstone, and entities. Use /parallel to control.",
-    "authors": [
-        "uright008"
-    ],
-    "license": "MIT",
-    "environment": "server",
-    "entrypoints": {
-        "main": [
-          "com.github.uright008.nt.NativeThreading"
-        ]
-    },
-    "mixins": [
-        "parallel-core.mixins.json",
-        "explosion.mixins.json",
-        "hopper.mixins.json",
-        "redstone.mixins.json",
-        "redstone-diode.mixins.json",
-        "vectorial.mixins.json"
-    ],
-    "provides": [
-        "parallel-core",
-        "explosion",
-        "hopper",
-        "redstone",
-        "vectorial"
-    ],
-    "depends": {
-        "fabricloader": ">=0.19.2",
-        "minecraft": "~26.2",
-        "java": ">=25",
-        "fabric-api": "*"
-    }
+  "schemaVersion": 1,
+  "id": "native-threading",
+  "version": "${version}",
+  "name": "Native Threading",
+  "description": "Native threading optimizations: parallel explosions, hoppers, and redstone. Use /parallel to control.",
+  "authors": [
+    "uright008"
+  ],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "com.github.uright008.nt.NativeThreading"
+    ]
+  },
+  "mixins": [
+    "parallel-core.mixins.json",
+    "explosion.mixins.json",
+    "hopper.mixins.json",
+    "redstone.mixins.json",
+    "redstone-diode.mixins.json",
+    "vectorial.mixins.json"
+  ],
+  "provides": [
+    "parallel-core",
+    "explosion",
+    "hopper",
+    "redstone",
+    "vectorial"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.2",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
 }

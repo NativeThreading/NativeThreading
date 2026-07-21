@@ -1,6 +1,6 @@
 package com.github.uright008.pc;
 
-import com.github.uright008.pc.command.ParallelCommand;
+import com.github.uright008.pc.command.ParallelCommandRegistration;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -9,6 +9,6 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 public class ParallelCoreCommands {
     @SubscribeEvent
     private static void onRegisterCommands(RegisterCommandsEvent event) {
-        ParallelCommand.register(event.getDispatcher());
+        ParallelCommandRegistration.register(event.getDispatcher());
     }
 }

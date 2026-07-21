@@ -31,9 +31,7 @@ public final class SafeLevelAccess {
 
     public static void leaveSafeZone() {
         int[] depth = safeZoneDepth.get();
-        if (--depth[0] <= 0) {
-            safeZoneDepth.remove();
-        }
+        if (depth[0] > 0) depth[0]--;
     }
 
     public static boolean isInSafeZone() {
