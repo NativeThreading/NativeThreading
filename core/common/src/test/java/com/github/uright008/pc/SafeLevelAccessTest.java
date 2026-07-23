@@ -2,74 +2,64 @@ package com.github.uright008.pc;
 
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SafeLevelAccessTest {
 
     @Test
-    void nestedEnterLeaveRetainsZeroDepthStateAfterOuterLeave() throws Exception {
-        SafeLevelAccess.enterSafeZone();
-        int[] depth = currentDepth();
-        try {
-            SafeLevelAccess.enterSafeZone();
-            assertTrue(SafeLevelAccess.isInSafeZone());
-
-            SafeLevelAccess.leaveSafeZone();
-            assertTrue(SafeLevelAccess.isInSafeZone());
-
-            SafeLevelAccess.leaveSafeZone();
-            assertFalse(SafeLevelAccess.isInSafeZone());
-            assertSame(depth, currentDepth());
-        } finally {
-            while (SafeLevelAccess.isInSafeZone()) SafeLevelAccess.leaveSafeZone();
-        }
-    }
-
-    @Test
-    void runSafeCleansUpAfterException() {
-        assertThrows(IllegalStateException.class, () -> SafeLevelAccess.runSafe(() -> {
-            throw new IllegalStateException();
-        }));
-
+    void startsInactive() {
         assertFalse(SafeLevelAccess.isInSafeZone());
     }
 
     @Test
-    void reusedExecutorThreadIsInactiveBeforeNextTask() throws Exception {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            executor.submit(() -> SafeLevelAccess.runSafe(() -> assertTrue(SafeLevelAccess.isInSafeZone()))).get();
-            assertFalse(executor.submit(SafeLevelAccess::isInSafeZone).get());
-        } finally {
-            executor.shutdownNow();
-        }
-    }
+    void nestedEntriesRemainActiveUntilTheFinalLeave() {
+        SafeLevelAccess.enterSafeZone();
+        SafeLevelAccess.enterSafeZone();
 
-    @Test
-    void unmatchedLeaveDoesNotUnderflowActiveState() {
+        assertTrue(SafeLevelAccess.isInSafeZone());
+
+        SafeLevelAccess.leaveSafeZone();
+        assertTrue(SafeLevelAccess.isInSafeZone());
+
         SafeLevelAccess.leaveSafeZone();
         assertFalse(SafeLevelAccess.isInSafeZone());
+    }
 
-        SafeLevelAccess.enterSafeZone();
-        try {
-            assertTrue(SafeLevelAccess.isInSafeZone());
-        } finally {
-            SafeLevelAccess.leaveSafeZone();
-        }
+    @Test
+    void unmatchedLeaveLeavesTheMarkerInactive() {
+        assertDoesNotThrow(SafeLevelAccess::leaveSafeZone);
         assertFalse(SafeLevelAccess.isInSafeZone());
     }
 
-    @SuppressWarnings("unchecked")
-    private static int[] currentDepth() throws ReflectiveOperationException {
-        Field field = SafeLevelAccess.class.getDeclaredField("safeZoneDepth");
-        field.setAccessible(true);
-        return ((ThreadLocal<int[]>) field.get(null)).get();
+    @Test
+    void runnableExceptionCleansUpTheMarker() {
+        RuntimeException failure = assertThrows(RuntimeException.class,
+                () -> SafeLevelAccess.runSafe(() -> {
+                    assertTrue(SafeLevelAccess.isInSafeZone());
+                    throw new RuntimeException("expected");
+                }));
+
+        assertEquals("expected", failure.getMessage());
+        assertFalse(SafeLevelAccess.isInSafeZone());
+    }
+
+    @Test
+    void supplierReturnsItsResultWhileMakingTheMarkerVisible() {
+        AtomicReference<Boolean> markerWasVisible = new AtomicReference<>();
+
+        String result = SafeLevelAccess.runSafe(() -> {
+            markerWasVisible.set(SafeLevelAccess.isInSafeZone());
+            return "result";
+        });
+
+        assertEquals("result", result);
+        assertEquals(Boolean.TRUE, markerWasVisible.get());
+        assertFalse(SafeLevelAccess.isInSafeZone());
     }
 }

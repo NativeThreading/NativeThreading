@@ -16,7 +16,7 @@ import java.util.function.Function;
 
 /**
  * Generic parallel dispatch: partitioning, latch, timeout, error collection,
- * auto safe-zone wrapping — all handled by core.
+ * deferred-write publication — all handled by core.
  *
  * <p>Subsystems provide only the task lambda; core manages everything else.</p>
  */
@@ -29,11 +29,12 @@ public final class ParallelWorker {
 
     /**
      * Execute a mapper function in parallel and return results in original order.
-     * Workers are auto-wrapped with {@link SafeLevelAccess#runSafe}.
+     * Worker functions must operate only on their explicit inputs; they must
+     * not access live world or container state.
      *
      * @param executor       thread pool
      * @param items          input items
-     * @param mapper         function applied to each item (inside safe zone)
+     * @param mapper         function applied to each item
      * @param timeoutSeconds latch timeout
      * @param <T>            input type
      * @param <R>            result type
@@ -50,9 +51,7 @@ public final class ParallelWorker {
         int workers = computeWorkers(n);
         if (workers == 1) {
             List<R> results = new ArrayList<>(n);
-            SafeLevelAccess.runSafe(() -> {
-                for (T item : items) results.add(mapper.apply(item));
-            });
+            for (T item : items) results.add(mapper.apply(item));
             SafeOps.drainWrites();
             return results;
         }
@@ -78,11 +77,10 @@ public final class ParallelWorker {
 
     /**
      * Execute an action in parallel (void — for inline read+write tasks).
-     * Workers are auto-wrapped with {@link SafeLevelAccess#runSafe}.
      *
      * @param executor       thread pool
      * @param items          input items
-     * @param action         action performed on each item (inside safe zone, may write via {@link SafeOps})
+     * @param action         action performed on each item, may write via {@link SafeOps}
      * @param timeoutSeconds latch timeout
      * @param <T>            input type
      * @throws RuntimeException if workers time out or the latch is interrupted
@@ -96,9 +94,7 @@ public final class ParallelWorker {
 
         int workers = computeWorkers(n);
         if (workers == 1) {
-            SafeLevelAccess.runSafe(() -> {
-                for (T item : items) action.accept(item);
-            });
+            for (T item : items) action.accept(item);
             SafeOps.drainWrites();
             return;
         }
@@ -163,9 +159,7 @@ public final class ParallelWorker {
         int batches = (n + batchSize - 1) / batchSize;
         if (batches == 1) {
             List<R> results = new ArrayList<>(n);
-            SafeLevelAccess.runSafe(() -> {
-                for (T item : items) results.add(mapper.apply(item));
-            });
+            for (T item : items) results.add(mapper.apply(item));
             SafeOps.drainWrites();
             return results;
         }
@@ -209,9 +203,7 @@ public final class ParallelWorker {
 
         int batches = (n + batchSize - 1) / batchSize;
         if (batches == 1) {
-            SafeLevelAccess.runSafe(() -> {
-                for (T item : items) action.accept(item);
-            });
+            for (T item : items) action.accept(item);
             SafeOps.drainWrites();
             return;
         }

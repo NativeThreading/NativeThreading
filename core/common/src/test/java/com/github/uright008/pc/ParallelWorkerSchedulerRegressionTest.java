@@ -6,13 +6,17 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ParallelWorkerSchedulerRegressionTest {
@@ -103,6 +107,33 @@ class ParallelWorkerSchedulerRegressionTest {
             assertEquals(0, appliedWrites.get());
         } finally {
             lateWritePermit.countDown();
+        }
+    }
+
+    @Test
+    void workerMarkerIsVisibleDuringTasksAndCleanedUpBeforeThreadReuse() throws Exception {
+        ExecutorService reusedWorker = Executors.newSingleThreadExecutor();
+        try {
+            AtomicReference<Boolean> markerDuringSuccess = new AtomicReference<>();
+            ParallelWorker.mapEach(reusedWorker, List.of(1), ignored -> {
+                markerDuringSuccess.set(SafeLevelAccess.isInSafeZone());
+                return null;
+            }, 1);
+            assertEquals(Boolean.TRUE, markerDuringSuccess.get());
+            assertFalse(reusedWorker.submit(SafeLevelAccess::isInSafeZone).get());
+
+            AtomicReference<Boolean> markerDuringFailure = new AtomicReference<>();
+            assertThrows(RuntimeException.class,
+                    () -> ParallelWorker.mapEach(reusedWorker, List.of(1), ignored -> {
+                        markerDuringFailure.set(SafeLevelAccess.isInSafeZone());
+                        throw new RuntimeException("expected");
+                    }, 1));
+            assertEquals(Boolean.TRUE, markerDuringFailure.get());
+            assertFalse(reusedWorker.submit(SafeLevelAccess::isInSafeZone).get());
+        } finally {
+            reusedWorker.shutdownNow();
+            assertTrue(reusedWorker.awaitTermination(DEADLOCK_GUARD_SECONDS, TimeUnit.SECONDS),
+                    "reused worker did not terminate");
         }
     }
 

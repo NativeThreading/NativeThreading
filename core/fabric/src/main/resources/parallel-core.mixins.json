@@ -4,14 +4,10 @@
   "compatibilityLevel": "JAVA_25",
   "mixins": [
     "BlockGetterMixin",
-    "EntitySectionStorageMixin",
     "LevelBlockStateCacheMixin",
     "LevelRandomMixin",
-    "LevelSafeAccessMixin",
     "ServerChunkCacheMixin",
-    "ServerLevelSafeIterationMixin",
-    "TickBlockEntitiesNullGuardMixin",
-    "ClassInstanceMultiMapMixin"
+    "TickBlockEntitiesNullGuardMixin"
   ],
   "injectors": {
     "defaultRequire": 1
