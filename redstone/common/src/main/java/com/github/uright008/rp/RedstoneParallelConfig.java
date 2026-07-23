@@ -67,5 +67,24 @@ public final class RedstoneParallelConfig extends ParallelConfig {
     public static int maxWorkers() { return INSTANCE.maxWorkers; }
     public static void setMaxWorkers(int v) { INSTANCE.maxWorkers = Math.max(1, v); INSTANCE.save(); }
 
+    static TestSettings configureForTesting(boolean enabled, boolean wireEnabled, int wireThreshold, int maxWorkers) {
+        TestSettings previous = new TestSettings(INSTANCE.enabled, INSTANCE.wireEnabled,
+                INSTANCE.wireThreshold, INSTANCE.maxWorkers);
+        INSTANCE.enabled = enabled;
+        INSTANCE.wireEnabled = wireEnabled;
+        INSTANCE.wireThreshold = Math.max(2, wireThreshold);
+        INSTANCE.maxWorkers = Math.max(1, maxWorkers);
+        return previous;
+    }
+
+    static void restoreForTesting(TestSettings settings) {
+        INSTANCE.enabled = settings.enabled();
+        INSTANCE.wireEnabled = settings.wireEnabled();
+        INSTANCE.wireThreshold = settings.wireThreshold();
+        INSTANCE.maxWorkers = settings.maxWorkers();
+    }
+
+    record TestSettings(boolean enabled, boolean wireEnabled, int wireThreshold, int maxWorkers) {}
+
     public static void reloadConfig() { INSTANCE.reload(); }
 }

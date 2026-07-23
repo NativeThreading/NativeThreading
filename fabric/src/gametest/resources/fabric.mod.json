@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "native-threading-gametest",
+  "version": "1.0.0",
+  "name": "Native Threading Game Tests",
+  "environment": "server",
+  "entrypoints": {
+    "fabric-gametest": [
+      "com.github.uright008.rp.RedstoneWireParityGameTest"
+    ]
+  }
+}

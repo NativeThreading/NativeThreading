@@ -28,6 +28,15 @@ loom {
     }
 }
 
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "native-threading-gametest"
+        enableGameTests = true
+        eula = true
+    }
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
