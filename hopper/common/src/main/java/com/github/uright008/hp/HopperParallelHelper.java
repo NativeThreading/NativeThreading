@@ -35,10 +35,10 @@ import org.slf4j.LoggerFactory;
  *
  * <h3>Solution: Incremental plan → sequential apply</h3>
  * <ol>
- *   <li><b>Phase 1 (parallel, read-only)</b> — every hopper inspects its own
- *       inventory and connected containers, producing a
- *       {@link HopperTransferPlan} describing <em>what</em> it would like to
- *       transfer.  No world mutations happen here.</li>
+ *   <li><b>Phase 1 (main-thread capture + parallel selection)</b> — the main
+ *       thread evaluates hopper and container state into prevalidated
+ *       snapshots. Workers select a {@link HopperTransferPlan} without
+ *       accessing world or container objects.</li>
  *   <li><b>Phase 2 (sequential)</b> — plans are executed in a deterministic
  *       order.  If a plan is no longer valid (target became full, item was
  *       already taken by an earlier plan, etc.), it is simply skipped.</li>
@@ -73,25 +73,37 @@ public final class HopperParallelHelper {
         Map<BlockPos, List<ItemEntitySnapshot>> itemSnapshots =
                 EntitySnapshotHelper.collectHopperItemEntities(level, positions);
 
-        ParallelWorker.Batch<HopperBlockEntity, PlanResult> batch = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Hopper"));
-        for (HopperBlockEntity hopper : hoppers) batch.add(hopper);
-        List<PlanResult> results = batch.flush(hopper -> {
-                    try {
-                        return computePlan(level, hopper, itemSnapshots);
-                    } catch (Throwable t) {
-                        LOGGER.warn("Hopper plan failed for {}", hopper.getBlockPos(), t);
-                        return new PlanResult(null, hopper.getBlockPos(),
-                                ((HopperBlockEntityAccessor) hopper).getCooldownTime());
-                    }
-                }, 30);
+        List<HopperPlanningSnapshot> snapshots = captureEach(
+                hoppers,
+                hopper -> captureSnapshot(level, hopper, itemSnapshots));
+
+        ParallelWorker.Batch<HopperPlanningSnapshot, PlanResult> batch =
+                new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Hopper"));
+        for (HopperPlanningSnapshot snapshot : snapshots) batch.add(snapshot);
+        List<PlanResult> results = batch.flush(HopperParallelHelper::selectPlan, 30);
 
         executePlans(level, results);
     }
 
-    // ── Single-hopper plan computation (worker-thread safe) ──
+    static <T, R> List<R> captureEach(List<T> entries, java.util.function.Function<T, R> capture) {
+        List<R> snapshots = new ArrayList<>(entries.size());
+        for (T entry : entries) {
+            try {
+                snapshots.add(capture.apply(entry));
+            } catch (Throwable t) {
+                LOGGER.warn("Hopper snapshot capture failed", t);
+            }
+        }
+        return snapshots;
+    }
 
-    /** Phase 1: read-only.  Captures cooldown snapshot; all writes happen in Phase 2. */
-    static PlanResult computePlan(
+    // ── Main-thread capture + pure worker selection ─────────────
+
+    /**
+     * Evaluates all live hopper, world, and container state on the main thread.
+     * The returned snapshot contains only prevalidated transfer candidates.
+     */
+    private static HopperPlanningSnapshot captureSnapshot(
             Level level,
             HopperBlockEntity hopper,
             Map<BlockPos, List<ItemEntitySnapshot>> itemSnapshots) {
@@ -102,34 +114,36 @@ public final class HopperParallelHelper {
         int cooldown = acc.getCooldownTime();
         BlockPos pos = hopper.getBlockPos();
         if (cooldown > 1) {
-            return new PlanResult(null, pos, cooldown);
+            return new HopperPlanningSnapshot(pos, cooldown, null, null);
         }
 
         // Enabled check
         BlockState state = level.getBlockState(pos);
         if (!state.getValue(HopperBlock.ENABLED)) {
-            return new PlanResult(null, pos, 0);
+            return new HopperPlanningSnapshot(pos, 0, null, null);
         }
 
         // ── Try PUSH: eject one item to facing container ──
         Direction facing = acc.getFacing();
         BlockPos targetPos = pos.relative(facing);
         Container target = getContainerSafe(level, targetPos);
+        @Nullable HopperTransferPlan pushPlan = null;
 
         if (target != null && !hopper.isEmpty()) {
             for (int slot = 0; slot < hopper.getContainerSize(); slot++) {
                 ItemStack stack = hopper.getItem(slot);
                 if (!stack.isEmpty()) {
                     if (canAcceptItem(target, stack, facing.getOpposite())) {
-                        return new PlanResult(HopperTransferPlan.push(pos, slot, stack, targetPos, facing), pos, 0);
+                        pushPlan = HopperTransferPlan.push(pos, slot, stack, targetPos, facing);
+                        break;
                     }
                 }
             }
-            // All slots checked, nothing pushable → fall through to PULL
         }
+        if (pushPlan != null) return new HopperPlanningSnapshot(pos, 0, pushPlan, null);
 
         // ── Try PULL: suck one item from above ──
-        if (acc.invokeInventoryFull()) return new PlanResult(null, pos, 0);
+        if (acc.invokeInventoryFull()) return new HopperPlanningSnapshot(pos, 0, pushPlan, null);
 
         // First try: container above
         BlockPos abovePos = pos.above();
@@ -139,11 +153,12 @@ public final class HopperParallelHelper {
                 ItemStack stack = source.getItem(slot);
                 if (!stack.isEmpty()
                         && canTakeFromContainer(hopper, source, stack, slot)) {
-                    return new PlanResult(HopperTransferPlan.pullFromContainer(pos, abovePos, slot, stack), pos, 0);
+                    return new HopperPlanningSnapshot(pos, 0, pushPlan,
+                            HopperTransferPlan.pullFromContainer(pos, abovePos, slot, stack));
                 }
             }
             // Container exists above → skip ItemEntities (vanilla behaviour)
-            return new PlanResult(null, pos, 0);
+            return new HopperPlanningSnapshot(pos, 0, pushPlan, null);
         }
 
         // No container above → try ItemEntities
@@ -157,12 +172,24 @@ public final class HopperParallelHelper {
                 ItemEntitySnapshot snapshot = items.getFirst();
                 ItemStack entityStack = snapshot.item();
                 if (!entityStack.isEmpty() && hopper.canPlaceItem(0, entityStack)) {
-                    return new PlanResult(HopperTransferPlan.pullEntity(pos, snapshot.pos(), entityStack), pos, 0);
+                    return new HopperPlanningSnapshot(pos, 0, pushPlan,
+                            HopperTransferPlan.pullEntity(pos, snapshot.pos(), entityStack));
                 }
             }
         }
 
-        return new PlanResult(null, pos, 0);
+        return new HopperPlanningSnapshot(pos, 0, pushPlan, null);
+    }
+
+    /**
+     * Runs in workers using only a prevalidated immutable snapshot. It makes
+     * no calls into the level, block entities, containers, or callbacks.
+     */
+    static PlanResult selectPlan(HopperPlanningSnapshot snapshot) {
+        HopperTransferPlan plan = snapshot.cooldownSnapshot > 1
+                ? null
+                : snapshot.pushPlan != null ? snapshot.pushPlan : snapshot.pullPlan;
+        return new PlanResult(plan, snapshot.hopperPos, snapshot.cooldownSnapshot);
     }
 
     // ── Phase 2: sequential plan execution ──────
@@ -465,4 +492,10 @@ public final class HopperParallelHelper {
      * Phase 2 on the main thread to guarantee visibility.
      */
     record PlanResult(@Nullable HopperTransferPlan plan, BlockPos hopperPos, int cooldownSnapshot) {}
+
+    record HopperPlanningSnapshot(
+            BlockPos hopperPos,
+            int cooldownSnapshot,
+            @Nullable HopperTransferPlan pushPlan,
+            @Nullable HopperTransferPlan pullPlan) {}
 }

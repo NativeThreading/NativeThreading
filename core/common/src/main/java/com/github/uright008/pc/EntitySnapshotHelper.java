@@ -16,7 +16,7 @@ import java.util.*;
  * <p>Motivation: {@code Level.getEntities()}/{@code getEntitiesOfClass()}
  * iterate {@code EntitySectionStorage} which is not designed for concurrent
  * access.  Instead of making entity storage thread-safe, we snapshot the
- * references we need before entering the parallel zone.</p>
+ * references the parallel phase needs.</p>
  *
  * <p>Usage in a mixin:</p>
  * <pre>
@@ -25,16 +25,11 @@ import java.util.*;
  *   Map&lt;BlockPos, List&lt;ItemEntitySnapshot&gt;&gt; itemSnapshot =
  *       EntitySnapshotHelper.collectHopperItemEntities(level, positions);
  *
- *   SafeLevelAccess.enterSafeZone();
- *   try {
- *       for (var hopper : batch) {
- *           futures.add(CompletableFuture.runAsync(() -> {
- *               List&lt;ItemEntitySnapshot&gt; items = itemSnapshot.get(hopper.getBlockPos());
- *               // ... use items safely
- *           }, pool));
- *       }
- *   } finally {
- *       SafeLevelAccess.leaveSafeZone();
+ *   for (var hopper : batch) {
+ *       futures.add(CompletableFuture.runAsync(() -> {
+ *           List&lt;ItemEntitySnapshot&gt; items = itemSnapshot.get(hopper.getBlockPos());
+ *           // ... use items safely without Level access
+ *       }, pool));
  *   }
  * </pre>
  */
