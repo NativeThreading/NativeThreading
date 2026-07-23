@@ -49,6 +49,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Mixin(ServerExplosion.class)
 public abstract class ServerExplosionMixin {
@@ -67,6 +69,9 @@ public abstract class ServerExplosionMixin {
     @Unique private ChunkGrid cachedChunkGrid;
 
     @Unique private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:explosion");
+    @Unique private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
+    @Unique private static final AtomicLong ENTITY_WORKER_BATCHES = new AtomicLong();
+    @Unique private static final AtomicLong ENTITY_FALLBACKS = new AtomicLong();
 
 
     // ──────────────────────────────────────────────
@@ -355,6 +360,10 @@ public abstract class ServerExplosionMixin {
     private boolean hurtEntitiesParallel() {
         if (this.radius < 1.0E-5F) return true;
 
+        if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {
+            throw new IllegalStateException("ray lookup requires completed parallel ray tracing");
+        }
+
         float doubleRadius = this.radius * 2.0F;
         int x0 = net.minecraft.util.Mth.floor(this.center.x - doubleRadius - 1.0);
         int x1 = net.minecraft.util.Mth.floor(this.center.x + doubleRadius + 1.0);
@@ -364,62 +373,27 @@ public abstract class ServerExplosionMixin {
         int z1 = net.minecraft.util.Mth.floor(this.center.z + doubleRadius + 1.0);
 
         final float dr = doubleRadius;
+        final double centerX = this.center.x;
+        final double centerY = this.center.y;
+        final double centerZ = this.center.z;
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots;
         List<ExplosionHelper.EntityDamageResult> results;
         try {
-            if (SimdBatchOps.VECTORIAL_AVAILABLE && ExplosionParallelConfig.isSimdEntityDamage()) {
-                // ── SoA AABB query + direct SoA position extraction ──
-                int[] hits = new int[SimdBatchOps.slotCount()];
-                int nHits = SimdBatchOps.intersectAABB(hits, x0, y0, z0, x1, y1, z1);
-
-                if (nHits == 0) return true;
-
-                double[] distSq = new double[nHits];
-                SimdBatchOps.distanceSqBySlotBatch(hits, nHits,
-                        this.center.x, this.center.y, this.center.z,
-                        distSq);
-
-                double radiusSq = (double) dr * (double) dr;
-                List<Entity> entities = new ArrayList<>(nHits);
-                final Entity source = this.source;
-                final ServerExplosion self = (ServerExplosion) (Object) this;
-                for (int i = 0; i < nHits; i++) {
-                    if (distSq[i] > radiusSq) continue;
-                    int entityId = SimdBatchOps.slotToEntityId(hits[i]);
-                    if (entityId < 0) continue;
-                    Entity e = this.level.getEntity(entityId);
-                    if (e == null || e.equals(source) || e.ignoreExplosion(self)) continue;
-                    entities.add(e);
-                }
-
-                if (entities.isEmpty()) return true;
-                if (entities.size() < 50) {
-                    results = new ArrayList<>(entities.size());
-                    for (Entity entity : entities) results.add(computeEntityDamage(entity, dr));
-                } else {
-                    results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), entities,
-                            entity -> computeEntityDamage(entity, dr), ParallelWorker.autoBatchSize(entities.size()), 5);
+            snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
+            if (snapshots.isEmpty()) return true;
+            if (snapshots.size() < 50) {
+                results = new ArrayList<>(snapshots.size());
+                for (ExplosionHelper.EntityDamageSnapshot snapshot : snapshots) {
+                    results.add(ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr));
                 }
             } else {
-                AABB bb = new AABB(x0, y0, z0, x1, y1, z1);
-                final List<Entity> allEntities = this.level.getEntities(this.source, bb);
-                if (allEntities.isEmpty()) return true;
-                final Entity source = this.source;
-                final ServerExplosion self = (ServerExplosion) (Object) this;
-                List<Entity> entities = new ArrayList<>(allEntities.size());
-                for (Entity e : allEntities) {
-                    if (e == null || e.isRemoved() || e.equals(source) || e.ignoreExplosion(self)) continue;
-                    entities.add(e);
-                }
-                if (entities.isEmpty()) return true;
-                if (entities.size() < 50) {
-                    results = new ArrayList<>(entities.size());
-                    for (Entity entity : entities) results.add(computeEntityDamage(entity, dr));
-                } else {
-                    results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), entities,
-                            entity -> computeEntityDamage(entity, dr), ParallelWorker.autoBatchSize(entities.size()), 5);
-                }
+                ENTITY_WORKER_BATCHES.incrementAndGet();
+                results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
+                        snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
+                        ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
+            ENTITY_FALLBACKS.incrementAndGet();
             LOGGER.error("Explosion entity workers failed; falling back to vanilla", e);
             return false;
         }
@@ -428,102 +402,72 @@ public abstract class ServerExplosionMixin {
             if (r != null) applyEntityDamage(r);
         }
 
+        logEntityPathCounters();
         return true;
     }
 
-    // ── SIMD batch entity damage ──────────────────
-
     @Unique
-    private List<ExplosionHelper.EntityDamageResult> hurtEntitiesSimd(List<Entity> entities, float doubleRadius) {
-        int n = entities.size();
+    private List<ExplosionHelper.EntityDamageSnapshot> captureEntityDamageSnapshots(
+            int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
+        int[] hits = new int[SimdBatchOps.slotCount()];
+        int hitCount = SimdBatchOps.intersectAABB(hits, x0, y0, z0, x1, y1, z1);
+        if (hitCount == 0) return List.of();
 
-        double[] posX = new double[n];
-        double[] posY = new double[n];
-        double[] posZ = new double[n];
-        double[] distSq = new double[n];
-
-        for (int i = 0; i < n; i++) {
-            Entity e = entities.get(i);
-            posX[i] = e.getX();
-            posY[i] = e.getY();
-            if (!(e instanceof PrimedTnt)) posY[i] += e.getEyeHeight();
-            posZ[i] = e.getZ();
+        double[] distanceSquares = new double[hitCount];
+        SimdBatchOps.distanceSqBySlotBatch(hits, hitCount,
+                this.center.x, this.center.y, this.center.z, distanceSquares);
+        double radiusSquare = (double) doubleRadius * doubleRadius;
+        ServerExplosion self = (ServerExplosion) (Object) this;
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
+        for (int index = 0; index < hitCount; index++) {
+            if (distanceSquares[index] > radiusSquare) continue;
+            int entityId = SimdBatchOps.slotToEntityId(hits[index]);
+            if (entityId < 0) continue;
+            Entity entity = this.level.getEntity(entityId);
+            if (entity == null || entity.equals(this.source) || entity.isRemoved() || entity.ignoreExplosion(self)) continue;
+            ExplosionHelper.EntityDamageSnapshot snapshot = captureEntityDamageSnapshot(entity, doubleRadius);
+            if (snapshot != null) snapshots.add(snapshot);
         }
-
-        SimdBatchOps.distanceSqBatch(posX, posY, posZ,
-                this.center.x, this.center.y, this.center.z,
-                distSq, 0, n);
-
-        double radiusSq = (double) doubleRadius * (double) doubleRadius;
-        List<Entity> filtered = new ArrayList<>(n);
-
-        for (int i = 0; i < n; i++) {
-            if (distSq[i] <= radiusSq) {
-                Entity e = entities.get(i);
-                if (!e.ignoreExplosion((ServerExplosion) (Object) this)) {
-                    filtered.add(e);
-                }
-            }
-        }
-
-        if (filtered.isEmpty()) return List.of();
-
-        if (filtered.size() < 50) {
-            List<ExplosionHelper.EntityDamageResult> results = new ArrayList<>(filtered.size());
-            for (Entity entity : filtered) results.add(computeEntityDamage(entity, doubleRadius));
-            return results;
-        }
-        return ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), filtered,
-                entity -> computeEntityDamage(entity, doubleRadius), ParallelWorker.autoBatchSize(filtered.size()), 5);
+        return snapshots;
     }
 
     @Unique
-    private float getSeenPercentFast(Vec3 center, Entity entity) {
-        float[] distances = this.cachedFirstBlockDistances;
-        if (distances == null) return getSeenPercentSafe(center, entity);
+    @Nullable
+    private ExplosionHelper.EntityDamageSnapshot captureEntityDamageSnapshot(Entity entity, float doubleRadius) {
+        double feetX = entity.getX();
+        double feetY = entity.getY();
+        double feetZ = entity.getZ();
+        double dx = feetX - this.center.x;
+        double dy = feetY - this.center.y;
+        double dz = feetZ - this.center.z;
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius > 1.0) return null;
 
-        AABB bb = entity.getBoundingBox();
-        float f = ExplosionParallelConfig.getSamplingFactor();
-        double xs = 1.0 / ((bb.maxX - bb.minX) * f + 1.0);
-        double ys = 1.0 / ((bb.maxY - bb.minY) * f + 1.0);
-        double zs = 1.0 / ((bb.maxZ - bb.minZ) * f + 1.0);
-        double xOff = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
-        double zOff = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
-        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
+        boolean shouldDamage = this.damageCalculator.shouldDamageEntity((ServerExplosion) (Object) this, entity);
+        float knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
+        AABB bounds = entity.getBoundingBox();
+        boolean needsExposure = shouldDamage || knockbackMultiplier != 0.0F;
+        float[] firstBlockDistances = ExplosionParallelConfig.isRayLookup()
+                ? this.cachedFirstBlockDistances
+                : null;
+        float exposure = !needsExposure || firstBlockDistances != null
+                ? 0.0F
+                : getSeenPercentSafe(this.center, entity);
+        UUID uuid = entity.getUUID();
+        double eyeY = entity instanceof PrimedTnt ? feetY : feetY + entity.getEyeHeight();
+        return new ExplosionHelper.EntityDamageSnapshot(entity.getId(), uuid.getMostSignificantBits(),
+                uuid.getLeastSignificantBits(), feetX, feetY, feetZ, eyeY,
+                bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ,
+                shouldDamage, knockbackMultiplier, exposure,
+                ExplosionParallelConfig.getSamplingFactor(), firstBlockDistances);
+    }
 
-        int hits = 0, count = 0;
-        double cx = center.x, cy = center.y, cz = center.z;
-        int[][][] idxGrid = ExplosionHelper.RAY_INDEX_BY_GRID;
-
-        for (double xx = 0.0; xx <= 1.0; xx += xs) {
-            for (double yy = 0.0; yy <= 1.0; yy += ys) {
-                for (double zz = 0.0; zz <= 1.0; zz += zs) {
-                    double sx = net.minecraft.util.Mth.lerp(xx, bb.minX, bb.maxX) + xOff;
-                    double sy = net.minecraft.util.Mth.lerp(yy, bb.minY, bb.maxY);
-                    double sz = net.minecraft.util.Mth.lerp(zz, bb.minZ, bb.maxZ) + zOff;
-                    double dx = sx - cx, dy = sy - cy, dz = sz - cz;
-                    double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                    double inv = 1.0 / dist;
-                    double ndx = dx * inv, ndy = dy * inv, ndz = dz * inv;
-                    int gx = (int)((ndx + 1.0) * 7.5 + 0.5);
-                    int gy = (int)((ndy + 1.0) * 7.5 + 0.5);
-                    int gz = (int)((ndz + 1.0) * 7.5 + 0.5);
-                    gx = Math.max(0, Math.min(15, gx));
-                    gy = Math.max(0, Math.min(15, gy));
-                    gz = Math.max(0, Math.min(15, gz));
-                    int dgx = Math.min(gx, 15 - gx);
-                    int dgy = Math.min(gy, 15 - gy);
-                    int dgz = Math.min(gz, 15 - gz);
-                    if (dgx <= dgy && dgx <= dgz) gx = (gx < 8 ? 0 : 15);
-                    else if (dgy <= dgz) gy = (gy < 8 ? 0 : 15);
-                    else gz = (gz < 8 ? 0 : 15);
-                    int r = idxGrid[gx][gy][gz];
-                    if (r >= 0 && r < distances.length && dist <= distances[r]) hits++;
-                    count++;
-                }
-            }
+    @Unique
+    private void logEntityPathCounters() {
+        long paths = PARALLEL_ENTITY_PATHS.incrementAndGet();
+        if ((paths & (paths - 1)) == 0) {
+            LOGGER.info("Explosion entity paths: active={}, workerBatches={}, fallbacks={}",
+                    paths, ENTITY_WORKER_BATCHES.get(), ENTITY_FALLBACKS.get());
         }
-        return (float) hits / count;
     }
 
     @Unique
@@ -673,51 +617,12 @@ public abstract class ServerExplosionMixin {
     //  Compute entity damage (worker-thread safe)
     // ──────────────────────────────────────────────
     @Unique
-    @Nullable
-    private ExplosionHelper.EntityDamageResult computeEntityDamage(Entity entity, float doubleRadius) {
-        // feet position — used for distance (vanilla: entity.distanceToSqr)
-        double fx = entity.getX();
-        double fy = entity.getY();
-        double fz = entity.getZ();
-
-        // eye position — used for knockback direction (vanilla: entity.getEyePosition / entity.position)
-        double ex = fx;
-        double ey = fy;
-        double ez = fz;
-        if (!(entity instanceof PrimedTnt)) {
-            ey += entity.getEyeHeight();
-        }
-
-        double dx = fx - this.center.x;
-        double dy = fy - this.center.y;
-        double dz = fz - this.center.z;
-        double distR = Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius;
-        if (distR > 1.0) return null;
-
-        // knockback direction from eye position (vanilla: entityOrigin.subtract(this.center).normalize())
-        double ndx = ex - this.center.x;
-        double ndy = ey - this.center.y;
-        double ndz = ez - this.center.z;
-
-        boolean shouldDamage = this.damageCalculator.shouldDamageEntity((ServerExplosion) (Object) this, entity);
-        float knockbackMult = this.damageCalculator.getKnockbackMultiplier(entity);
-        float exposure = !shouldDamage && knockbackMult == 0.0F ? 0.0F
-                : ExplosionParallelConfig.isRayLookup() ? getSeenPercentFast(this.center, entity) : getSeenPercentSafe(this.center, entity);
-        float damage = shouldDamage ? this.damageCalculator.getEntityDamageAmount((ServerExplosion) (Object) this, entity, exposure) : 0.0F;
-
-        double knockbackPower = (1.0 - distR) * exposure * knockbackMult;
-        Vec3 knockback = ExplosionHelper.knockback(ndx, ndy, ndz, knockbackPower);
-
-        return new ExplosionHelper.EntityDamageResult(entity, damage,
-                knockback.x, knockback.y, knockback.z);
-    }
-
-    // ──────────────────────────────────────────────
-    //  Compute entity damage (worker-thread safe)
-    // ──────────────────────────────────────────────
-    @Unique
     private void applyEntityDamage(ExplosionHelper.EntityDamageResult result) {
-        Entity entity = result.entity();
+        Entity entity = this.level.getEntity(result.entityId());
+        if (entity == null) return;
+        UUID uuid = entity.getUUID();
+        if (uuid.getMostSignificantBits() != result.uuidMostSignificantBits()
+                || uuid.getLeastSignificantBits() != result.uuidLeastSignificantBits()) return;
         ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
             @Override
             public void hurt(float damage) {

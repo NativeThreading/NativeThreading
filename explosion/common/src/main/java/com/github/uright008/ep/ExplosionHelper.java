@@ -1,7 +1,6 @@
 package com.github.uright008.ep;
 
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -19,9 +18,128 @@ public final class ExplosionHelper {
 
     public record RayParam(double xd, double yd, double zd,
                            double stepX, double stepY, double stepZ) {}
-    public record EntityDamageResult(Entity entity, float damage, double kbX, double kbY, double kbZ) {
+    public record EntityDamageSnapshot(
+            int entityId,
+            long uuidMostSignificantBits,
+            long uuidLeastSignificantBits,
+            double feetX,
+            double feetY,
+            double feetZ,
+            double eyeY,
+            double minX,
+            double minY,
+            double minZ,
+            double maxX,
+            double maxY,
+            double maxZ,
+            boolean shouldDamage,
+            float knockbackMultiplier,
+            float exposure,
+            float samplingFactor,
+            float[] firstBlockDistances) {
+    }
+
+    public record EntityDamageResult(
+            int entityId,
+            long uuidMostSignificantBits,
+            long uuidLeastSignificantBits,
+            float damage,
+            double kbX,
+            double kbY,
+            double kbZ) {
         public Vec3 makeKnockback() { return new Vec3(kbX, kbY, kbZ); }
         public Vec3 makeKnockback(double resistance) { return new Vec3(kbX * (1.0 - resistance), kbY * (1.0 - resistance), kbZ * (1.0 - resistance)); }
+    }
+
+    public static EntityDamageResult computeEntityDamage(
+            EntityDamageSnapshot snapshot,
+            double centerX,
+            double centerY,
+            double centerZ,
+            float doubleRadius) {
+        double dx = snapshot.feetX - centerX;
+        double dy = snapshot.feetY - centerY;
+        double dz = snapshot.feetZ - centerZ;
+        double distanceRatio = Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius;
+        float exposure = snapshot.firstBlockDistances == null
+                ? snapshot.exposure
+                : getSeenPercentFast(snapshot, centerX, centerY, centerZ);
+        double power = (1.0 - distanceRatio) * exposure * snapshot.knockbackMultiplier;
+        double knockbackX = snapshot.feetX - centerX;
+        double knockbackY = snapshot.eyeY - centerY;
+        double knockbackZ = snapshot.feetZ - centerZ;
+        double knockbackLength = Math.sqrt(knockbackX * knockbackX
+                + knockbackY * knockbackY + knockbackZ * knockbackZ);
+        if (knockbackLength >= 1.0E-5F) {
+            double scale = power / knockbackLength;
+            knockbackX *= scale;
+            knockbackY *= scale;
+            knockbackZ *= scale;
+        } else {
+            knockbackX = 0.0;
+            knockbackY = 0.0;
+            knockbackZ = 0.0;
+        }
+        float damage = snapshot.shouldDamage
+                ? vanillaDamage(doubleRadius, distanceRatio, exposure)
+                : 0.0F;
+        return new EntityDamageResult(snapshot.entityId,
+                snapshot.uuidMostSignificantBits,
+                snapshot.uuidLeastSignificantBits,
+                damage, knockbackX, knockbackY, knockbackZ);
+    }
+
+    public static float getSeenPercentFast(EntityDamageSnapshot snapshot,
+                                           double centerX, double centerY, double centerZ) {
+        double minX = snapshot.minX;
+        double minY = snapshot.minY;
+        double minZ = snapshot.minZ;
+        double maxX = snapshot.maxX;
+        double maxY = snapshot.maxY;
+        double maxZ = snapshot.maxZ;
+        float[] distances = snapshot.firstBlockDistances;
+        float samplingFactor = snapshot.samplingFactor;
+        double xs = 1.0 / ((maxX - minX) * samplingFactor + 1.0);
+        double ys = 1.0 / ((maxY - minY) * samplingFactor + 1.0);
+        double zs = 1.0 / ((maxZ - minZ) * samplingFactor + 1.0);
+        double xOff = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
+        double zOff = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
+        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
+
+        int hits = 0;
+        int count = 0;
+        for (double xx = 0.0; xx <= 1.0; xx += xs) {
+            for (double yy = 0.0; yy <= 1.0; yy += ys) {
+                for (double zz = 0.0; zz <= 1.0; zz += zs) {
+                    double sampleX = minX + (maxX - minX) * xx + xOff;
+                    double sampleY = minY + (maxY - minY) * yy;
+                    double sampleZ = minZ + (maxZ - minZ) * zz + zOff;
+                    double dx = sampleX - centerX;
+                    double dy = sampleY - centerY;
+                    double dz = sampleZ - centerZ;
+                    double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    double inverseDistance = 1.0 / distance;
+                    int gridX = Math.max(0, Math.min(15, (int) ((dx * inverseDistance + 1.0) * 7.5 + 0.5)));
+                    int gridY = Math.max(0, Math.min(15, (int) ((dy * inverseDistance + 1.0) * 7.5 + 0.5)));
+                    int gridZ = Math.max(0, Math.min(15, (int) ((dz * inverseDistance + 1.0) * 7.5 + 0.5)));
+                    int distanceX = Math.min(gridX, 15 - gridX);
+                    int distanceY = Math.min(gridY, 15 - gridY);
+                    int distanceZ = Math.min(gridZ, 15 - gridZ);
+                    if (distanceX <= distanceY && distanceX <= distanceZ) gridX = gridX < 8 ? 0 : 15;
+                    else if (distanceY <= distanceZ) gridY = gridY < 8 ? 0 : 15;
+                    else gridZ = gridZ < 8 ? 0 : 15;
+                    int rayIndex = RAY_INDEX_BY_GRID[gridX][gridY][gridZ];
+                    if (rayIndex >= 0 && rayIndex < distances.length && distance <= distances[rayIndex]) hits++;
+                    count++;
+                }
+            }
+        }
+        return (float) hits / count;
+    }
+
+    private static float vanillaDamage(float doubleRadius, double distanceRatio, float exposure) {
+        double power = (1.0 - distanceRatio) * exposure;
+        return (float) ((power * power + power) / 2.0 * 7.0 * doubleRadius + 1.0);
     }
 
     public static Vec3 knockback(double x, double y, double z, double power) {
