@@ -1,30 +1,23 @@
-# AGENTS.md — Hopper Parallelization
+# Hopper
 
-Minecraft 26.1.2 server-side Fabric + NeoForge mod. Java 26, Gradle + Fabric Loom 1.16-SNAPSHOT.
-
-## Build
+## Test
 
 ```bash
-./gradlew build
+./gradlew :hopper:test
 ```
 
-The version (`1.0.0`) lives in `gradle.properties` as `mod_version`. The JAR lands in `build/libs/`.
+## Role
 
-## No tests, no lint
+`hopper` replaces hopper ticking with a two-phase pipeline. `LevelMixin`
+collects hoppers while preserving ordinary block-entity ticks on the main
+thread.
 
-There are no test suites, linters, or formatters configured. Do not suggest running `test`, `lint`, `typecheck`, or `format` commands.
+`HopperParallelHelper` captures hopper, container, and item-entity state on the
+main thread, computes a transfer plan from those snapshots on workers, then
+validates and executes the plan on the main thread. Keep all inventory and
+world mutation in the apply phase.
 
-## Architecture
+## Scope
 
-**Package**: `com.github.uright008.hp`
-**Entrypoint**: `HopperParallelizationFabric` (implements `ModInitializer`, registered in `fabric.mod.json`)
-**Environment**: `server` only
-
-### Configuration
-
-`HopperParallelConfig` extends `parallel-core`'s `ParallelConfig`. Writes to `config/mc-parallel.json` under `"hopper"` key.
-
-### Mixins
-
-All mixins declared in `hopper.mixins.json`:
-- `compatibilityLevel: JAVA_25`
+Changes here must preserve the capture, compute, apply boundary and vanilla
+fallback behavior when parallel hopper processing is disabled or fails.

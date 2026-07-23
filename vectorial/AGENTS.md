@@ -1,29 +1,22 @@
-# AGENTS.md — Vectorial
+# Vectorial
 
-Minecraft 26.1.2 server-side Fabric mod. Java 25, Gradle + Fabric Loom 1.16-SNAPSHOT.
-
-## Build
+## Test
 
 ```bash
-./gradlew build
+./gradlew :vectorial:test
 ```
 
-## Architecture
+## Role
 
-**Package**: `com.github.uright008.vec`
-**Entrypoint**: `Vectorial`
-**Environment**: `server` only
+`vectorial` is an optional SoA and SIMD accelerator for consumers that can use
+batched entity data. `SoAStore` maintains the entity field representation, and
+the entity mixin keeps supported fields synchronized with that store.
 
-### Concept
+It does not own entity ticking, scheduling, or parallel entity behavior. Keep
+its work focused on data layout, field synchronization, generated field
+metadata, and SIMD-friendly batch operations.
 
-Transforms entity field access from AoS (Array of Structures) to SoA
-(Structure of Arrays) via bytecode injection:
-- Double fields (posX, bb min/max) → contiguous double[]
-- Enables SIMD batch entity queries
-- Optional dependency for other mods
+## Scope
 
-### Mixins
-
-All mixins must be declared in `vectorial.mixins.json`:
-- `requireAnnotations: true`
-- `compatibilityLevel: JAVA_25`
+Preserve the optional accelerator role. Modules may depend on its data and
+operations without turning Vectorial into an entity-ticking subsystem.

@@ -1,30 +1,23 @@
-# AGENTS.md — Explosion Parallelization
+# Explosion
 
-Minecraft 26.1.2 server-side Fabric + NeoForge mod. Java 26, Gradle + Fabric Loom 1.16-SNAPSHOT.
-
-## Build
+## Test
 
 ```bash
-./gradlew build
+./gradlew :explosion:test
 ```
 
-The version (`1.0.0`) lives in `gradle.properties` as `mod_version`. The JAR lands in `build/libs/`.
+## Role
 
-## No tests, no lint
+`explosion` owns parallel explosion processing. Keep its full control flow in
+this module: eligibility checks, main-thread snapshot capture, pure worker
+computation, main-thread world and entity application, and the vanilla fallback
+path. Do not move this coordination into `core`.
 
-There are no test suites, linters, or formatters configured. Do not suggest running `test`, `lint`, `typecheck`, or `format` commands.
+`ServerExplosionMixin` is the integration boundary. `ExplosionHelper` provides
+the precomputed ray data and collision helpers used by the explosion pipeline.
+Worker code must consume captured data only. World mutation, entity damage, and
+knockback application stay on the main thread.
 
-## Architecture
+## Scope
 
-**Package**: `com.github.uright008.ep`
-**Entrypoint**: `ExplosionParallelizationFabric` (implements `ModInitializer`, registered in `fabric.mod.json`)
-**Environment**: `server` only
-
-### Configuration
-
-`ExplosionParallelConfig` extends `parallel-core`'s `ParallelConfig`. Writes to `config/mc-parallel.json` under `"explosion"` key.
-
-### Mixins
-
-All mixins declared in `explosion.mixins.json`:
-- `compatibilityLevel: JAVA_25`
+This module handles explosion ray tracing and entity damage.
