@@ -26,6 +26,9 @@ sourceSets {
             srcDir("fabric/src/main/resources")
         }
     }
+    test {
+        java.srcDir("common/src/test/java")
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {

@@ -1,6 +1,7 @@
 package com.github.uright008.ep.mixin;
 
 import com.github.uright008.ep.ExplosionHelper;
+import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.pc.ChunkGrid;
 import com.github.uright008.pc.ParallelThreadPool;
@@ -71,7 +72,7 @@ public abstract class ServerExplosionMixin {
     //  Inject: intercept calculatedExplodedPositions
     @Inject(method = "calculateExplodedPositions", at = @At("HEAD"), cancellable = true)
     private void onCalculateExplodedPositions(CallbackInfoReturnable<List<BlockPos>> cir) {
-        if (!ExplosionParallelConfig.isEnabled()) {
+        if (!ExplosionParallelConfig.isEnabled() || !allowsWorkerExecution()) {
             return;
         }
         ensureChunksLoaded();
@@ -86,7 +87,7 @@ public abstract class ServerExplosionMixin {
     // ──────────────────────────────────────────────
     @Inject(method = "hurtEntities", at = @At("HEAD"), cancellable = true)
     private void onHurtEntities(CallbackInfo ci) {
-        if (!ExplosionParallelConfig.isEnabled()) return;
+        if (!ExplosionParallelConfig.isEnabled() || !allowsWorkerExecution()) return;
 
         ensureChunksLoaded();
         ProfilerFiller profiler = Profiler.get();
@@ -105,6 +106,11 @@ public abstract class ServerExplosionMixin {
     private void ensureChunksLoaded() {
         if (this.cachedChunkGrid != null) return;
         this.cachedChunkGrid = new ChunkGrid(this.level, this.center.x, this.center.z, this.radius);
+    }
+
+    @Unique
+    private boolean allowsWorkerExecution() {
+        return ExplosionParallelEligibility.allowsWorkerExecution(this.damageCalculator.getClass());
     }
 
     // ──────────────────────────────────────────────
