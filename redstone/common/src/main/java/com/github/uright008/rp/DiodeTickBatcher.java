@@ -2,7 +2,6 @@ package com.github.uright008.rp;
 
 import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
-import com.github.uright008.pc.SafeOps;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -21,6 +20,27 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class DiodeTickBatcher {
 
     private record DiodeTick(BlockPos pos, BlockState state) {}
+
+    private record DiodeSnapshot(BlockPos pos, BlockState state, DiodeBlock diode,
+                                 boolean locked, boolean hasInput) {}
+
+    private record DiodeAction(BlockPos pos, BlockState state, DiodeBlock diode,
+                               Transition transition) {}
+
+    enum Transition {
+        NONE(false, false),
+        POWER_OFF(false, false),
+        POWER_ON(true, false),
+        POWER_ON_AND_RESCHEDULE(true, true);
+
+        final boolean powered;
+        final boolean reschedule;
+
+        Transition(boolean powered, boolean reschedule) {
+            this.powered = powered;
+            this.reschedule = reschedule;
+        }
+    }
 
     private static final Map<ServerLevel, ConcurrentLinkedQueue<DiodeTick>> PENDING = new ConcurrentHashMap<>();
 
@@ -45,34 +65,53 @@ public final class DiodeTickBatcher {
         if (n == 0) return;
 
         if (n < 4) {
-            for (DiodeTick t : ticks) tickSingle(level, t.pos, t.state);
+            for (DiodeTick tick : ticks) {
+                apply(level, computeAction(captureSnapshot(level, tick)));
+            }
             return;
         }
 
-        ParallelWorker.Batch<DiodeTick, Void> batch = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Redstone"));
-        for (DiodeTick t : ticks) batch.add(t);
-        batch.flushVoid(t -> tickSingle(level, t.pos, t.state), 5);
-    }
+        List<DiodeSnapshot> snapshots = new ArrayList<>(n);
+        for (DiodeTick tick : ticks) {
+            snapshots.add(captureSnapshot(level, tick));
+        }
 
-    private static void tickSingle(ServerLevel level, BlockPos pos, BlockState state) {
-        if (!(state.getBlock() instanceof DiodeBlock diode)) return;
-        if (diode.isLocked(level, pos, state)) return;
-
-        boolean on = state.getValue(DiodeBlock.POWERED);
-        boolean shouldOn = getInputSignal(level, state, pos) > 0;
-
-        if (on && !shouldOn) {
-            SafeOps.setBlock(level, pos, state.setValue(DiodeBlock.POWERED, false), 2);
-        } else if (!on && !shouldOn) {
-            SafeOps.setBlock(level, pos, state.setValue(DiodeBlock.POWERED, true), 2);
-            SafeOps.scheduleTick(level, pos, diode, getDelay(state), TickPriority.VERY_HIGH);
-        } else if (!on && shouldOn) {
-            SafeOps.setBlock(level, pos, state.setValue(DiodeBlock.POWERED, true), 2);
+        ParallelWorker.Batch<DiodeSnapshot, DiodeAction> batch = new ParallelWorker.Batch<>(ParallelThreadPool.getPool("Redstone"));
+        for (DiodeSnapshot snapshot : snapshots) batch.add(snapshot);
+        for (DiodeAction action : batch.flush(DiodeTickBatcher::computeAction, 5)) {
+            apply(level, action);
         }
     }
 
-    private static void tickSingle(ServerLevel level, BlockPos pos) {
-        tickSingle(level, pos, level.getBlockState(pos));
+    private static DiodeSnapshot captureSnapshot(ServerLevel level, DiodeTick tick) {
+        BlockState state = tick.state;
+        DiodeBlock diode = (DiodeBlock) state.getBlock();
+        return new DiodeSnapshot(tick.pos, state, diode,
+                diode.isLocked(level, tick.pos, state), getInputSignal(level, state, tick.pos) > 0);
+    }
+
+    private static DiodeAction computeAction(DiodeSnapshot snapshot) {
+        Transition transition = decideTransition(snapshot.locked, snapshot.state.getValue(DiodeBlock.POWERED),
+                snapshot.hasInput);
+        return transition == Transition.NONE ? null
+                : new DiodeAction(snapshot.pos, snapshot.state, snapshot.diode, transition);
+    }
+
+    static Transition decideTransition(boolean locked, boolean powered, boolean hasInput) {
+        if (locked) return Transition.NONE;
+        if (powered && !hasInput) return Transition.POWER_OFF;
+        if (!powered && !hasInput) return Transition.POWER_ON_AND_RESCHEDULE;
+        if (!powered) return Transition.POWER_ON;
+        return Transition.NONE;
+    }
+
+    private static void apply(ServerLevel level, DiodeAction action) {
+        if (action == null) return;
+
+        level.setBlock(action.pos, action.state.setValue(DiodeBlock.POWERED, action.transition.powered), 2);
+        if (action.transition.reschedule) {
+            level.scheduleTick(action.pos, action.diode, getDelay(action.state), TickPriority.VERY_HIGH);
+        }
     }
 
     private static int getInputSignal(ServerLevel level, BlockState state, BlockPos pos) {
