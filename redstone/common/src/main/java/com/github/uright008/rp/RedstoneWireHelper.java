@@ -1,7 +1,7 @@
 package com.github.uright008.rp;
 
 import com.github.uright008.pc.ParallelThreadPool;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
+import com.google.common.collect.Sets;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -53,7 +53,7 @@ public final class RedstoneWireHelper {
     }
 
     private static boolean tryParallelUpdateInner(Level level, BlockPos initialPos) {
-        Graph graph = buildGraph(level, initialPos);
+        RedstoneWireGraph graph = RedstoneWireGraph.build(level, initialPos);
         if (graph == null) return false;
 
         int count = graph.positions.size();
@@ -82,84 +82,8 @@ public final class RedstoneWireHelper {
         return markUnprocessed(positions);
     }
 
-    private static final class Graph {
-        final List<BlockPos> positions;
-        final int[][] edges;
-        final int[] blockSignals;
-        Graph(List<BlockPos> p, int[][] e, int[] b) { positions = p; edges = e; blockSignals = b; }
-    }
-
-    @org.jspecify.annotations.Nullable
-    private static Graph buildGraph(Level level, BlockPos initialPos) {
-        Long2IntOpenHashMap posToIdx = new Long2IntOpenHashMap();
-        posToIdx.defaultReturnValue(-1);
-        List<BlockPos> positions = new ArrayList<>();
-        List<int[]> edgeList = new ArrayList<>();
-
-        Deque<BlockPos> queue = new ArrayDeque<>();
-        queue.add(initialPos);
-        posToIdx.put(initialPos.asLong(), 0);
-        positions.add(initialPos);
-        edgeList.add(null);
-
-        while (!queue.isEmpty()) {
-            BlockPos pos = queue.poll();
-            int srcIdx = posToIdx.get(pos.asLong());
-            while (edgeList.size() <= srcIdx) edgeList.add(null);
-            IntArrayList dsts = new IntArrayList(4);
-
-            for (Direction dir : Direction.Plane.HORIZONTAL) {
-                BlockPos neighborPos = pos.relative(dir);
-                BlockState neighborState = level.getBlockState(neighborPos);
-
-                if (neighborState.is(Blocks.REDSTONE_WIRE)) {
-                    int dstIdx = addOrGet(posToIdx, positions, queue, neighborPos);
-                    if (dstIdx >= 0) dsts.add(dstIdx);
-                } else if (neighborState.isRedstoneConductor(level, neighborPos)) {
-                    BlockPos aboveNeighbor = neighborPos.above();
-                    if (!level.getBlockState(pos.above()).isRedstoneConductor(level, pos.above())
-                            && level.getBlockState(aboveNeighbor).is(Blocks.REDSTONE_WIRE)) {
-                        int dstIdx = addOrGet(posToIdx, positions, queue, aboveNeighbor);
-                        if (dstIdx >= 0) dsts.add(dstIdx);
-                    }
-                } else {
-                    BlockPos belowNeighbor = neighborPos.below();
-                    if (level.getBlockState(belowNeighbor).is(Blocks.REDSTONE_WIRE)) {
-                        int dstIdx = addOrGet(posToIdx, positions, queue, belowNeighbor);
-                        if (dstIdx >= 0) dsts.add(dstIdx);
-                    }
-                }
-            }
-            int[] dstArr = new int[dsts.size()];
-            for (int j = 0; j < dstArr.length; j++) dstArr[j] = dsts.getInt(j);
-            edgeList.set(srcIdx, dstArr);
-        }
-
-        int n = positions.size();
-        if (n < 2) return null;
-        int[][] edges = edgeList.toArray(new int[n][]);
-
-        int[] blockSignals = new int[n];
-        for (int i = 0; i < n; i++) {
-            blockSignals[i] = getBlockSignalDirect(level, positions.get(i));
-        }
-        return new Graph(positions, edges, blockSignals);
-    }
-
-    private static int getBlockSignalDirect(Level level, BlockPos pos) {
-        return ((RedStoneWireBlock) Blocks.REDSTONE_WIRE).getBlockSignal(level, pos);
-    }
-
-    private static int addOrGet(Long2IntOpenHashMap posToIdx, List<BlockPos> positions,
-                                 Deque<BlockPos> queue, BlockPos pos) {
-        int existing = posToIdx.get(pos.asLong());
-        if (existing >= 0) return existing;
-        if (positions.size() >= 4096) return -1;
-        int idx = positions.size();
-        posToIdx.put(pos.asLong(), idx);
-        positions.add(pos);
-        queue.add(pos);
-        return idx;
+    static Set<BlockPos> notificationCentersForTesting(BlockPos pos) {
+        return notificationCenters(pos);
     }
 
     static boolean propagateAndApplyForTesting(int[] blockSignals, int[][] edges, Executor executor, int maxWorkers,
@@ -267,7 +191,8 @@ public final class RedstoneWireHelper {
         return Math.max(p, incoming);
     }
 
-    private static void applyChanges(Level level, Graph graph, int[] powers) {
+    private static void applyChanges(Level level, RedstoneWireGraph graph, int[] powers) {
+        List<BlockPos> changed = new ArrayList<>();
         for (int i = 0; i < graph.positions.size(); i++) {
             BlockPos pos = graph.positions.get(i);
             BlockState state = level.getBlockState(pos);
@@ -277,7 +202,21 @@ public final class RedstoneWireHelper {
             if (currentPower == targetPower) continue;
 
             level.setBlock(pos, state.setValue(RedStoneWireBlock.POWER, targetPower), 2);
-            level.updateNeighborsAt(pos, Blocks.REDSTONE_WIRE);
+            changed.add(pos);
         }
+        for (BlockPos pos : changed) {
+            for (BlockPos center : notificationCenters(pos)) {
+                level.updateNeighborsAt(center, Blocks.REDSTONE_WIRE);
+            }
+        }
+    }
+
+    private static Set<BlockPos> notificationCenters(BlockPos pos) {
+        Set<BlockPos> centers = Sets.newHashSet();
+        centers.add(pos);
+        for (Direction direction : Direction.values()) {
+            centers.add(pos.relative(direction));
+        }
+        return centers;
     }
 }

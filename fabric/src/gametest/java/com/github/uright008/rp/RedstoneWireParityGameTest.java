@@ -56,6 +56,50 @@ public final class RedstoneWireParityGameTest {
                 .thenSucceed();
     }
 
+    @GameTest(maxTicks = 4, padding = 40)
+    public void declinesRemovedInitialWire(GameTestHelper helper) {
+        RedstoneParallelConfig.TestSettings original = RedstoneParallelConfig.configureForTesting(true, true, 64, 2);
+        BlockPos origin = new BlockPos(0, 1, 0);
+
+        helper.startSequence()
+                .thenExecute(() -> {
+                    placeFixture(helper, origin);
+                    helper.setBlock(origin, Blocks.AIR);
+                    RedstoneWireHelper.clearProcessed();
+                })
+                .thenExecute(() -> {
+                    try {
+                        helper.assertFalse(RedstoneWireHelper.tryParallelUpdate(helper.getLevel(), helper.absolutePos(origin)),
+                                "a removed initial wire must stay on vanilla's removal path");
+                    } finally {
+                        RedstoneParallelConfig.restoreForTesting(original);
+                    }
+                })
+                .thenSucceed();
+    }
+
+    @GameTest(maxTicks = 4, padding = 80)
+    public void declinesIncompleteWireGraph(GameTestHelper helper) {
+        RedstoneParallelConfig.TestSettings original = RedstoneParallelConfig.configureForTesting(false, false, 64, 2);
+        BlockPos origin = new BlockPos(0, 1, 0);
+
+        helper.startSequence()
+                .thenExecute(() -> {
+                    placeOverflowFixture(helper, origin);
+                    RedstoneParallelConfig.configureForTesting(true, true, 64, 2);
+                    RedstoneWireHelper.clearProcessed();
+                })
+                .thenExecute(() -> {
+                    try {
+                        helper.assertFalse(RedstoneWireHelper.tryParallelUpdate(helper.getLevel(), helper.absolutePos(origin)),
+                                "an incomplete wire graph must stay on vanilla's path");
+                    } finally {
+                        RedstoneParallelConfig.restoreForTesting(original);
+                    }
+                })
+                .thenSucceed();
+    }
+
     private static void placeFixture(GameTestHelper helper, BlockPos origin) {
         for (int x = 0; x < WIDTH; x++) {
             for (int z = 0; z < DEPTH; z++) {
@@ -72,6 +116,17 @@ public final class RedstoneWireParityGameTest {
 
     private static void activateFixture(GameTestHelper helper, BlockPos origin) {
         helper.setBlock(origin.offset(WIDTH / 2, -1, DEPTH / 2), Blocks.REDSTONE_BLOCK);
+    }
+
+    private static void placeOverflowFixture(GameTestHelper helper, BlockPos origin) {
+        int remaining = 4097;
+        for (int x = 0; remaining > 0; x++) {
+            for (int z = 0; z < 64 && remaining > 0; z++) {
+                helper.setBlock(origin.offset(x, -1, z), Blocks.STONE);
+                helper.setBlock(origin.offset(x, 0, z), Blocks.REDSTONE_WIRE);
+                remaining--;
+            }
+        }
     }
 
     private static WireSnapshot capture(GameTestHelper helper, BlockPos origin) {

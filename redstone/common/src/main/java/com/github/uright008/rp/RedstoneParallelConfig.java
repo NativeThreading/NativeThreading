@@ -23,9 +23,9 @@ public final class RedstoneParallelConfig extends ParallelConfig {
 
     @Override
     protected void applyDefaults() {
-        enabled = true;
-        wireEnabled = true;
-        diodeEnabled = true;
+        enabled = false;
+        wireEnabled = false;
+        diodeEnabled = false;
         wireThreshold = 64;
         maxWorkers = Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
     }

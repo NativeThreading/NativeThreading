@@ -1,6 +1,7 @@
 package com.github.uright008.rp;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -100,6 +101,20 @@ class RedstoneWireHelperExecutionTest {
         RedstoneWireHelper.clearProcessed();
 
         assertThat(RedstoneWireHelper.markComponentForTesting(component)).isTrue();
+    }
+
+    @Test
+    void changedWireNotifiesItsCenterThenAllSixDirections() {
+        BlockPos pos = new BlockPos(4, 70, -9);
+
+        assertThat(RedstoneWireHelper.notificationCentersForTesting(pos)).containsExactlyInAnyOrder(
+                pos,
+                pos.relative(Direction.DOWN),
+                pos.relative(Direction.UP),
+                pos.relative(Direction.NORTH),
+                pos.relative(Direction.SOUTH),
+                pos.relative(Direction.WEST),
+                pos.relative(Direction.EAST));
     }
 
     private static int[][] emptyEdges(int size) {
