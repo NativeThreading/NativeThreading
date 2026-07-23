@@ -12,8 +12,10 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Parallel redstone wire power propagation via iterative relaxation.
@@ -57,19 +59,27 @@ public final class RedstoneWireHelper {
         int count = graph.positions.size();
         if (count < RedstoneParallelConfig.wireThreshold()) return false;
 
+        if (!markUnprocessed(graph.positions)) return false;
+
+        return propagateAndApply(graph.blockSignals, graph.edges, ParallelThreadPool.getPool("Redstone"),
+                Math.min(RedstoneParallelConfig.maxWorkers(), CPU_CORES * 2),
+                latch -> latch.await(5, TimeUnit.SECONDS), powers -> applyChanges(level, graph, powers));
+    }
+
+    private static boolean markUnprocessed(List<BlockPos> positions) {
         boolean allProcessed = true;
-        for (int i = 0; i < count; i++) {
-            long key = graph.positions.get(i).asLong();
+        for (BlockPos position : positions) {
+            long key = position.asLong();
             if (PROCESSED.get(key) != processEpoch) {
                 PROCESSED.put(key, processEpoch);
                 allProcessed = false;
             }
         }
-        if (allProcessed) return false;
+        return !allProcessed;
+    }
 
-        int[] powers = propagatePowers(graph);
-        applyChanges(level, graph, powers);
-        return true;
+    static boolean markComponentForTesting(List<BlockPos> positions) {
+        return markUnprocessed(positions);
     }
 
     private static final class Graph {
@@ -152,14 +162,26 @@ public final class RedstoneWireHelper {
         return idx;
     }
 
-    private static int[] propagatePowers(Graph graph) {
-        int n = graph.positions.size();
+    static boolean propagateAndApplyForTesting(int[] blockSignals, int[][] edges, Executor executor, int maxWorkers,
+                                               CompletionAwaiter completionAwaiter, Consumer<int[]> apply) {
+        return propagateAndApply(blockSignals, edges, executor, maxWorkers, completionAwaiter, apply);
+    }
+
+    private static boolean propagateAndApply(int[] blockSignals, int[][] edges, Executor executor, int maxWorkers,
+                                             CompletionAwaiter completionAwaiter, Consumer<int[]> apply) {
+        int[] powers = propagatePowers(blockSignals, edges, executor, maxWorkers, completionAwaiter);
+        if (powers == null) return false;
+        apply.accept(powers);
+        return true;
+    }
+
+    @org.jspecify.annotations.Nullable
+    private static int[] propagatePowers(int[] blockSignals, int[][] edges, Executor executor, int maxWorkers,
+                                         CompletionAwaiter completionAwaiter) {
+        int n = blockSignals.length;
         int[] bufA = new int[n];
         int[] bufB = new int[n];
-        for (int i = 0; i < n; i++) bufA[i] = graph.blockSignals[i];
-
-        int maxWorkers = Math.min(RedstoneParallelConfig.maxWorkers(), CPU_CORES * 2);
-        ExecutorService pool = ParallelThreadPool.getPool("Redstone");
+        for (int i = 0; i < n; i++) bufA[i] = blockSignals[i];
 
         boolean changed;
         int iterations = 0;
@@ -172,8 +194,9 @@ public final class RedstoneWireHelper {
 
             if (n < 16 || maxWorkers <= 1) {
                 for (int i = 0; i < n; i++) {
-                    int np = relaxWire(graph.blockSignals, prev, graph.edges[i], i);
-                    if (np != prev[i]) { current[i] = np; changed = true; }
+                    int np = relaxWire(blockSignals, prev, edges[i], i);
+                    current[i] = np;
+                    if (np != prev[i]) changed = true;
                 }
             } else {
                 int workers = Math.min(maxWorkers, Math.max(2, n / 16));
@@ -181,6 +204,7 @@ public final class RedstoneWireHelper {
                 int extra = n % workers;
                 CountDownLatch latch = new CountDownLatch(workers);
                 boolean[] localChanged = new boolean[workers * 64]; // 64-byte gap per slot avoids false sharing
+                AtomicReference<Throwable> failure = new AtomicReference<>();
                 int offset = 0;
                 for (int w = 0; w < workers; w++) {
                     final int start = offset;
@@ -189,18 +213,33 @@ public final class RedstoneWireHelper {
                     final int slot = w * 64;
                     final int[] cur = current;
                     final int[] prv = prev;
-                    pool.execute(() -> {
+                    try {
+                        executor.execute(() -> {
                         boolean any = false;
-                        for (int i = start; i < end; i++) {
-                            int np = relaxWire(graph.blockSignals, prv, graph.edges[i], i);
-                            if (np != prv[i]) { cur[i] = np; any = true; }
+                        try {
+                            for (int i = start; i < end; i++) {
+                                int np = relaxWire(blockSignals, prv, edges[i], i);
+                                cur[i] = np;
+                                if (np != prv[i]) any = true;
+                            }
+                        } catch (Throwable throwable) {
+                            failure.compareAndSet(null, throwable);
+                        } finally {
+                            localChanged[slot] = any;
+                            latch.countDown();
                         }
-                        localChanged[slot] = any;
-                        latch.countDown();
-                    });
+                        });
+                    } catch (RuntimeException exception) {
+                        return null;
+                    }
                 }
-                try { latch.await(5, TimeUnit.SECONDS); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                try {
+                    if (!completionAwaiter.await(latch)) return null;
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+                if (failure.get() != null) return null;
                 for (int w = 0; w < workers; w++) {
                     if (localChanged[w * 64]) { changed = true; break; }
                 }
@@ -208,6 +247,11 @@ public final class RedstoneWireHelper {
         } while (changed && iterations < n);
 
         return current;
+    }
+
+    @FunctionalInterface
+    interface CompletionAwaiter {
+        boolean await(CountDownLatch latch) throws InterruptedException;
     }
 
     static int relaxWire(int[] blockSignals, int[] prevPowers, int[] neighbors, int selfIdx) {
