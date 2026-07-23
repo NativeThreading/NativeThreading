@@ -1,8 +1,10 @@
 package com.github.uright008.ep.mixin;
 
 import com.github.uright008.ep.ExplosionHelper;
+import com.github.uright008.ep.ExplosionEntityApplication;
 import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.ExplosionParallelConfig;
+import com.github.uright008.ep.ExplosionRayBounds;
 import com.github.uright008.pc.ChunkGrid;
 import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
@@ -134,13 +136,13 @@ public abstract class ServerExplosionMixin {
             rayPowers[i] = radiusF * (0.7F + rng.nextFloat() * 0.6F);
         }
 
-        final int r = (int) Math.ceil(this.radius) + 1;
-        final int minX = net.minecraft.util.Mth.floor(this.center.x - r);
-        final int minY = net.minecraft.util.Mth.floor(this.center.y - r);
-        final int minZ = net.minecraft.util.Mth.floor(this.center.z - r);
-        final int maxX = net.minecraft.util.Mth.floor(this.center.x + r);
-        final int maxY = net.minecraft.util.Mth.floor(this.center.y + r);
-        final int maxZ = net.minecraft.util.Mth.floor(this.center.z + r);
+        ExplosionRayBounds bounds = ExplosionRayBounds.forExplosion(this.center, this.radius);
+        final int minX = bounds.minX();
+        final int minY = bounds.minY();
+        final int minZ = bounds.minZ();
+        final int maxX = bounds.maxX();
+        final int maxY = bounds.maxY();
+        final int maxZ = bounds.maxZ();
         final int strideY = maxX - minX + 1;
         final int strideZ = strideY * (maxY - minY + 1);
         final int gridSize = strideZ * (maxZ - minZ + 1);
@@ -423,16 +425,7 @@ public abstract class ServerExplosionMixin {
         }
 
         for (ExplosionHelper.EntityDamageResult r : results) {
-            if (r == null) continue;
-            Entity entity = r.entity();
-            entity.push(r.makeKnockback());
-            if (r.damage() > 0.0F) entity.hurtServer(this.level, this.damageSource, r.damage());
-            if (entity.getType().builtInRegistryHolder().is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
-                    && entity instanceof Projectile projectile)
-                projectile.setOwner(this.damageSource.getEntity());
-            if (entity instanceof Player player && !player.isSpectator() && (!player.isCreative() || !player.getAbilities().flying))
-                this.hitPlayers.put(player, r.makeKnockback());
-            entity.onExplosionHit(this.source);
+            if (r != null) applyEntityDamage(r);
         }
 
         return true;
@@ -705,7 +698,6 @@ public abstract class ServerExplosionMixin {
         double ndx = ex - this.center.x;
         double ndy = ey - this.center.y;
         double ndz = ez - this.center.z;
-        double invKnockback = 1.0 / Math.sqrt(ndx * ndx + ndy * ndy + ndz * ndz);
 
         boolean shouldDamage = this.damageCalculator.shouldDamageEntity((ServerExplosion) (Object) this, entity);
         float knockbackMult = this.damageCalculator.getKnockbackMultiplier(entity);
@@ -713,14 +705,11 @@ public abstract class ServerExplosionMixin {
                 : ExplosionParallelConfig.isRayLookup() ? getSeenPercentFast(this.center, entity) : getSeenPercentSafe(this.center, entity);
         float damage = shouldDamage ? this.damageCalculator.getEntityDamageAmount((ServerExplosion) (Object) this, entity, exposure) : 0.0F;
 
-        double knockbackResistance = entity instanceof LivingEntity le
-                ? le.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE) : 0.0;
-        double knockbackPower = (1.0 - distR) * exposure * knockbackMult * (1.0 - knockbackResistance);
+        double knockbackPower = (1.0 - distR) * exposure * knockbackMult;
+        Vec3 knockback = ExplosionHelper.knockback(ndx, ndy, ndz, knockbackPower);
 
         return new ExplosionHelper.EntityDamageResult(entity, damage,
-                ndx * invKnockback * knockbackPower,
-                ndy * invKnockback * knockbackPower,
-                ndz * invKnockback * knockbackPower);
+                knockback.x, knockback.y, knockback.z);
     }
 
     // ──────────────────────────────────────────────
@@ -729,16 +718,38 @@ public abstract class ServerExplosionMixin {
     @Unique
     private void applyEntityDamage(ExplosionHelper.EntityDamageResult result) {
         Entity entity = result.entity();
-        if (result.damage() > 0.0F) entity.hurtServer(this.level, this.damageSource, result.damage());
-        entity.push(result.makeKnockback());
-        if (entity.getType().builtInRegistryHolder().is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
-                && entity instanceof Projectile projectile)
-            projectile.setOwner(this.damageSource.getEntity());
-        if (entity instanceof Player player && !player.isSpectator() && (!player.isCreative() || !player.getAbilities().flying)) {
-            synchronized (this.hitPlayers) {
-                this.hitPlayers.put(player, result.makeKnockback());
+        ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
+            @Override
+            public void hurt(float damage) {
+                entity.hurtServer(level, damageSource, damage);
             }
-        }
-        entity.onExplosionHit(this.source);
+
+            @Override
+            public double knockbackResistance() {
+                return entity instanceof LivingEntity livingEntity
+                        ? livingEntity.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE) : 0.0;
+            }
+
+            @Override
+            public void push(Vec3 knockback) {
+                entity.push(knockback);
+            }
+
+            @Override
+            public void bookkeep(Vec3 knockback) {
+                if (entity.getType().builtInRegistryHolder().is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
+                        && entity instanceof Projectile projectile) {
+                    projectile.setOwner(damageSource.getEntity());
+                } else if (entity instanceof Player player && !player.isSpectator()
+                        && (!player.isCreative() || !player.getAbilities().flying)) {
+                    hitPlayers.put(player, knockback);
+                }
+            }
+
+            @Override
+            public void onExplosionHit() {
+                entity.onExplosionHit(source);
+            }
+        });
     }
 }

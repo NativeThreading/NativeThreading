@@ -21,6 +21,12 @@ public final class ExplosionHelper {
                            double stepX, double stepY, double stepZ) {}
     public record EntityDamageResult(Entity entity, float damage, double kbX, double kbY, double kbZ) {
         public Vec3 makeKnockback() { return new Vec3(kbX, kbY, kbZ); }
+        public Vec3 makeKnockback(double resistance) { return new Vec3(kbX * (1.0 - resistance), kbY * (1.0 - resistance), kbZ * (1.0 - resistance)); }
+    }
+
+    public static Vec3 knockback(double x, double y, double z, double power) {
+        double length = Math.sqrt(x * x + y * y + z * z);
+        return length < 1.0E-5F ? Vec3.ZERO : new Vec3(x / length * power, y / length * power, z / length * power);
     }
 
     public static final int MAX_RAY_STEPS = 128;
