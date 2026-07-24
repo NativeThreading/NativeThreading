@@ -5,6 +5,7 @@ import com.github.uright008.ep.ExplosionEntityApplication;
 import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.ep.ExplosionRayBounds;
+import com.github.uright008.ep.VisibilityCollisionSnapshot;
 import com.github.uright008.pc.ChunkGrid;
 import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
@@ -65,6 +66,7 @@ public abstract class ServerExplosionMixin {
     @Shadow private native boolean interactsWithBlocks();
 
     @Unique private volatile float[] cachedFirstBlockDistances;
+    @Unique private VisibilityCollisionSnapshot visibilityCollisionSnapshot;
 
     @Unique private ChunkGrid cachedChunkGrid;
 
@@ -118,6 +120,14 @@ public abstract class ServerExplosionMixin {
     @Unique
     private boolean allowsWorkerExecution() {
         return ExplosionParallelEligibility.allowsWorkerExecution(this.damageCalculator.getClass());
+    }
+
+    @Unique
+    private @Nullable VisibilityCollisionSnapshot captureVisibilityCollisionSnapshot() {
+        if (this.visibilityCollisionSnapshot == null) {
+            this.visibilityCollisionSnapshot = VisibilityCollisionSnapshot.capture(this.level, this.center, this.radius * 2.0F);
+        }
+        return this.visibilityCollisionSnapshot;
     }
 
     // ──────────────────────────────────────────────
@@ -381,15 +391,17 @@ public abstract class ServerExplosionMixin {
         try {
             snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
             if (snapshots.isEmpty()) return true;
-            if (snapshots.size() < 50) {
-                results = new ArrayList<>(snapshots.size());
-                for (ExplosionHelper.EntityDamageSnapshot snapshot : snapshots) {
-                    results.add(ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr));
-                }
-            } else {
-                ENTITY_WORKER_BATCHES.incrementAndGet();
+            ENTITY_WORKER_BATCHES.incrementAndGet();
+            if (ExplosionParallelConfig.isRayLookup()) {
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
+                        ParallelWorker.autoBatchSize(snapshots.size()), 5);
+            } else {
+                VisibilityCollisionSnapshot collisionSnapshot = captureVisibilityCollisionSnapshot();
+                if (collisionSnapshot == null) return false;
+                results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
+                        snapshot -> ExplosionHelper.computeEntityDamage(
+                                snapshot, centerX, centerY, centerZ, dr, collisionSnapshot),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
@@ -445,19 +457,15 @@ public abstract class ServerExplosionMixin {
         boolean shouldDamage = this.damageCalculator.shouldDamageEntity((ServerExplosion) (Object) this, entity);
         float knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
         AABB bounds = entity.getBoundingBox();
-        boolean needsExposure = shouldDamage || knockbackMultiplier != 0.0F;
         float[] firstBlockDistances = ExplosionParallelConfig.isRayLookup()
                 ? this.cachedFirstBlockDistances
                 : null;
-        float exposure = !needsExposure || firstBlockDistances != null
-                ? 0.0F
-                : getSeenPercentSafe(this.center, entity);
         UUID uuid = entity.getUUID();
         double eyeY = entity instanceof PrimedTnt ? feetY : feetY + entity.getEyeHeight();
         return new ExplosionHelper.EntityDamageSnapshot(entity.getId(), uuid.getMostSignificantBits(),
                 uuid.getLeastSignificantBits(), feetX, feetY, feetZ, eyeY,
                 bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ,
-                shouldDamage, knockbackMultiplier, exposure,
+                shouldDamage, knockbackMultiplier, 0.0F,
                 ExplosionParallelConfig.getSamplingFactor(), firstBlockDistances);
     }
 
