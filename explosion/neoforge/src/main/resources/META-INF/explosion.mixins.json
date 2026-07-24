@@ -3,7 +3,8 @@
 	"package": "com.github.uright008.ep.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
-      "ServerExplosionMixin"
+      "ServerExplosionMixin",
+      "LevelChunkVisibilityCollisionCacheMixin"
 		],
 	"injectors": {
 		"defaultRequire": 1
