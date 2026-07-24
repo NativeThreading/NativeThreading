@@ -17,6 +17,18 @@ Workers receive only immutable values or data captured on the main thread. Do no
 
 Submitted `ParallelWorker` tasks enter a reentrant `SafeLevelAccess` scope. It is only a controlled worker-phase marker, not synchronization or permission for generic `Level`, container, entity, block-entity, or mod callback access. `runSafe` establishes the scope and always cleans it up when the task finishes.
 
+## Worker Phase Discipline
+
+Parallelize one subsystem operation at a time. Its worker pool may run only one
+homogeneous pure task kind during a phase; capture, compute, and apply phases
+remain ordered. Do not batch or reorder separate operations merely to fill a
+pool when their vanilla-observable world, entity, or callback order can differ.
+
+If a worker result is used by this tick, block the main thread at the phase
+boundary until the task completes before executing dependent work. Tasks whose
+results are not part of this tick's observable state, such as pathfinding, are
+the exception and may continue asynchronously.
+
 ## Build and Tests
 
 ```bash

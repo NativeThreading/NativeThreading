@@ -18,6 +18,19 @@ the precomputed ray data and collision helpers used by the explosion pipeline.
 Worker code must consume captured data only. World mutation, entity damage, and
 knockback application stay on the main thread.
 
+## Worker Phases
+
+Optimize one explosion at a time. Split its work into ordered phases: capture,
+one homogeneous pure worker task, then main-thread application. A worker pool
+may run only one task kind at a time; do not batch or reorder work across
+separate explosions. This preserves each explosion's vanilla-observable world,
+entity, and callback ordering.
+
+When a worker result affects this tick, the main thread must wait for that phase
+to finish before continuing to its dependent work. Only tasks whose results are
+not needed for this tick's observable state, such as pathfinding, may outlive
+the tick.
+
 ## Scope
 
 This module handles explosion ray tracing and entity damage.
