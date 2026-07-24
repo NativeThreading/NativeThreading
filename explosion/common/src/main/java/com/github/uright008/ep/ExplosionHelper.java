@@ -57,13 +57,36 @@ public final class ExplosionHelper {
             double centerY,
             double centerZ,
             float doubleRadius) {
+        float exposure = snapshot.firstBlockDistances == null
+                ? snapshot.exposure
+                : getSeenPercentFast(snapshot, centerX, centerY, centerZ);
+        return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
+    }
+
+    public static EntityDamageResult computeEntityDamage(
+            EntityDamageSnapshot snapshot,
+            double centerX,
+            double centerY,
+            double centerZ,
+            float doubleRadius,
+            VisibilityCollisionSnapshot collisionSnapshot) {
+        float exposure = snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F
+                ? getSeenPercent(snapshot, centerX, centerY, centerZ, collisionSnapshot)
+                : 0.0F;
+        return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
+    }
+
+    private static EntityDamageResult computeEntityDamage(
+            EntityDamageSnapshot snapshot,
+            double centerX,
+            double centerY,
+            double centerZ,
+            float doubleRadius,
+            float exposure) {
         double dx = snapshot.feetX - centerX;
         double dy = snapshot.feetY - centerY;
         double dz = snapshot.feetZ - centerZ;
         double distanceRatio = Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius;
-        float exposure = snapshot.firstBlockDistances == null
-                ? snapshot.exposure
-                : getSeenPercentFast(snapshot, centerX, centerY, centerZ);
         double power = (1.0 - distanceRatio) * exposure * snapshot.knockbackMultiplier;
         double knockbackX = snapshot.feetX - centerX;
         double knockbackY = snapshot.eyeY - centerY;
@@ -87,6 +110,42 @@ public final class ExplosionHelper {
                 snapshot.uuidMostSignificantBits,
                 snapshot.uuidLeastSignificantBits,
                 damage, knockbackX, knockbackY, knockbackZ);
+    }
+
+    private static float getSeenPercent(EntityDamageSnapshot snapshot,
+                                        double centerX, double centerY, double centerZ,
+                                        VisibilityCollisionSnapshot collisionSnapshot) {
+        double minX = snapshot.minX;
+        double minY = snapshot.minY;
+        double minZ = snapshot.minZ;
+        double maxX = snapshot.maxX;
+        double maxY = snapshot.maxY;
+        double maxZ = snapshot.maxZ;
+        float samplingFactor = snapshot.samplingFactor;
+        double xs = 1.0 / ((maxX - minX) * samplingFactor + 1.0);
+        double ys = 1.0 / ((maxY - minY) * samplingFactor + 1.0);
+        double zs = 1.0 / ((maxZ - minZ) * samplingFactor + 1.0);
+        double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
+        double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
+        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
+
+        int hits = 0;
+        int count = 0;
+        for (double xx = 0.0; xx <= 1.0; xx += xs) {
+            for (double yy = 0.0; yy <= 1.0; yy += ys) {
+                for (double zz = 0.0; zz <= 1.0; zz += zs) {
+                    double sampleX = minX + (maxX - minX) * xx + xOffset;
+                    double sampleY = minY + (maxY - minY) * yy;
+                    double sampleZ = minZ + (maxZ - minZ) * zz + zOffset;
+                    if (!collisionSnapshot.blocks(new VisibilityCollisionSnapshot.RaySegment(
+                            sampleX, sampleY, sampleZ, centerX, centerY, centerZ))) {
+                        hits++;
+                    }
+                    count++;
+                }
+            }
+        }
+        return (float) hits / count;
     }
 
     public static float getSeenPercentFast(EntityDamageSnapshot snapshot,
