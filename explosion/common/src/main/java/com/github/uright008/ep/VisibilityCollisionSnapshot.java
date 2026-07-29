@@ -235,7 +235,7 @@ public final class VisibilityCollisionSnapshot {
 
         while (true) {
             int box = cellHead(cellX, cellY, cellZ);
-            while (box != -1) {
+            while (box != 0) {
                 if (intersects(box, segment)) {
                     return true;
                 }
@@ -264,16 +264,16 @@ public final class VisibilityCollisionSnapshot {
 
     private int cellHead(int x, int y, int z) {
         if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
-            return -1;
+            return 0;
         }
         return cellHeads[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
     }
 
     public List<double[]> getBoxesForCell(int x, int y, int z) {
         int box = cellHead(x, y, z);
-        if (box == -1) return List.of();
+        if (box == 0) return List.of();
         var result = new java.util.ArrayList<double[]>();
-        while (box != -1) {
+        while (box != 0) {
             int c = box * 6;
             result.add(new double[] {
                     boxCoordinates[c], boxCoordinates[c + 1], boxCoordinates[c + 2],

@@ -31,12 +31,16 @@ final class PackedVisibilityCollisionGrid implements Shapes.DoubleLineConsumer {
         this.maxZ = maxZ;
         this.strideY = maxX - minX + 1;
         this.strideZ = strideY * (maxY - minY + 1);
-        this.cellHeads = new int[strideZ * (maxZ - minZ + 1)];
-        this.cellTails = new int[cellHeads.length];
-        this.nextBoxes = new int[cellHeads.length];
-        this.boxCoordinates = new double[cellHeads.length * 6];
-        Arrays.fill(cellHeads, -1);
-        Arrays.fill(cellTails, -1);
+        int cellCount = strideZ * (maxZ - minZ + 1);
+        this.cellHeads = new int[cellCount];
+        this.cellTails = new int[cellCount];
+        // Pre-allocate based on volume - each block can contribute at most one box
+        int initialCapacity = Math.min(cellCount, 4096);
+        this.nextBoxes = new int[initialCapacity];
+        this.boxCoordinates = new double[initialCapacity * 6];
+        // cellHeads and cellTails default to 0, which we use as "empty" sentinel
+        // box index 0 is reserved as sentinel, so we start boxCount at 1
+        this.boxCount = 1;
     }
 
     void setOrigin(int x, int y, int z) {
@@ -79,19 +83,19 @@ final class PackedVisibilityCollisionGrid implements Shapes.DoubleLineConsumer {
 
     private void addToCell(int cell, double minBoxX, double minBoxY, double minBoxZ,
                            double maxBoxX, double maxBoxY, double maxBoxZ) {
-        if (boxCount == nextBoxes.length) {
-            nextBoxes = Arrays.copyOf(nextBoxes, boxCount * 2);
-            boxCoordinates = Arrays.copyOf(boxCoordinates, boxCount * 12);
-        }
         int box = boxCount++;
+        if (box == nextBoxes.length) {
+            nextBoxes = Arrays.copyOf(nextBoxes, box * 2);
+            boxCoordinates = Arrays.copyOf(boxCoordinates, box * 12);
+        }
         int previous = cellTails[cell];
-        if (previous == -1) {
+        if (previous == 0) {
             cellHeads[cell] = box;
         } else {
             nextBoxes[previous] = box;
         }
         cellTails[cell] = box;
-        nextBoxes[box] = -1;
+        nextBoxes[box] = 0;
         int coordinate = box * 6;
         boxCoordinates[coordinate] = minBoxX;
         boxCoordinates[coordinate + 1] = minBoxY;
