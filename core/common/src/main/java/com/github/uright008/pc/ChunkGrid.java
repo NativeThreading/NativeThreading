@@ -17,11 +17,11 @@ public final class ChunkGrid {
 
     private final ChunkAccess[] chunks;
     private final LevelChunkSection[][] sections;
+    private final int[] minSections;
     private final int minSectionX;
     private final int minSectionZ;
     private final int sizeX;
     private final int sizeZ;
-    private final int sectionCountX;
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     public ChunkGrid(ServerLevel level, double centerX, double centerZ, float radius) {
@@ -32,9 +32,10 @@ public final class ChunkGrid {
         this.sizeZ = range * 2 + 1;
         this.minSectionX = scx - range;
         this.minSectionZ = scz - range;
-        this.sectionCountX = sizeX;
-        this.chunks = new ChunkAccess[sizeX * sizeZ];
-        this.sections = new LevelChunkSection[sizeX * sizeZ][];
+        int totalChunks = sizeX * sizeZ;
+        this.chunks = new ChunkAccess[totalChunks];
+        this.sections = new LevelChunkSection[totalChunks][];
+        this.minSections = new int[totalChunks];
 
         ChunkSafeAccessor scs = (ChunkSafeAccessor) level.getChunkSource();
         for (int dx = 0; dx < sizeX; dx++) {
@@ -44,6 +45,7 @@ public final class ChunkGrid {
                 this.chunks[idx] = chunk;
                 if (chunk != null) {
                     this.sections[idx] = new LevelChunkSection[chunk.getSectionsCount()];
+                    this.minSections[idx] = chunk.getSectionYFromSectionIndex(0);
                 }
             }
         }
@@ -66,7 +68,7 @@ public final class ChunkGrid {
         ChunkAccess chunk = chunks[idx];
         if (chunk == null) return AIR;
 
-        int secIdx = chunk.getSectionIndex(blockY);
+        int secIdx = SectionPos.blockToSectionCoord(blockY) - minSections[idx];
         if (secIdx < 0) return AIR;
 
         LevelChunkSection[] chunkSections = sections[idx];
@@ -90,7 +92,7 @@ public final class ChunkGrid {
         ChunkAccess chunk = chunks[idx];
         if (chunk == null) return null;
 
-        int secIdx = chunk.getSectionIndex(blockY);
+        int secIdx = SectionPos.blockToSectionCoord(blockY) - minSections[idx];
         if (secIdx < 0) return null;
 
         LevelChunkSection[] chunkSections = sections[idx];
@@ -121,7 +123,7 @@ public final class ChunkGrid {
             return;
         }
 
-        int secIdx = chunk.getSectionIndex(blockY);
+        int secIdx = SectionPos.blockToSectionCoord(blockY) - minSections[idx];
         if (secIdx < 0) {
             out.chunk = chunk;
             out.section = null;
