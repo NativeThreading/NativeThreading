@@ -7,13 +7,25 @@ import net.minecraft.world.level.block.state.BlockState;
 
 public final class VisibilityCollisionSectionGeometry {
     private final boolean contextFree;
+    private final boolean onlyAir;
     private final double[] coordinates;
     private final int[] origins;
 
-    private VisibilityCollisionSectionGeometry(boolean contextFree, double[] coordinates, int[] origins) {
+    private VisibilityCollisionSectionGeometry(boolean contextFree, double[] coordinates, int[] origins,
+                                                boolean onlyAir) {
         this.contextFree = contextFree;
         this.coordinates = coordinates;
         this.origins = origins;
+        this.onlyAir = onlyAir;
+    }
+
+    private VisibilityCollisionSectionGeometry(boolean contextFree, double[] coordinates, int[] origins) {
+        this(contextFree, coordinates, origins, coordinates.length == 0);
+    }
+
+    static VisibilityCollisionSectionGeometry of(boolean contextFree, boolean onlyAir,
+                                                  double[] coordinates, int[] origins) {
+        return new VisibilityCollisionSectionGeometry(contextFree, coordinates, origins, onlyAir);
     }
 
     public static VisibilityCollisionSectionGeometry capture(LevelChunk chunk, int sectionIndex) {
@@ -27,20 +39,27 @@ public final class VisibilityCollisionSectionGeometry {
             for (int localZ = 0; localZ < 16; localZ++) {
                 for (int localX = 0; localX < 16; localX++) {
                     BlockState state = section.getBlockState(localX, localY, localZ);
+                    if (state.isAir()) {
+                        continue;
+                    }
                     VisibilityCollisionSnapshot.StaticGeometry geometry =
                             VisibilityCollisionSnapshot.staticGeometry(state);
                     if (geometry == null) {
-                        return new VisibilityCollisionSectionGeometry(false, new double[0], new int[0]);
+                        return new VisibilityCollisionSectionGeometry(false, new double[0], new int[0], false);
                     }
                     geometry.addTo(boxes, originX + localX, originY + localY, originZ + localZ);
                 }
             }
         }
-        return new VisibilityCollisionSectionGeometry(true, boxes.toArray(), boxes.origins());
+        return new VisibilityCollisionSectionGeometry(true, boxes.toArray(), boxes.origins(), boxes.isEmpty());
     }
 
     public boolean isContextFree() {
         return contextFree;
+    }
+
+    public boolean isOnlyAir() {
+        return onlyAir;
     }
 
     public void addTo(PackedVisibilityCollisionGrid grid, int minX, int minY, int minZ,
@@ -100,6 +119,10 @@ public final class VisibilityCollisionSectionGeometry {
             int[] result = new int[size / 2];
             System.arraycopy(origins, 0, result, 0, result.length);
             return result;
+        }
+
+        boolean isEmpty() {
+            return size == 0;
         }
     }
 }

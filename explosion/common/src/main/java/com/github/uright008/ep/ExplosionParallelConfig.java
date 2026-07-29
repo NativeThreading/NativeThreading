@@ -44,7 +44,7 @@ public final class ExplosionParallelConfig extends ParallelConfig {
     @Override
     protected void read(JsonObject json) {
         if (json.has("enabled")) enabled = json.get("enabled").getAsBoolean();
-        if (json.has("samplingFactor")) samplingFactor = json.get("samplingFactor").getAsFloat();
+        if (json.has("samplingFactor")) samplingFactor = Math.max(0.1f, Math.min(10.0f, json.get("samplingFactor").getAsFloat()));
         else samplingFactor = 2.0f;
         if (json.has("rayLookup")) rayLookup = json.get("rayLookup").getAsBoolean();
         else rayLookup = false;

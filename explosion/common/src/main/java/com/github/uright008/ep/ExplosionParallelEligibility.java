@@ -7,8 +7,23 @@ public final class ExplosionParallelEligibility {
 
     private ExplosionParallelEligibility() {}
 
+    public enum Tier {
+        A,
+        B,
+        C;
+
+        public boolean allowsParallel() {
+            return this != C;
+        }
+    }
+
+    public static Tier resolveTier(Class<? extends ExplosionDamageCalculator> calculatorType) {
+        if (calculatorType == ExplosionDamageCalculator.class) return Tier.A;
+        if (calculatorType == EntityBasedExplosionDamageCalculator.class) return Tier.B;
+        return Tier.C;
+    }
+
     public static boolean allowsWorkerExecution(Class<? extends ExplosionDamageCalculator> calculatorType) {
-        return calculatorType == ExplosionDamageCalculator.class
-                || calculatorType == EntityBasedExplosionDamageCalculator.class;
+        return resolveTier(calculatorType).allowsParallel();
     }
 }

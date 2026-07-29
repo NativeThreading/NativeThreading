@@ -19,7 +19,7 @@ public abstract class ServerLevelMixin {
 
     @Inject(method = "tick", at = @At(value = "INVOKE_STRING",
             target = "Lnet/minecraft/util/profiling/ProfilerFiller;popPush(Ljava/lang/String;)V",
-            args = "ldc=raid"))
+            args = "ldc=raid"), require = 0)
     private void afterBlockTicks(CallbackInfo ci) {
         if (RedstoneParallelConfig.isDiodeEnabled()) {
             DiodeTickBatcher.flush((ServerLevel) (Object) this);

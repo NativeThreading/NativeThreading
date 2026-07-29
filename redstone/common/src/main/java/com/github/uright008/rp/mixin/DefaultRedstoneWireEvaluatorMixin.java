@@ -20,7 +20,7 @@ public abstract class DefaultRedstoneWireEvaluatorMixin {
             + "Lnet/minecraft/core/BlockPos;"
             + "Lnet/minecraft/world/level/block/state/BlockState;"
             + "Lnet/minecraft/world/level/redstone/Orientation;Z)V",
-            at = @At("HEAD"), cancellable = true)
+            at = @At("HEAD"), cancellable = true, require = 0)
     private void onUpdatePowerStrength(Level level, BlockPos pos, BlockState state,
                                        @Nullable Orientation orientation, boolean skipShapeUpdates,
                                        CallbackInfo ci) {

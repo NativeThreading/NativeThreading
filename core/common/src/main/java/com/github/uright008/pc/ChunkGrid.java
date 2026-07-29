@@ -15,12 +15,14 @@ public final class ChunkGrid {
         @Nullable public LevelChunkSection section;
     }
 
-    private final ChunkAccess[][] chunks;
-    private final LevelChunkSection[][][] sections;
+    private final ChunkAccess[] chunks;
+    private final LevelChunkSection[][] sections;
     private final int minSectionX;
     private final int minSectionZ;
     private final int sizeX;
     private final int sizeZ;
+    private final int sectionCountX;
+    private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     public ChunkGrid(ServerLevel level, double centerX, double centerZ, float radius) {
         int scx = SectionPos.blockToSectionCoord((int) Math.floor(centerX));
@@ -30,16 +32,18 @@ public final class ChunkGrid {
         this.sizeZ = range * 2 + 1;
         this.minSectionX = scx - range;
         this.minSectionZ = scz - range;
-        this.chunks = new ChunkAccess[sizeX][sizeZ];
-        this.sections = new LevelChunkSection[sizeX][sizeZ][];
+        this.sectionCountX = sizeX;
+        this.chunks = new ChunkAccess[sizeX * sizeZ];
+        this.sections = new LevelChunkSection[sizeX * sizeZ][];
 
         ChunkSafeAccessor scs = (ChunkSafeAccessor) level.getChunkSource();
         for (int dx = 0; dx < sizeX; dx++) {
             for (int dz = 0; dz < sizeZ; dz++) {
+                int idx = dx * sizeZ + dz;
                 ChunkAccess chunk = scs.parallelCore$getChunkSafe(minSectionX + dx, minSectionZ + dz);
-                this.chunks[dx][dz] = chunk;
+                this.chunks[idx] = chunk;
                 if (chunk != null) {
-                    this.sections[dx][dz] = new LevelChunkSection[chunk.getSectionsCount()];
+                    this.sections[idx] = new LevelChunkSection[chunk.getSectionsCount()];
                 }
             }
         }
@@ -50,27 +54,30 @@ public final class ChunkGrid {
         int gx = sectionX - minSectionX;
         int gz = sectionZ - minSectionZ;
         if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return null;
-        return chunks[gx][gz];
+        return chunks[gx * sizeZ + gz];
     }
 
     public BlockState getBlockState(int sectionX, int sectionZ, int blockY, int localX, int localY, int localZ) {
         int gx = sectionX - minSectionX;
         int gz = sectionZ - minSectionZ;
-        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return Blocks.AIR.defaultBlockState();
+        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return AIR;
 
-        ChunkAccess chunk = chunks[gx][gz];
-        if (chunk == null) return Blocks.AIR.defaultBlockState();
+        int idx = gx * sizeZ + gz;
+        ChunkAccess chunk = chunks[idx];
+        if (chunk == null) return AIR;
 
         int secIdx = chunk.getSectionIndex(blockY);
-        if (secIdx < 0 || secIdx >= chunk.getSectionsCount()) return Blocks.AIR.defaultBlockState();
+        if (secIdx < 0) return AIR;
 
-        LevelChunkSection[] chunkSections = sections[gx][gz];
+        LevelChunkSection[] chunkSections = sections[idx];
+        if (chunkSections == null || secIdx >= chunkSections.length) return AIR;
+
         LevelChunkSection section = chunkSections[secIdx];
         if (section == null) {
             section = chunk.getSection(secIdx);
             chunkSections[secIdx] = section;
         }
-        return section != null ? section.getBlockState(localX, localY, localZ) : Blocks.AIR.defaultBlockState();
+        return section != null ? section.getBlockState(localX, localY, localZ) : AIR;
     }
 
     @Nullable
@@ -79,13 +86,16 @@ public final class ChunkGrid {
         int gz = sectionZ - minSectionZ;
         if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return null;
 
-        ChunkAccess chunk = chunks[gx][gz];
+        int idx = gx * sizeZ + gz;
+        ChunkAccess chunk = chunks[idx];
         if (chunk == null) return null;
 
         int secIdx = chunk.getSectionIndex(blockY);
-        if (secIdx < 0 || secIdx >= chunk.getSectionsCount()) return null;
+        if (secIdx < 0) return null;
 
-        LevelChunkSection[] chunkSections = sections[gx][gz];
+        LevelChunkSection[] chunkSections = sections[idx];
+        if (chunkSections == null || secIdx >= chunkSections.length) return null;
+
         LevelChunkSection section = chunkSections[secIdx];
         if (section == null) {
             section = chunk.getSection(secIdx);
@@ -103,7 +113,8 @@ public final class ChunkGrid {
             return;
         }
 
-        ChunkAccess chunk = chunks[gx][gz];
+        int idx = gx * sizeZ + gz;
+        ChunkAccess chunk = chunks[idx];
         if (chunk == null) {
             out.chunk = null;
             out.section = null;
@@ -111,13 +122,19 @@ public final class ChunkGrid {
         }
 
         int secIdx = chunk.getSectionIndex(blockY);
-        if (secIdx < 0 || secIdx >= chunk.getSectionsCount()) {
+        if (secIdx < 0) {
             out.chunk = chunk;
             out.section = null;
             return;
         }
 
-        LevelChunkSection[] chunkSections = sections[gx][gz];
+        LevelChunkSection[] chunkSections = sections[idx];
+        if (chunkSections == null || secIdx >= chunkSections.length) {
+            out.chunk = chunk;
+            out.section = null;
+            return;
+        }
+
         LevelChunkSection section = chunkSections[secIdx];
         if (section == null) {
             section = chunk.getSection(secIdx);

@@ -6,6 +6,8 @@ import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.ep.ExplosionRayBounds;
 import com.github.uright008.ep.VisibilityCollisionSnapshot;
+import com.github.uright008.ep.WorldReadView;
+import com.github.uright008.ep.WorldReadViewImpl;
 import com.github.uright008.pc.ChunkGrid;
 import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
@@ -56,6 +58,18 @@ import java.util.concurrent.atomic.AtomicLong;
 @Mixin(ServerExplosion.class)
 public abstract class ServerExplosionMixin {
 
+    @FunctionalInterface
+    @Unique
+    interface ResistanceCalculator {
+        float apply(BlockPos pos, BlockState block, FluidState fluid, float baseResistance);
+    }
+
+    @FunctionalInterface
+    @Unique
+    interface BlockExplodeDecider {
+        boolean shouldExplode(BlockPos pos, BlockState block, float remainingPower);
+    }
+
     @Shadow private ServerLevel level;
     @Shadow private Vec3 center;
     @Shadow private float radius;
@@ -81,9 +95,9 @@ public abstract class ServerExplosionMixin {
     //  Inject: intercept calculatedExplodedPositions
     @Inject(method = "calculateExplodedPositions", at = @At("HEAD"), cancellable = true)
     private void onCalculateExplodedPositions(CallbackInfoReturnable<List<BlockPos>> cir) {
-        if (!ExplosionParallelConfig.isEnabled() || !allowsWorkerExecution()) {
-            return;
-        }
+        if (!ExplosionParallelConfig.isEnabled()) return;
+        ExplosionParallelEligibility.Tier tier = resolveTier();
+        if (!tier.allowsParallel()) return;
         ensureChunksLoaded();
         List<BlockPos> result = calculateExplodedPositionsParallel();
         if (result != null) {
@@ -96,12 +110,14 @@ public abstract class ServerExplosionMixin {
     // ──────────────────────────────────────────────
     @Inject(method = "hurtEntities", at = @At("HEAD"), cancellable = true)
     private void onHurtEntities(CallbackInfo ci) {
-        if (!ExplosionParallelConfig.isEnabled() || !allowsWorkerExecution()) return;
+        if (!ExplosionParallelConfig.isEnabled()) return;
+        ExplosionParallelEligibility.Tier tier = resolveTier();
+        if (!tier.allowsParallel()) return;
 
         ensureChunksLoaded();
         ProfilerFiller profiler = Profiler.get();
         profiler.push("explosion_entities_parallel");
-        if (hurtEntitiesParallel()) {
+        if (hurtEntitiesParallel(tier)) {
             ci.cancel();
         }
         profiler.pop();
@@ -118,8 +134,8 @@ public abstract class ServerExplosionMixin {
     }
 
     @Unique
-    private boolean allowsWorkerExecution() {
-        return ExplosionParallelEligibility.allowsWorkerExecution(this.damageCalculator.getClass());
+    private ExplosionParallelEligibility.Tier resolveTier() {
+        return ExplosionParallelEligibility.resolveTier(this.damageCalculator.getClass());
     }
 
     @Unique
@@ -186,12 +202,57 @@ public abstract class ServerExplosionMixin {
             }
         }
 
+        final VisibilityCollisionSnapshot collision = captureVisibilityCollisionSnapshot();
+        final WorldReadViewImpl worldView = new WorldReadViewImpl(
+                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, collision);
+
+        final ServerExplosion self = (ServerExplosion) (Object) this;
+        final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
+        final ResistanceCalculator resistanceCalc;
+        final BlockExplodeDecider explodeDecider;
+
+        if (isDefaultCalc) {
+            resistanceCalc = (pos, block, fluid, baseRes) -> {
+                if (!block.isAir() || !fluid.isEmpty()) {
+                    return (Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance()) + 0.3F) * 0.3F;
+                }
+                return 0.0F;
+            };
+            explodeDecider = (pos, block, remainingPower) -> remainingPower > 0.0F;
+        } else if (this.damageCalculator instanceof net.minecraft.world.level.EntityBasedExplosionDamageCalculator
+                && this.source != null) {
+            final Entity entity = this.source;
+            final ServerLevel level = this.level;
+            resistanceCalc = (pos, block, fluid, baseRes) -> {
+                if (!block.isAir() || !fluid.isEmpty()) {
+                    float res = Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance());
+                    res = entity.getBlockExplosionResistance(self, level, pos, block, fluid, res);
+                    return (res + 0.3F) * 0.3F;
+                }
+                return 0.0F;
+            };
+            explodeDecider = (pos, block, remainingPower) ->
+                    entity.shouldBlockExplode(self, level, pos, block, remainingPower);
+        } else {
+            final ExplosionDamageCalculator calc = this.damageCalculator;
+            final ServerLevel level = this.level;
+            resistanceCalc = (pos, block, fluid, baseRes) -> {
+                Optional<Float> resistance = calc.getBlockExplosionResistance(self, level, pos, block, fluid);
+                return resistance.map(r -> (r + 0.3F) * 0.3F).orElse(0.0F);
+            };
+            explodeDecider = (pos, block, remainingPower) ->
+                    calc.shouldBlockExplode(self, level, pos, block, remainingPower);
+        }
+
         try {
             workerGrids = ParallelWorker.mapEach(ParallelThreadPool.getPool("Explosion"),
                     ranges, range -> {
                         for (int i = range.start; i < range.end; i++)
                             traceRay(rays.get(i), i, range.grid, minX, minY, minZ, maxX, maxY, maxZ,
-                                    chunkGrid, strideY, strideZ, firstBlockDistances, rayPowers[i], flatBlocks);
+                                    worldView, strideY, strideZ, firstBlockDistances, rayPowers[i],
+                                    isDefaultCalc, resistanceCalc, explodeDecider);
                         return range.grid;
                     }, 5);
         } catch (RuntimeException e) {
@@ -224,12 +285,13 @@ public abstract class ServerExplosionMixin {
     @Unique
     private void traceRay(ExplosionHelper.RayParam ray, int rayIndex,
                           BitSet grid, int minX, int minY, int minZ,
-                          int maxX, int maxY, int maxZ, ChunkGrid chunkGrid,
+                          int maxX, int maxY, int maxZ, WorldReadView<BlockState> worldView,
                           int strideY, int strideZ, float[] firstBlockDistances,
-                          float initialPower, BlockState[] flatBlocks) {
+                          float initialPower,
+                          boolean isDefaultCalc,
+                          ResistanceCalculator resistanceCalc,
+                          BlockExplodeDecider explodeDecider) {
         float remainingPower = initialPower;
-        final ServerExplosion self = (ServerExplosion) (Object) this;
-        final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
         final int gMinX = minX, gMinY = minY, gMinZ = minZ;
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
         final int MAX = ExplosionHelper.MAX_RAY_STEPS;
@@ -247,30 +309,22 @@ public abstract class ServerExplosionMixin {
                 pos.set(bx, by, bz);
                 if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
-                BlockState block = flatBlocks[(bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_];
-                if (isDefaultCalc) {
-                    if (!block.isAir() || !block.getFluidState().isEmpty()) {
-                        float res = (Math.max(block.getBlock().getExplosionResistance(),
-                                block.getFluidState().getExplosionResistance()) + 0.3F) * 0.3F;
-                        remainingPower -= res;
-                        if (firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
-                            double ddx = bx + 0.5 - this.center.x;
-                            double ddy = by + 0.5 - this.center.y;
-                            double ddz = bz + 0.5 - this.center.z;
-                            firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-                        }
+                BlockState block = worldView.getBlockState(bx, by, bz);
+                FluidState fluid = block.getFluidState();
+                if (!block.isAir() || !fluid.isEmpty()) {
+                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance());
+                    remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
+                    if (isDefaultCalc && firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
+                        double ddx = bx + 0.5 - this.center.x;
+                        double ddy = by + 0.5 - this.center.y;
+                        double ddz = bz + 0.5 - this.center.z;
+                        firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
                     }
-                    if (remainingPower > 0.0F && bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
+                }
+                if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
+                    if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
                         grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                } else {
-                    FluidState fluid = block.getFluidState();
-                    recordFirstBlockDistance(pos, block, fluid, rayIndex, firstBlockDistances);
-                    remainingPower = applyResistance(remainingPower, block, fluid, pos, self, false);
-                    long packed = processBlock(block, fluid, pos, remainingPower, self, false);
-                    if (remainingPower > 0.0F && packed != Long.MIN_VALUE) {
-                        if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
-                            grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                    }
                 }
                 xp += sx; yp += sy; zp += sz;
             }
@@ -284,30 +338,22 @@ public abstract class ServerExplosionMixin {
                 pos.set(bx, by, bz);
                 if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
-                BlockState block = flatBlocks[(bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_];
-                if (isDefaultCalc) {
-                    if (!block.isAir() || !block.getFluidState().isEmpty()) {
-                        float res = (Math.max(block.getBlock().getExplosionResistance(),
-                                block.getFluidState().getExplosionResistance()) + 0.3F) * 0.3F;
-                        remainingPower -= res;
-                        if (firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
-                            double ddx = bx + 0.5 - this.center.x;
-                            double ddy = by + 0.5 - this.center.y;
-                            double ddz = bz + 0.5 - this.center.z;
-                            firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-                        }
+                BlockState block = worldView.getBlockState(bx, by, bz);
+                FluidState fluid = block.getFluidState();
+                if (!block.isAir() || !fluid.isEmpty()) {
+                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance());
+                    remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
+                    if (isDefaultCalc && firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
+                        double ddx = bx + 0.5 - this.center.x;
+                        double ddy = by + 0.5 - this.center.y;
+                        double ddz = bz + 0.5 - this.center.z;
+                        firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
                     }
-                    if (remainingPower > 0.0F && bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
+                }
+                if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
+                    if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
                         grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                } else {
-                    FluidState fluid = block.getFluidState();
-                    recordFirstBlockDistance(pos, block, fluid, rayIndex, firstBlockDistances);
-                    remainingPower = applyResistance(remainingPower, block, fluid, pos, self, false);
-                    long packed = processBlock(block, fluid, pos, remainingPower, self, false);
-                    if (remainingPower > 0.0F && packed != Long.MIN_VALUE) {
-                        if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
-                            grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                    }
                 }
 
                 int dp = deltas[s];
@@ -318,56 +364,11 @@ public abstract class ServerExplosionMixin {
         }
     }
 
-    @Unique
-    private float applyResistance(float remainingPower, BlockState block, FluidState fluid,
-                                  BlockPos pos, ServerExplosion self, boolean isDefaultCalc) {
-        if (isDefaultCalc) {
-            if (!block.isAir() || !fluid.isEmpty())
-                remainingPower -= (Math.max(block.getBlock().getExplosionResistance(), fluid.getExplosionResistance()) + 0.3F) * 0.3F;
-        } else if (this.damageCalculator instanceof net.minecraft.world.level.EntityBasedExplosionDamageCalculator && this.source != null) {
-            if (!block.isAir() || !fluid.isEmpty()) {
-                float res = Math.max(block.getBlock().getExplosionResistance(), fluid.getExplosionResistance());
-                res = this.source.getBlockExplosionResistance(self, this.level, pos, block, fluid, res);
-                remainingPower -= (res + 0.3F) * 0.3F;
-            }
-        } else {
-            Optional<Float> resistance = this.damageCalculator.getBlockExplosionResistance(self, this.level, pos, block, fluid);
-            if (resistance.isPresent()) remainingPower -= (resistance.get() + 0.3F) * 0.3F;
-        }
-        return remainingPower;
-    }
-
-    @Unique
-    private long processBlock(BlockState block, FluidState fluid, BlockPos pos,
-                              float remainingPower, ServerExplosion self, boolean isDefaultCalc) {
-        if (isDefaultCalc) {
-            return remainingPower > 0.0F ? pos.asLong() : Long.MIN_VALUE;
-        } else if (this.damageCalculator instanceof net.minecraft.world.level.EntityBasedExplosionDamageCalculator && this.source != null) {
-            return remainingPower > 0.0F && this.source.shouldBlockExplode(self, this.level, pos, block, remainingPower)
-                    ? pos.asLong() : Long.MIN_VALUE;
-        } else {
-            return remainingPower > 0.0F && this.damageCalculator.shouldBlockExplode(self, this.level, pos, block, remainingPower)
-                    ? pos.asLong() : Long.MIN_VALUE;
-        }
-    }
-
-    @Unique
-    private void recordFirstBlockDistance(BlockPos pos, BlockState block, FluidState fluid,
-                                          int rayIndex, float[] firstBlockDistances) {
-        if (firstBlockDistances[rayIndex] == Float.MAX_VALUE && (!block.isAir() || !fluid.isEmpty())) {
-            double dcx = this.center.x, dcy = this.center.y, dcz = this.center.z;
-            double ddx = pos.getX() + 0.5 - dcx;
-            double ddy = pos.getY() + 0.5 - dcy;
-            double ddz = pos.getZ() + 0.5 - dcz;
-            firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-        }
-    }
-
     // ──────────────────────────────────────────────
     //  Parallel entity damage
     // ──────────────────────────────────────────────
     @Unique
-    private boolean hurtEntitiesParallel() {
+    private boolean hurtEntitiesParallel(ExplosionParallelEligibility.Tier tier) {
         if (this.radius < 1.0E-5F) return true;
 
         if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {
@@ -398,7 +399,12 @@ public abstract class ServerExplosionMixin {
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             } else {
                 VisibilityCollisionSnapshot collisionSnapshot = captureVisibilityCollisionSnapshot();
-                if (collisionSnapshot == null) return false;
+                if (collisionSnapshot == null) {
+                    if (tier == ExplosionParallelEligibility.Tier.A) {
+                        LOGGER.warn("Tier A collision snapshot unexpectedly null; falling back to vanilla entity damage");
+                    }
+                    return false;
+                }
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(
                                 snapshot, centerX, centerY, centerZ, dr, collisionSnapshot),
@@ -449,10 +455,6 @@ public abstract class ServerExplosionMixin {
         double feetX = entity.getX();
         double feetY = entity.getY();
         double feetZ = entity.getZ();
-        double dx = feetX - this.center.x;
-        double dy = feetY - this.center.y;
-        double dz = feetZ - this.center.z;
-        if (Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius > 1.0) return null;
 
         boolean shouldDamage = this.damageCalculator.shouldDamageEntity((ServerExplosion) (Object) this, entity);
         float knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);

@@ -83,6 +83,10 @@ public final class DiodeTickBatcher {
         }
     }
 
+    public static void onLevelUnload(ServerLevel level) {
+        PENDING.remove(level);
+    }
+
     private static DiodeSnapshot captureSnapshot(ServerLevel level, DiodeTick tick) {
         BlockState state = tick.state;
         DiodeBlock diode = (DiodeBlock) state.getBlock();

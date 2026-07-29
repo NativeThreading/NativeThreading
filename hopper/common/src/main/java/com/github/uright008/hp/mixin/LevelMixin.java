@@ -29,6 +29,9 @@ import java.util.List;
  *
  * <p>When {@link HopperParallelConfig#isEnabled()} returns {@code false},
  * the mixin does nothing and vanilla behaviour is preserved.</p>
+ *
+ * <p>On error, the parallel path logs the failure and lets vanilla execute
+ * as a safe fallback.</p>
  */
 @Mixin(Level.class)
 public abstract class LevelMixin {
@@ -49,7 +52,7 @@ public abstract class LevelMixin {
 
     /**
      * Replace the entire {@code tickBlockEntities()} body when hopper
-     * is enabled.
+     * is enabled. On failure, vanilla will execute as fallback (no cancel).
      */
     @Inject(method = "tickBlockEntities", at = @At("HEAD"), cancellable = true)
     private void onTickBlockEntities(CallbackInfo ci) {
@@ -59,7 +62,6 @@ public abstract class LevelMixin {
 
         this.tickingBlockEntities = true;
         try {
-            // ── Merge pending tickers (same as vanilla) ──
             if (!this.pendingBlockEntityTickers.isEmpty()) {
                 this.blockEntityTickers.addAll(this.pendingBlockEntityTickers);
                 this.pendingBlockEntityTickers.clear();
@@ -67,7 +69,6 @@ public abstract class LevelMixin {
 
             boolean tickBlockEntities = self.tickRateManager().runsNormally();
 
-            // ── Separate hoppers from other block entities ──
             List<HopperBlockEntity> hoppers = new ArrayList<>();
             Iterator<TickingBlockEntity> iterator = this.blockEntityTickers.iterator();
 
@@ -83,8 +84,6 @@ public abstract class LevelMixin {
                     continue;
                 }
 
-                // TickingBlockEntity is a vanilla wrapper (not the BE itself).
-                // Look up the real BE via Level.  Safe because we're on the main thread.
                 if (self.getBlockEntity(ticker.getPos()) instanceof HopperBlockEntity hopper) {
                     hoppers.add(hopper);
                 } else {
@@ -92,19 +91,18 @@ public abstract class LevelMixin {
                         HopperParallelHelper.processHoppers(self, hoppers);
                         hoppers.clear();
                     }
-                    // Non-hopper: tick immediately on main thread (vanilla behaviour)
                     ticker.tick();
                 }
             }
 
-            // ── Process hoppers via two-phase parallel engine ──
             if (!hoppers.isEmpty()) {
                 HopperParallelHelper.processHoppers(self, hoppers);
             }
 
-            ci.cancel(); // skip vanilla body
+            ci.cancel();
         } catch (Throwable t) {
             HopperParallelization.LOGGER.error("Hopper parallel tick failed; falling back to vanilla tick", t);
+            // No ci.cancel() — vanilla will execute as fallback
         } finally {
             this.tickingBlockEntities = false;
         }

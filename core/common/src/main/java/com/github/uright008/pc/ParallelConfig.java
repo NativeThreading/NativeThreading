@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.Set;
 
 /**
  * Base class for mod configs persisted as sections in the shared
@@ -139,5 +140,20 @@ public abstract class ParallelConfig {
 
     protected Logger logger() {
         return logger;
+    }
+
+    private static final Set<String> KNOWN_SECTIONS = Set.of(
+            "parallel-core", "explosion", "hopper", "redstone", "light", "pathfinding"
+    );
+
+    public static void validateConfigSections() {
+        JsonObject root = ConfigStorage.fileBased().loadRoot();
+        if (root == null) return;
+        Logger log = LoggerFactory.getLogger("parallel-config");
+        for (String key : root.keySet()) {
+            if (!KNOWN_SECTIONS.contains(key)) {
+                log.warn("Unrecognized config section '{}' in mc-parallel.json — this section will be ignored", key);
+            }
+        }
     }
 }

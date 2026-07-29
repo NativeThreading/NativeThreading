@@ -231,9 +231,14 @@ public final class SoAStore implements EntityDataView {
         return next;
     }
 
+    private static final int MAX_CAPACITY = 1_000_000;
+
     private void expand(int newCap) {
         synchronized (expandLock) {
             if (newCap <= slotCount) return;
+            if (newCap > MAX_CAPACITY) {
+                throw new IllegalStateException("SoAStore capacity exceeded: " + newCap + " > " + MAX_CAPACITY);
+            }
             for (int i = 0; i < GeneratedFields.COUNT; i++) {
                 double[] old = fields[i];
                 fields[i] = new double[newCap];

@@ -59,23 +59,31 @@ final class PackedVisibilityCollisionGrid implements Shapes.DoubleLineConsumer {
         int toX = Math.min(maxX, Mth.floor(maxBoxX));
         int toY = Math.min(maxY, Mth.floor(maxBoxY));
         int toZ = Math.min(maxZ, Mth.floor(maxBoxZ));
+        if (fromX > toX || fromY > toY || fromZ > toZ) return;
+        
+        int baseIndex = (fromX - minX) + (fromY - minY) * strideY + (fromZ - minZ) * strideZ;
+        int strideYDelta = strideY - (toX - fromX + 1);
+        int strideZDelta = strideZ - (toY - fromY + 1) * strideY;
+        
         for (int z = fromZ; z <= toZ; z++) {
             for (int y = fromY; y <= toY; y++) {
                 for (int x = fromX; x <= toX; x++) {
-                    addToCell(x, y, z, minBoxX, minBoxY, minBoxZ, maxBoxX, maxBoxY, maxBoxZ);
+                    addToCell(baseIndex, minBoxX, minBoxY, minBoxZ, maxBoxX, maxBoxY, maxBoxZ);
+                    baseIndex++;
                 }
+                baseIndex += strideYDelta;
             }
+            baseIndex += strideZDelta;
         }
     }
 
-    private void addToCell(int x, int y, int z, double minBoxX, double minBoxY, double minBoxZ,
+    private void addToCell(int cell, double minBoxX, double minBoxY, double minBoxZ,
                            double maxBoxX, double maxBoxY, double maxBoxZ) {
         if (boxCount == nextBoxes.length) {
             nextBoxes = Arrays.copyOf(nextBoxes, boxCount * 2);
             boxCoordinates = Arrays.copyOf(boxCoordinates, boxCount * 12);
         }
         int box = boxCount++;
-        int cell = cellIndex(x, y, z);
         int previous = cellTails[cell];
         if (previous == -1) {
             cellHeads[cell] = box;

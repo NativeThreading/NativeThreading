@@ -37,7 +37,7 @@ public final class ParallelCoreConfig extends ParallelConfig {
             catch (IllegalArgumentException ignored) {}
         }
         if (json.has("poolParallelism")) {
-            poolParallelism = Math.max(1, json.get("poolParallelism").getAsInt());
+            poolParallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, json.get("poolParallelism").getAsInt()));
         }
         if (json.has("simdEnabled")) {
             simdEnabled = json.get("simdEnabled").getAsBoolean();
@@ -57,7 +57,7 @@ public final class ParallelCoreConfig extends ParallelConfig {
     public static PoolImplementation poolImplementation() { return INSTANCE.poolImpl; }
     public static void setPoolImplementation(PoolImplementation impl) { INSTANCE.poolImpl = impl; INSTANCE.save(); }
     public static int poolParallelism() { return INSTANCE.poolParallelism; }
-    public static void setPoolParallelism(int p) { INSTANCE.poolParallelism = Math.max(1, p); INSTANCE.save(); }
+    public static void setPoolParallelism(int p) { INSTANCE.poolParallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, p)); INSTANCE.save(); }
     public static boolean simdEnabled() { return INSTANCE.simdEnabled; }
     public static void setSimdEnabled(boolean v) { INSTANCE.simdEnabled = v; INSTANCE.save(); }
     public static void reloadConfig() { INSTANCE.reload(); }

@@ -36,8 +36,8 @@ public final class RedstoneParallelConfig extends ParallelConfig {
         if (json.has("enabled")) enabled = json.get("enabled").getAsBoolean();
         if (json.has("wireEnabled")) wireEnabled = json.get("wireEnabled").getAsBoolean();
         if (json.has("diodeEnabled")) diodeEnabled = json.get("diodeEnabled").getAsBoolean();
-        if (json.has("wireThreshold")) wireThreshold = Math.max(2, json.get("wireThreshold").getAsInt());
-        if (json.has("maxWorkers")) maxWorkers = Math.max(1, json.get("maxWorkers").getAsInt());
+        if (json.has("wireThreshold")) wireThreshold = Math.max(2, Math.min(1024, json.get("wireThreshold").getAsInt()));
+        if (json.has("maxWorkers")) maxWorkers = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, json.get("maxWorkers").getAsInt()));
         logger().info("Redstone: {}", enabled ? "ON" : "OFF");
         logger().info("  wire: {}, diode: {}, threshold={}, maxWorkers={}",
                 wireEnabled ? "ON" : "OFF", diodeEnabled ? "ON" : "OFF", wireThreshold, maxWorkers);
@@ -63,9 +63,9 @@ public final class RedstoneParallelConfig extends ParallelConfig {
     public static boolean isDiodeEnabled() { return INSTANCE.loaded && INSTANCE.enabled && INSTANCE.diodeEnabled; }
     public static void setDiodeEnabled(boolean v) { INSTANCE.diodeEnabled = v; INSTANCE.save(); }
     public static int wireThreshold() { return INSTANCE.wireThreshold; }
-    public static void setWireThreshold(int v) { INSTANCE.wireThreshold = Math.max(2, v); INSTANCE.save(); }
+    public static void setWireThreshold(int v) { INSTANCE.wireThreshold = Math.max(2, Math.min(1024, v)); INSTANCE.save(); }
     public static int maxWorkers() { return INSTANCE.maxWorkers; }
-    public static void setMaxWorkers(int v) { INSTANCE.maxWorkers = Math.max(1, v); INSTANCE.save(); }
+    public static void setMaxWorkers(int v) { INSTANCE.maxWorkers = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, v)); INSTANCE.save(); }
 
     static TestSettings configureForTesting(boolean enabled, boolean wireEnabled, int wireThreshold, int maxWorkers) {
         TestSettings previous = new TestSettings(INSTANCE.enabled, INSTANCE.wireEnabled,

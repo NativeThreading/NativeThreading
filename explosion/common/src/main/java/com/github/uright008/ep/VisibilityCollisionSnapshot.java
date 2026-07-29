@@ -86,6 +86,9 @@ public final class VisibilityCollisionSnapshot {
                     if (geometry == null || !geometry.isContextFree()) {
                         return null;
                     }
+                    if (geometry.isOnlyAir()) {
+                        continue;
+                    }
                     geometry.addTo(builder, minX, minY, minZ, maxX, maxY, maxZ);
                 }
             }
@@ -264,6 +267,21 @@ public final class VisibilityCollisionSnapshot {
             return -1;
         }
         return cellHeads[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
+    }
+
+    public List<double[]> getBoxesForCell(int x, int y, int z) {
+        int box = cellHead(x, y, z);
+        if (box == -1) return List.of();
+        var result = new java.util.ArrayList<double[]>();
+        while (box != -1) {
+            int c = box * 6;
+            result.add(new double[] {
+                    boxCoordinates[c], boxCoordinates[c + 1], boxCoordinates[c + 2],
+                    boxCoordinates[c + 3], boxCoordinates[c + 4], boxCoordinates[c + 5]
+            });
+            box = nextBoxes[box];
+        }
+        return result;
     }
 
     private boolean intersects(int box, RaySegment segment) {
