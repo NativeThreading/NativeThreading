@@ -44,7 +44,12 @@ public final class ChunkGrid {
                 ChunkAccess chunk = scs.parallelCore$getChunkSafe(minSectionX + dx, minSectionZ + dz);
                 this.chunks[idx] = chunk;
                 if (chunk != null) {
-                    this.sections[idx] = new LevelChunkSection[chunk.getSectionsCount()];
+                    int sectionCount = chunk.getSectionsCount();
+                    LevelChunkSection[] chunkSections = new LevelChunkSection[sectionCount];
+                    for (int i = 0; i < sectionCount; i++) {
+                        chunkSections[i] = chunk.getSection(i);
+                    }
+                    this.sections[idx] = chunkSections;
                     this.minSections[idx] = chunk.getSectionYFromSectionIndex(0);
                 }
             }
