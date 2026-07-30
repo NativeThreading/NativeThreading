@@ -64,11 +64,11 @@ public final class VisibilityCollisionSectionGeometry {
 
     public void addTo(PackedVisibilityCollisionGrid grid, int minX, int minY, int minZ,
                       int maxX, int maxY, int maxZ) {
-        for (int index = 0; index < coordinates.length; index += 6) {
-            int originIndex = index / 2;
-            int originX = origins[originIndex];
-            int originY = origins[originIndex + 1];
-            int originZ = origins[originIndex + 2];
+        int originIdx = 0;
+        for (int index = 0; index < coordinates.length; index += 6, originIdx += 3) {
+            int originX = origins[originIdx];
+            int originY = origins[originIdx + 1];
+            int originZ = origins[originIdx + 2];
             if (originX < minX || originX > maxX || originY < minY || originY > maxY
                     || originZ < minZ || originZ > maxZ) {
                 continue;
