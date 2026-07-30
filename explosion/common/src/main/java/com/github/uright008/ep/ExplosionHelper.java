@@ -76,6 +76,19 @@ public final class ExplosionHelper {
         return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
     }
 
+    public static EntityDamageResult computeEntityDamage(
+            EntityDamageSnapshot snapshot,
+            double centerX,
+            double centerY,
+            double centerZ,
+            float doubleRadius,
+            com.github.uright008.pc.ChunkGrid chunkGrid) {
+        float exposure = snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F
+                ? getSeenPercentChunkGrid(snapshot, centerX, centerY, centerZ, chunkGrid)
+                : 0.0F;
+        return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
+    }
+
     private static EntityDamageResult computeEntityDamage(
             EntityDamageSnapshot snapshot,
             double centerX,
@@ -141,6 +154,35 @@ public final class ExplosionHelper {
                             sampleX, sampleY, sampleZ, centerX, centerY, centerZ))) {
                         hits++;
                     }
+                    count++;
+                }
+            }
+        }
+        return (float) hits / count;
+    }
+
+    private static float getSeenPercentChunkGrid(EntityDamageSnapshot snapshot,
+                                                  double centerX, double centerY, double centerZ,
+                                                  com.github.uright008.pc.ChunkGrid chunkGrid) {
+        double minX = snapshot.minX, maxX = snapshot.maxX;
+        double minY = snapshot.minY, maxY = snapshot.maxY;
+        double minZ = snapshot.minZ, maxZ = snapshot.maxZ;
+        float samplingFactor = snapshot.samplingFactor;
+        double xs = 1.0 / ((maxX - minX) * samplingFactor + 1.0);
+        double ys = 1.0 / ((maxY - minY) * samplingFactor + 1.0);
+        double zs = 1.0 / ((maxZ - minZ) * samplingFactor + 1.0);
+        double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
+        double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
+        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
+
+        int hits = 0, count = 0;
+        for (double xx = 0.0; xx <= 1.0; xx += xs) {
+            for (double yy = 0.0; yy <= 1.0; yy += ys) {
+                for (double zz = 0.0; zz <= 1.0; zz += zs) {
+                    double sx = minX + (maxX - minX) * xx + xOffset;
+                    double sy = minY + (maxY - minY) * yy;
+                    double sz = minZ + (maxZ - minZ) * zz + zOffset;
+                    if (!chunkGrid.rayIntersectsBlock(sx, sy, sz, centerX, centerY, centerZ)) hits++;
                     count++;
                 }
             }

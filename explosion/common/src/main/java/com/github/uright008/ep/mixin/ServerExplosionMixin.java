@@ -211,9 +211,8 @@ public abstract class ServerExplosionMixin {
             }
         }
 
-        final VisibilityCollisionSnapshot collision = captureVisibilityCollisionSnapshot();
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, collision);
+                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, null);
 
         final ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
@@ -404,12 +403,9 @@ public abstract class ServerExplosionMixin {
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             } else {
-                if (this.visibilityCollisionSnapshot == null) {
-                    return false;
-                }
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(
-                                snapshot, centerX, centerY, centerZ, dr, this.visibilityCollisionSnapshot),
+                                snapshot, centerX, centerY, centerZ, dr, this.cachedChunkGrid),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
