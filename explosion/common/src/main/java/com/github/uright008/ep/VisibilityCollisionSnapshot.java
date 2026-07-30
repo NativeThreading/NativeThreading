@@ -279,10 +279,18 @@ public final class VisibilityCollisionSnapshot {
         int cellY = Mth.floor(fromY);
         int cellZ = Mth.floor(fromZ);
 
+        double isectFromX = segment.fromX + deltaX * 0.001;
+        double isectFromY = segment.fromY + deltaY * 0.001;
+        double isectFromZ = segment.fromZ + deltaZ * 0.001;
+        double isectDirX = segment.toX - isectFromX;
+        double isectDirY = segment.toY - isectFromY;
+        double isectDirZ = segment.toZ - isectFromZ;
+
         while (true) {
             int box = cellHead(cellX, cellY, cellZ);
             while (box != 0) {
-                if (intersects(box, segment)) {
+                if (intersectsPrecomputed(box, isectFromX, isectFromY, isectFromZ,
+                        isectDirX, isectDirY, isectDirZ)) {
                     return true;
                 }
                 box = nextBoxes[box];
@@ -308,6 +316,41 @@ public final class VisibilityCollisionSnapshot {
         }
     }
 
+    private boolean intersectsPrecomputed(int box, double fromX, double fromY, double fromZ,
+                                          double dirX, double dirY, double dirZ) {
+        int coordinate = box * 6;
+        double minimum = 0.0;
+        double maximum = 1.0;
+
+        if (dirX == 0.0) {
+            if (fromX < boxCoordinates[coordinate] || fromX > boxCoordinates[coordinate + 3]) return false;
+        } else {
+            double near = (boxCoordinates[coordinate] - fromX) / dirX;
+            double far = (boxCoordinates[coordinate + 3] - fromX) / dirX;
+            if (near > far) { double swap = near; near = far; far = swap; }
+            minimum = Math.max(minimum, near);
+            maximum = Math.min(maximum, far);
+            if (minimum > maximum) return false;
+        }
+        if (dirY == 0.0) {
+            if (fromY < boxCoordinates[coordinate + 1] || fromY > boxCoordinates[coordinate + 4]) return false;
+        } else {
+            double near = (boxCoordinates[coordinate + 1] - fromY) / dirY;
+            double far = (boxCoordinates[coordinate + 4] - fromY) / dirY;
+            if (near > far) { double swap = near; near = far; far = swap; }
+            minimum = Math.max(minimum, near);
+            maximum = Math.min(maximum, far);
+            if (minimum > maximum) return false;
+        }
+        if (dirZ == 0.0) {
+            return fromZ >= boxCoordinates[coordinate + 2] && fromZ <= boxCoordinates[coordinate + 5];
+        }
+        double near = (boxCoordinates[coordinate + 2] - fromZ) / dirZ;
+        double far = (boxCoordinates[coordinate + 5] - fromZ) / dirZ;
+        if (near > far) { double swap = near; near = far; far = swap; }
+        return Math.max(minimum, near) <= Math.min(maximum, far);
+    }
+
     private int cellHead(int x, int y, int z) {
         if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
             return 0;
@@ -328,49 +371,6 @@ public final class VisibilityCollisionSnapshot {
             box = nextBoxes[box];
         }
         return result;
-    }
-
-    private boolean intersects(int box, RaySegment segment) {
-        int coordinate = box * 6;
-        double deltaX = segment.toX - segment.fromX;
-        double deltaY = segment.toY - segment.fromY;
-        double deltaZ = segment.toZ - segment.fromZ;
-        double fromX = segment.fromX + deltaX * 0.001;
-        double fromY = segment.fromY + deltaY * 0.001;
-        double fromZ = segment.fromZ + deltaZ * 0.001;
-        double directionX = segment.toX - fromX;
-        double directionY = segment.toY - fromY;
-        double directionZ = segment.toZ - fromZ;
-        double minimum = 0.0;
-        double maximum = 1.0;
-
-        if (directionX == 0.0) {
-            if (fromX < boxCoordinates[coordinate] || fromX > boxCoordinates[coordinate + 3]) return false;
-        } else {
-            double near = (boxCoordinates[coordinate] - fromX) / directionX;
-            double far = (boxCoordinates[coordinate + 3] - fromX) / directionX;
-            if (near > far) { double swap = near; near = far; far = swap; }
-            minimum = Math.max(minimum, near);
-            maximum = Math.min(maximum, far);
-            if (minimum > maximum) return false;
-        }
-        if (directionY == 0.0) {
-            if (fromY < boxCoordinates[coordinate + 1] || fromY > boxCoordinates[coordinate + 4]) return false;
-        } else {
-            double near = (boxCoordinates[coordinate + 1] - fromY) / directionY;
-            double far = (boxCoordinates[coordinate + 4] - fromY) / directionY;
-            if (near > far) { double swap = near; near = far; far = swap; }
-            minimum = Math.max(minimum, near);
-            maximum = Math.min(maximum, far);
-            if (minimum > maximum) return false;
-        }
-        if (directionZ == 0.0) {
-            return fromZ >= boxCoordinates[coordinate + 2] && fromZ <= boxCoordinates[coordinate + 5];
-        }
-        double near = (boxCoordinates[coordinate + 2] - fromZ) / directionZ;
-        double far = (boxCoordinates[coordinate + 5] - fromZ) / directionZ;
-        if (near > far) { double swap = near; near = far; far = swap; }
-        return Math.max(minimum, near) <= Math.min(maximum, far);
     }
 
     public record CollisionBox(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
