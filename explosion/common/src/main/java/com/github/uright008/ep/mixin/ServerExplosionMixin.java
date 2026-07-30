@@ -265,7 +265,7 @@ public abstract class ServerExplosionMixin {
 
         this.cachedFirstBlockDistances = firstBlockDistances;
 
-        List<BlockPos> result = new ArrayList<>(strideZ * (maxZ - minZ + 1) / 4);
+        List<BlockPos> result = new ArrayList<>(gridSize);
         BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
         for (int z = minZ; z <= maxZ; z++) {
             int zOff = (z - minZ) * strideZ;
