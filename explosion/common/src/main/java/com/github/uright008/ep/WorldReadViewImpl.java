@@ -1,6 +1,5 @@
 package com.github.uright008.ep;
 
-import java.util.List;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 

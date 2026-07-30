@@ -17,7 +17,6 @@ public final class ExplosionParallelConfig extends ParallelConfig {
     private volatile boolean rayLookup;
     private volatile int adaptiveRays;
     private volatile boolean preciseRays;
-    private volatile boolean simdEntityDamage;
 
     private ExplosionParallelConfig() {
         super("explosion");
@@ -36,7 +35,6 @@ public final class ExplosionParallelConfig extends ParallelConfig {
         rayLookup = false;
         adaptiveRays = 0;
         preciseRays = true;
-        simdEntityDamage = true;
     }
 
     // ── read / write ─────────────────────────────
@@ -52,8 +50,6 @@ public final class ExplosionParallelConfig extends ParallelConfig {
         else adaptiveRays = 0;
         if (json.has("preciseRays")) preciseRays = json.get("preciseRays").getAsBoolean();
         else preciseRays = true;
-        if (json.has("simdEntityDamage")) simdEntityDamage = json.get("simdEntityDamage").getAsBoolean();
-        else simdEntityDamage = true;
         logger().info("Parallel explosions: {}  |  Sampling: {}", enabled ? "ON" : "OFF", samplingQualityText());
     }
 
@@ -65,7 +61,6 @@ public final class ExplosionParallelConfig extends ParallelConfig {
         json.addProperty("rayLookup", rayLookup);
         json.addProperty("adaptiveRays", adaptiveRays);
         json.addProperty("preciseRays", preciseRays);
-        json.addProperty("simdEntityDamage", simdEntityDamage);
         return json;
     }
 
@@ -102,9 +97,6 @@ public final class ExplosionParallelConfig extends ParallelConfig {
 
     public static boolean isPreciseRays() { return INSTANCE.loaded && INSTANCE.preciseRays; }
     public static void setPreciseRays(boolean v) { INSTANCE.preciseRays = v; INSTANCE.save(); }
-
-    public static boolean isSimdEntityDamage() { return INSTANCE.loaded && INSTANCE.simdEntityDamage; }
-    public static void setSimdEntityDamage(boolean v) { INSTANCE.simdEntityDamage = v; INSTANCE.save(); }
 
     public static void reloadConfig() { INSTANCE.reload(); }
 }
