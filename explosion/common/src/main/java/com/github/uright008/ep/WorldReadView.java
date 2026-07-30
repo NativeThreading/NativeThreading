@@ -38,17 +38,6 @@ public interface WorldReadView<B> {
     B getBlockState(int x, int y, int z);
 
     /**
-     * Returns the collision boxes at the given world coordinates.
-     *
-     * @param x world x coordinate
-     * @param y world y coordinate
-     * @param z world z coordinate
-     * @return list of collision boxes (each as 6 doubles: minX,minY,minZ,maxX,maxY,maxZ),
-     *         empty if no collision or out of bounds
-     */
-    List<double[]> getCollisionBoxes(int x, int y, int z);
-
-    /**
      * Returns whether the block at the given world coordinates is air.
      *
      * @param x world x coordinate

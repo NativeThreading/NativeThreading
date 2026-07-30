@@ -59,40 +59,4 @@ class ExplosionEntityDamageComputationTest {
 
         assertThat(exposure).isEqualTo(1.0F);
     }
-
-    @Test
-    void computesExposureFromImmutableCollisionSnapshot() {
-        // Given
-        ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
-                42, 10L, 11L, 2.0, 0.0, 0.0, 0.0,
-                2.0, 0.0, 0.0, 2.0, 0.0, 0.0,
-                true, 1.0F, 0.0F, 1.0F, null);
-        VisibilityCollisionSnapshot collisionSnapshot = VisibilityCollisionSnapshot.of(java.util.List.of(
-                new VisibilityCollisionSnapshot.CollisionBox(1.0, 0.0, 0.0, 2.0, 1.0, 1.0)));
-
-        // When
-        ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
-                snapshot, 0.0, 0.0, 0.0, 4.0F, collisionSnapshot);
-
-        // Then
-        assertThat(result.damage()).isEqualTo(1.0F);
-        assertThat(result.makeKnockback()).isEqualTo(net.minecraft.world.phys.Vec3.ZERO);
-    }
-
-    @Test
-    void computesOpenPathExposureFromEmptyImmutableCollisionSnapshot() {
-        // Given
-        ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
-                42, 10L, 11L, 2.0, 0.0, 0.0, 0.0,
-                2.0, 0.0, 0.0, 2.0, 0.0, 0.0,
-                true, 1.0F, 0.0F, 1.0F, null);
-
-        // When
-        ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
-                snapshot, 0.0, 0.0, 0.0, 4.0F, VisibilityCollisionSnapshot.of(java.util.List.of()));
-
-        // Then
-        assertThat(result.damage()).isEqualTo(11.5F);
-        assertThat(result.kbX()).isEqualTo(0.5);
-    }
 }

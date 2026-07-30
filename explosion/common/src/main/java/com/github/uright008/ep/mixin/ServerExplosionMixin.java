@@ -5,7 +5,6 @@ import com.github.uright008.ep.ExplosionEntityApplication;
 import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.ep.ExplosionRayBounds;
-import com.github.uright008.ep.VisibilityCollisionSnapshot;
 import com.github.uright008.ep.WorldReadView;
 import com.github.uright008.ep.WorldReadViewImpl;
 import com.github.uright008.pc.ChunkGrid;
@@ -80,7 +79,6 @@ public abstract class ServerExplosionMixin {
     @Shadow private native boolean interactsWithBlocks();
 
     @Unique private volatile float[] cachedFirstBlockDistances;
-    @Unique private VisibilityCollisionSnapshot visibilityCollisionSnapshot;
 
     @Unique private ChunkGrid cachedChunkGrid;
 
@@ -147,14 +145,6 @@ public abstract class ServerExplosionMixin {
         return ExplosionParallelEligibility.resolveTier(this.damageCalculator.getClass());
     }
 
-    @Unique
-    private @Nullable VisibilityCollisionSnapshot captureVisibilityCollisionSnapshot() {
-        if (this.visibilityCollisionSnapshot == null) {
-            this.visibilityCollisionSnapshot = VisibilityCollisionSnapshot.capture(this.level, this.center, this.radius * 2.0F);
-        }
-        return this.visibilityCollisionSnapshot;
-    }
-
     // ──────────────────────────────────────────────
     //  Parallel calculateExplodedPositions
     // ──────────────────────────────────────────────
@@ -212,7 +202,7 @@ public abstract class ServerExplosionMixin {
         }
 
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, null);
+                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
 
         final ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;

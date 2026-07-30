@@ -4,8 +4,6 @@
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
       "ServerExplosionMixin",
-      "LevelChunkVisibilityCollisionCacheMixin",
-      "LevelChunkSectionGeometryVersionMixin"
 		],
 	"injectors": {
 		"defaultRequire": 1

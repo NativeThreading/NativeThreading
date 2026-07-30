@@ -1,6 +1,5 @@
 package com.github.uright008.ep;
 
-import java.util.List;
 import java.util.function.Predicate;
 
 /**
@@ -57,13 +56,6 @@ final class FlatWorldReadView<B> implements WorldReadView<B> {
             return airDefault;
         }
         return states[index];
-    }
-
-    @Override
-    public List<double[]> getCollisionBoxes(int x, int y, int z) {
-        // Collision box support will be added when integrating with
-        // VisibilityCollisionSnapshot. For now, return empty list.
-        return List.of();
     }
 
     @Override
