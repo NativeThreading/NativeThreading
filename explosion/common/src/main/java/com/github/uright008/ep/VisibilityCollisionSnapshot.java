@@ -1,5 +1,6 @@
 package com.github.uright008.ep;
 
+import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -92,6 +93,51 @@ public final class VisibilityCollisionSnapshot {
                     geometry.addTo(builder, minX, minY, minZ, maxX, maxY, maxZ);
                 }
             }
+        }
+        return new VisibilityCollisionSnapshot(builder);
+    }
+
+    public static @Nullable List<VisibilityCollisionSectionGeometry> captureGeometries(
+            ServerLevel level, Vec3 center, float doubleRadius, int[] outBounds) {
+        int minX = Mth.floor(center.x - doubleRadius);
+        int maxX = Mth.floor(center.x + doubleRadius);
+        int minY = Mth.floor(center.y - doubleRadius);
+        int maxY = Mth.floor(center.y + doubleRadius);
+        int minZ = Mth.floor(center.z - doubleRadius);
+        int maxZ = Mth.floor(center.z + doubleRadius);
+        outBounds[0] = minX; outBounds[1] = minY; outBounds[2] = minZ;
+        outBounds[3] = maxX; outBounds[4] = maxY; outBounds[5] = maxZ;
+        int minSectionX = SectionPos.blockToSectionCoord(minX);
+        int maxSectionX = SectionPos.blockToSectionCoord(maxX);
+        int minSectionY = SectionPos.blockToSectionCoord(minY);
+        int maxSectionY = SectionPos.blockToSectionCoord(maxY);
+        int minSectionZ = SectionPos.blockToSectionCoord(minZ);
+        int maxSectionZ = SectionPos.blockToSectionCoord(maxZ);
+        List<VisibilityCollisionSectionGeometry> geometries = new ArrayList<>();
+        for (int sectionZ = minSectionZ; sectionZ <= maxSectionZ; sectionZ++) {
+            for (int sectionX = minSectionX; sectionX <= maxSectionX; sectionX++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(sectionX, sectionZ);
+                if (chunk == null) continue;
+                VisibilityCollisionChunkCache cache = (VisibilityCollisionChunkCache) chunk;
+                for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++) {
+                    int sectionIndex = chunk.getSectionIndex(SectionPos.sectionToBlockCoord(sectionY));
+                    if (sectionIndex < 0 || sectionIndex >= chunk.getSectionsCount()) continue;
+                    VisibilityCollisionSectionGeometry geometry = cache.explosion$getVisibilityCollisionSection(sectionIndex);
+                    if (geometry == null || !geometry.isContextFree()) return null;
+                    if (geometry.isOnlyAir()) continue;
+                    geometries.add(geometry);
+                }
+            }
+        }
+        return geometries;
+    }
+
+    public static VisibilityCollisionSnapshot buildFromGeometries(
+            int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+            List<VisibilityCollisionSectionGeometry> geometries) {
+        PackedVisibilityCollisionGrid builder = new PackedVisibilityCollisionGrid(minX, minY, minZ, maxX, maxY, maxZ);
+        for (VisibilityCollisionSectionGeometry geometry : geometries) {
+            geometry.addTo(builder, minX, minY, minZ, maxX, maxY, maxZ);
         }
         return new VisibilityCollisionSnapshot(builder);
     }
