@@ -57,6 +57,7 @@ sourceSets {
             srcDir("../redstone/common/src/main/java")
             srcDir("../vectorial/common/src/main/java")
             srcDir("../vectorial/common/src/generated/java")
+            srcDir("../palette/common/src/main/java")
         }
     }
 }
@@ -77,6 +78,7 @@ tasks.processResources {
     from("../hopper/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../redstone/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../vectorial/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
+    from("../palette/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from(project(":vectorial").tasks.named<Jar>("agentJar").flatMap { it.archiveFile }) {
         into("META-INF")
     }

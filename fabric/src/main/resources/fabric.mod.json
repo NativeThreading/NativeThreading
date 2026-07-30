@@ -20,14 +20,16 @@
     "hopper.mixins.json",
     "redstone.mixins.json",
     "redstone-diode.mixins.json",
-    "vectorial.mixins.json"
+    "vectorial.mixins.json",
+    "palette.mixins.json"
   ],
   "provides": [
     "parallel-core",
     "explosion",
     "hopper",
     "redstone",
-    "vectorial"
+    "vectorial",
+    "palette"
   ],
   "depends": {
     "fabricloader": ">=0.19.2",

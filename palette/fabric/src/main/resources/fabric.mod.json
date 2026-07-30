@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "palette",
+  "version": "${version}",
+  "name": "Palette Compression",
+  "description": "Optimized palette container with 4-tier adaptive storage for chunk sections.",
+  "authors": [
+    "uright008"
+  ],
+  "license": "MIT",
+  "environment": "server",
+  "mixins": [
+    "palette.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.2",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

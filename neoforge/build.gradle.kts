@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":hopper")) { isTransitive = false }
     implementation(project(":redstone")) { isTransitive = false }
     implementation(project(":vectorial")) { isTransitive = false }
+    implementation(project(":palette")) { isTransitive = false }
 }
 
 tasks.processResources {
@@ -46,6 +47,7 @@ tasks.processResources {
         "hopper",
         "redstone",
         "vectorial",
+        "palette",
     )
     for (sub in subprojects) {
         from("../$sub/neoforge/src/main/resources") {
@@ -80,6 +82,7 @@ tasks.jar {
         project(":hopper").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":redstone").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":vectorial").tasks.named<Jar>("jar").flatMap { it.archiveFile },
+        project(":palette").tasks.named<Jar>("jar").flatMap { it.archiveFile },
     )
 
     dependsOn(bundledSubprojectJars)
