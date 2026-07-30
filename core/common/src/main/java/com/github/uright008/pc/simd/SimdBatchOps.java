@@ -43,6 +43,20 @@ public final class SimdBatchOps {
         return getEntityDataView().slotCount();
     }
 
+    public static com.github.uright008.vec.core.EntityDataView entityData() {
+        return getEntityDataView();
+    }
+
+    public static double posX(int slot) { return getEntityDataView().posX()[slot]; }
+    public static double posY(int slot) { return getEntityDataView().posY()[slot]; }
+    public static double posZ(int slot) { return getEntityDataView().posZ()[slot]; }
+    public static double bbMinX(int slot) { return getEntityDataView().bbMinX()[slot]; }
+    public static double bbMinY(int slot) { return getEntityDataView().bbMinY()[slot]; }
+    public static double bbMinZ(int slot) { return getEntityDataView().bbMinZ()[slot]; }
+    public static double bbMaxX(int slot) { return getEntityDataView().bbMaxX()[slot]; }
+    public static double bbMaxY(int slot) { return getEntityDataView().bbMaxY()[slot]; }
+    public static double bbMaxZ(int slot) { return getEntityDataView().bbMaxZ()[slot]; }
+
 public static void extractPositions(int[] slots, int count,
                                     double[] dstX, double[] dstY, double[] dstZ) {
     double[][] f = com.github.uright008.vec.core.SoAStore.getFields();

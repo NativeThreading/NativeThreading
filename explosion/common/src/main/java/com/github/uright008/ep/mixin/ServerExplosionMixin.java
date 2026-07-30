@@ -393,7 +393,10 @@ public abstract class ServerExplosionMixin {
         List<ExplosionHelper.EntityDamageSnapshot> snapshots;
         List<ExplosionHelper.EntityDamageResult> results;
         try {
-            snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
+            boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
+            snapshots = isDefaultCalc
+                    ? captureEntityDamageSnapshotsDefault(x0, y0, z0, x1, y1, z1, dr)
+                    : captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
             if (snapshots.isEmpty()) return true;
             ENTITY_WORKER_BATCHES.incrementAndGet();
             if (ExplosionParallelConfig.isRayLookup()) {
@@ -425,6 +428,39 @@ public abstract class ServerExplosionMixin {
 
         logEntityPathCounters();
         return true;
+    }
+
+    @Unique
+    private List<ExplosionHelper.EntityDamageSnapshot> captureEntityDamageSnapshotsDefault(
+            int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
+        int[] hits = new int[SimdBatchOps.slotCount()];
+        int hitCount = SimdBatchOps.intersectAABB(hits, x0, y0, z0, x1, y1, z1);
+        if (hitCount == 0) return List.of();
+
+        double[] distanceSquares = new double[hitCount];
+        SimdBatchOps.distanceSqBySlotBatch(hits, hitCount,
+                this.center.x, this.center.y, this.center.z, distanceSquares);
+        double radiusSquare = (double) doubleRadius * doubleRadius;
+
+        float[] firstBlockDistances = ExplosionParallelConfig.isRayLookup()
+                ? this.cachedFirstBlockDistances : null;
+        float samplingFactor = ExplosionParallelConfig.getSamplingFactor();
+        int sourceId = this.source != null ? this.source.getId() : -1;
+
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
+        for (int index = 0; index < hitCount; index++) {
+            if (distanceSquares[index] > radiusSquare) continue;
+            int slot = hits[index];
+            int entityId = SimdBatchOps.slotToEntityId(slot);
+            if (entityId < 0 || entityId == sourceId) continue;
+            snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId, 0, 0,
+                    SimdBatchOps.posX(slot), SimdBatchOps.posY(slot), SimdBatchOps.posZ(slot),
+                    SimdBatchOps.posY(slot),
+                    SimdBatchOps.bbMinX(slot), SimdBatchOps.bbMinY(slot), SimdBatchOps.bbMinZ(slot),
+                    SimdBatchOps.bbMaxX(slot), SimdBatchOps.bbMaxY(slot), SimdBatchOps.bbMaxZ(slot),
+                    true, 1.0F, 0.0F, samplingFactor, firstBlockDistances));
+        }
+        return snapshots;
     }
 
     @Unique
