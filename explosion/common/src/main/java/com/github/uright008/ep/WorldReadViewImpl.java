@@ -32,7 +32,7 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ,
             @Nullable VisibilityCollisionSnapshot collision) {
-        this.states = java.util.Arrays.copyOf(states, states.length);
+        this.states = states;
         this.minX = minX;
         this.minY = minY;
         this.minZ = minZ;

@@ -523,8 +523,10 @@ public abstract class ServerExplosionMixin {
         Entity entity = this.level.getEntity(result.entityId());
         if (entity == null) return;
         UUID uuid = entity.getUUID();
-        if (uuid.getMostSignificantBits() != result.uuidMostSignificantBits()
-                || uuid.getLeastSignificantBits() != result.uuidLeastSignificantBits()) return;
+        if (result.uuidMostSignificantBits() != 0 || result.uuidLeastSignificantBits() != 0) {
+            if (uuid.getMostSignificantBits() != result.uuidMostSignificantBits()
+                    || uuid.getLeastSignificantBits() != result.uuidLeastSignificantBits()) return;
+        }
         ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
             @Override
             public void hurt(float damage) {
