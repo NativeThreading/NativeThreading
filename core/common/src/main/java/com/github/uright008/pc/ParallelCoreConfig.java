@@ -66,5 +66,27 @@ public final class ParallelCoreConfig extends ParallelConfig {
         INSTANCE = new ParallelCoreConfig(storage);
     }
 
-    private static int getParallelism() { return Math.max(2, Runtime.getRuntime().availableProcessors() - 2); }
+    private static int getParallelism() {
+        int pcores = getPcoreCount();
+        if (pcores > 0) return Math.max(2, pcores);
+        return Math.max(2, Runtime.getRuntime().availableProcessors() - 2);
+    }
+
+    private static int getPcoreCount() {
+        try {
+            java.io.File cpuDir = new java.io.File("/sys/devices/system/cpu");
+            java.io.File[] cpus = cpuDir.listFiles(f -> f.getName().matches("cpu\\d+"));
+            if (cpus == null) return 0;
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (java.io.File cpu : cpus) {
+                java.io.File siblingsFile = new java.io.File(cpu, "topology/thread_siblings_list");
+                if (!siblingsFile.exists()) continue;
+                String siblings = new String(java.nio.file.Files.readAllBytes(siblingsFile.toPath())).trim();
+                if (siblings.contains(",") || siblings.contains("-")) seen.add(siblings);
+            }
+            return seen.isEmpty() ? 0 : seen.size();
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
 }
