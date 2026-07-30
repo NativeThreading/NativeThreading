@@ -34,7 +34,7 @@ final class PackedVisibilityCollisionGrid implements Shapes.DoubleLineConsumer {
         int cellCount = strideZ * (maxZ - minZ + 1);
         this.cellHeads = new int[cellCount];
         this.cellTails = new int[cellCount];
-        int initialCapacity = Math.min(cellCount, 4096);
+        int initialCapacity = cellCount * 2;
         this.nextBoxes = new int[initialCapacity];
         this.boxCoordinates = new double[initialCapacity * 6];
         this.boxCount = 1;
