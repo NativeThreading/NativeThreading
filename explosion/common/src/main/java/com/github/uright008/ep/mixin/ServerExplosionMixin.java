@@ -91,8 +91,7 @@ public abstract class ServerExplosionMixin {
 
     @Unique private static final ResistanceCalculator DEFAULT_RESISTANCE_CALC = (pos, block, fluid, baseRes) -> {
         if (!block.isAir() || !fluid.isEmpty()) {
-            return (Math.max(block.getBlock().getExplosionResistance(),
-                    fluid.getExplosionResistance()) + 0.3F) * 0.3F;
+            return (baseRes + 0.3F) * 0.3F;
         }
         return 0.0F;
     };
