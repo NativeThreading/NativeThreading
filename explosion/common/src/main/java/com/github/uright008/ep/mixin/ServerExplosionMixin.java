@@ -89,6 +89,16 @@ public abstract class ServerExplosionMixin {
     @Unique private static final AtomicLong ENTITY_WORKER_BATCHES = new AtomicLong();
     @Unique private static final AtomicLong ENTITY_FALLBACKS = new AtomicLong();
 
+    @Unique private static final ResistanceCalculator DEFAULT_RESISTANCE_CALC = (pos, block, fluid, baseRes) -> {
+        if (!block.isAir() || !fluid.isEmpty()) {
+            return (Math.max(block.getBlock().getExplosionResistance(),
+                    fluid.getExplosionResistance()) + 0.3F) * 0.3F;
+        }
+        return 0.0F;
+    };
+
+    @Unique private static final BlockExplodeDecider DEFAULT_EXPLODE_DECIDER = (pos, block, remainingPower) -> remainingPower > 0.0F;
+
 
     // ──────────────────────────────────────────────
     // ──────────────────────────────────────────────
@@ -212,14 +222,8 @@ public abstract class ServerExplosionMixin {
         final BlockExplodeDecider explodeDecider;
 
         if (isDefaultCalc) {
-            resistanceCalc = (pos, block, fluid, baseRes) -> {
-                if (!block.isAir() || !fluid.isEmpty()) {
-                    return (Math.max(block.getBlock().getExplosionResistance(),
-                            fluid.getExplosionResistance()) + 0.3F) * 0.3F;
-                }
-                return 0.0F;
-            };
-            explodeDecider = (pos, block, remainingPower) -> remainingPower > 0.0F;
+            resistanceCalc = DEFAULT_RESISTANCE_CALC;
+            explodeDecider = DEFAULT_EXPLODE_DECIDER;
         } else if (this.damageCalculator instanceof net.minecraft.world.level.EntityBasedExplosionDamageCalculator
                 && this.source != null) {
             final Entity entity = this.source;
