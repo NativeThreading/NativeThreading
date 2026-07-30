@@ -404,16 +404,12 @@ public abstract class ServerExplosionMixin {
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             } else {
-                VisibilityCollisionSnapshot collisionSnapshot = captureVisibilityCollisionSnapshot();
-                if (collisionSnapshot == null) {
-                    if (tier == ExplosionParallelEligibility.Tier.A) {
-                        LOGGER.warn("Tier A collision snapshot unexpectedly null; falling back to vanilla entity damage");
-                    }
+                if (this.visibilityCollisionSnapshot == null) {
                     return false;
                 }
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(
-                                snapshot, centerX, centerY, centerZ, dr, collisionSnapshot),
+                                snapshot, centerX, centerY, centerZ, dr, this.visibilityCollisionSnapshot),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
@@ -517,149 +513,6 @@ public abstract class ServerExplosionMixin {
             LOGGER.info("Explosion entity paths: active={}, workerBatches={}, fallbacks={}",
                     paths, ENTITY_WORKER_BATCHES.get(), ENTITY_FALLBACKS.get());
         }
-    }
-
-    @Unique
-    private float getSeenPercentSafe(Vec3 center, Entity entity) {
-        AABB bb = entity.getBoundingBox();
-        float f = ExplosionParallelConfig.getSamplingFactor();
-        double xs = 1.0 / ((bb.maxX - bb.minX) * f + 1.0);
-        double ys = 1.0 / ((bb.maxY - bb.minY) * f + 1.0);
-        double zs = 1.0 / ((bb.maxZ - bb.minZ) * f + 1.0);
-        double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
-        double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
-        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
-
-        ChunkGrid chunkGrid = this.cachedChunkGrid;
-        Vec3 toVec = new Vec3(center.x, center.y, center.z);
-        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-        int hits = 0, count = 0;
-        for (double xx = 0.0; xx <= 1.0; xx += xs) {
-            for (double yy = 0.0; yy <= 1.0; yy += ys) {
-                for (double zz = 0.0; zz <= 1.0; zz += zs) {
-                    double x = net.minecraft.util.Mth.lerp(xx, bb.minX, bb.maxX);
-                    double y = net.minecraft.util.Mth.lerp(yy, bb.minY, bb.maxY);
-                    double z = net.minecraft.util.Mth.lerp(zz, bb.minZ, bb.maxZ);
-                    if (!rayCastHitsBlock(x + xOffset, y, z + zOffset, center.x, center.y, center.z,
-                            chunkGrid, toVec, pos)) hits++;
-                    count++;
-                }
-            }
-        }
-        return (float) hits / count;
-    }
-
-    @Unique
-    private static boolean rayCastHitsBlock(double fx, double fy, double fz,
-                                            double tx, double ty, double tz,
-                                            ChunkGrid chunkGrid, Vec3 toVec,
-                                            BlockPos.MutableBlockPos pos) {
-        double dx = tx - fx, dy = ty - fy, dz = tz - fz;
-        if (dx * dx + dy * dy + dz * dz < 1.0E-7) return false;
-
-        double fromX = net.minecraft.util.Mth.lerp(-1.0E-7, fx, tx);
-        double fromY = net.minecraft.util.Mth.lerp(-1.0E-7, fy, ty);
-        double fromZ = net.minecraft.util.Mth.lerp(-1.0E-7, fz, tz);
-        double toX   = net.minecraft.util.Mth.lerp(-1.0E-7, tx, fx);
-        double toY   = net.minecraft.util.Mth.lerp(-1.0E-7, ty, fy);
-        double toZ   = net.minecraft.util.Mth.lerp(-1.0E-7, tz, fz);
-
-        int x = net.minecraft.util.Mth.floor(fromX);
-        int y = net.minecraft.util.Mth.floor(fromY);
-        int z = net.minecraft.util.Mth.floor(fromZ);
-        int endX = net.minecraft.util.Mth.floor(toX);
-        int endY = net.minecraft.util.Mth.floor(toY);
-        int endZ = net.minecraft.util.Mth.floor(toZ);
-
-        int stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
-        int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
-        int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
-
-        double tDeltaX = stepX != 0 ? stepX / dx : Double.MAX_VALUE;
-        double tDeltaY = stepY != 0 ? stepY / dy : Double.MAX_VALUE;
-        double tDeltaZ = stepZ != 0 ? stepZ / dz : Double.MAX_VALUE;
-
-        double tMaxX = tDeltaX * (stepX > 0 ? 1.0 - net.minecraft.util.Mth.frac(fromX) : net.minecraft.util.Mth.frac(fromX));
-        double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - net.minecraft.util.Mth.frac(fromY) : net.minecraft.util.Mth.frac(fromY));
-        double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - net.minecraft.util.Mth.frac(fromZ) : net.minecraft.util.Mth.frac(fromZ));
-
-        int cachedSectionX = Integer.MIN_VALUE;
-        int cachedSectionY = Integer.MIN_VALUE;
-        int cachedSectionZ = Integer.MIN_VALUE;
-        LevelChunkSection cachedSection = null;
-        boolean cachedSectionAir = true;
-
-        while (true) {
-            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
-            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
-            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
-
-            int cx = x >> 4;
-            int cy = y >> 4;
-            int cz = z >> 4;
-            if (cx != cachedSectionX || cy != cachedSectionY || cz != cachedSectionZ) {
-                cachedSectionX = cx;
-                cachedSectionY = cy;
-                cachedSectionZ = cz;
-                cachedSection = chunkGrid.getSection(cx, cz, y);
-                cachedSectionAir = cachedSection == null || cachedSection.hasOnlyAir();
-            }
-
-            if (cachedSectionAir) {
-                int nx = 0, ny = 0, nz = 0;
-                if (stepX > 0) nx = ((cx + 1) << 4) - x; else if (stepX < 0) nx = x - ((cx << 4) - 1);
-                if (stepY > 0) ny = ((cy + 1) << 4) - y; else if (stepY < 0) ny = y - ((cy << 4) - 1);
-                if (stepZ > 0) nz = ((cz + 1) << 4) - z; else if (stepZ < 0) nz = z - ((cz << 4) - 1);
-
-                int ex = 0, ey = 0, ez = 0;
-                if (stepX > 0) ex = endX - x + 1; else if (stepX < 0) ex = x - endX + 1;
-                if (stepY > 0) ey = endY - y + 1; else if (stepY < 0) ey = y - endY + 1;
-                if (stepZ > 0) ez = endZ - z + 1; else if (stepZ < 0) ez = z - endZ + 1;
-
-                double sectionT = Double.MAX_VALUE; char exitA = 0;
-                if (nx > 0) { double t = tMaxX + (nx - 1) * tDeltaX; if (t < sectionT) { sectionT = t; exitA = 'x'; } }
-                if (ny > 0) { double t = tMaxY + (ny - 1) * tDeltaY; if (t < sectionT) { sectionT = t; exitA = 'y'; } }
-                if (nz > 0) { double t = tMaxZ + (nz - 1) * tDeltaZ; if (t < sectionT) { sectionT = t; exitA = 'z'; } }
-                double endT = Double.MAX_VALUE;
-                if (ex > 0) { double t = tMaxX + (ex - 1) * tDeltaX; if (t < endT) endT = t; }
-                if (ey > 0) { double t = tMaxY + (ey - 1) * tDeltaY; if (t < endT) endT = t; }
-                if (ez > 0) { double t = tMaxZ + (ez - 1) * tDeltaZ; if (t < endT) endT = t; }
-                if (endT <= sectionT || exitA == 0) return false;
-
-                int cX = 0, cY = 0, cZ = 0;
-                if (exitA == 'x') { cX = nx; if (ny > 0) { double r = (sectionT - tMaxY - 1e-12) / tDeltaY; if (r > 0) cY = (int) r + 1; } if (nz > 0) { double r = (sectionT - tMaxZ - 1e-12) / tDeltaZ; if (r > 0) cZ = (int) r + 1; } }
-                else if (exitA == 'y') { cY = ny; if (nx > 0) { double r = (sectionT - tMaxX - 1e-12) / tDeltaX; if (r > 0) cX = (int) r + 1; } if (nz > 0) { double r = (sectionT - tMaxZ - 1e-12) / tDeltaZ; if (r > 0) cZ = (int) r + 1; } }
-                else { cZ = nz; if (nx > 0) { double r = (sectionT - tMaxX - 1e-12) / tDeltaX; if (r > 0) cX = (int) r + 1; } if (ny > 0) { double r = (sectionT - tMaxY - 1e-12) / tDeltaY; if (r > 0) cY = (int) r + 1; } }
-                x += stepX * cX; y += stepY * cY; z += stepZ * cZ;
-                tMaxX += cX * tDeltaX; tMaxY += cY * tDeltaY; tMaxZ += cZ * tDeltaZ;
-                if (stepX > 0 ? x > endX : (stepX < 0 && x < endX)) return false;
-                if (stepY > 0 ? y > endY : (stepY < 0 && y < endY)) return false;
-                if (stepZ > 0 ? z > endZ : (stepZ < 0 && z < endZ)) return false;
-                continue;
-            }
-
-            BlockState state = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
-            if (!state.isAir()) {
-                pos.set(x, y, z);
-                if (ExplosionHelper.isFullCube(state)) return true;
-                ChunkAccess chunk = chunkGrid.getChunk(cx, cz);
-                VoxelShape shape = state.getCollisionShape(chunk, pos);
-                if (!shape.isEmpty()) {
-                    Vec3 fromVec = new Vec3(fx, fy, fz);
-                    BlockHitResult hit = shape.clip(fromVec, toVec, pos);
-                    if (hit != null && hit.getType() != HitResult.Type.MISS) return true;
-                }
-            }
-
-            if (tMaxX < tMaxY) {
-                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; tMaxX += tDeltaX; }
-                else                 { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
-            } else {
-                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
-                else                 { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
-            }
-        }
-        return false;
     }
 
     // ──────────────────────────────────────────────
