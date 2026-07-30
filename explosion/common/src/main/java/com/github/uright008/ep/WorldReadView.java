@@ -19,8 +19,6 @@ import java.util.function.Predicate;
  *   <li>Block states are stored in a flat array indexed by
  *       {@code (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ}.</li>
  *   <li>Out-of-bounds access returns a default air-like value.</li>
- *   <li>Collision boxes are provided per-cell via
- *       {@link VisibilityCollisionSnapshot} lookup.</li>
  * </ul>
  *
  * @param <B> block state type — {@code Object} in tests, {@code BlockState} in production

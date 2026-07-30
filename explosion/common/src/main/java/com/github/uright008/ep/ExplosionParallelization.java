@@ -9,7 +9,6 @@ public class ExplosionParallelization {
 
     public void onInitialize() {
         LOGGER.info("Explosion Parallelization initializing...");
-        ExplosionHelper.initFullCubeCache();
         ExplosionParallelConfig.init();
         ParallelCommand.registerSubCommand(new ExplosionParallelCommand());
         LOGGER.info("Explosion Parallelization ready — use /parallel explosion");

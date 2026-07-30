@@ -205,41 +205,6 @@ public final class ExplosionHelper {
     public static final int[][][] RAY_INDEX_BY_GRID = buildRayIndexGrid();
     public static final int[][] RAY_DELTAS = generateRayDeltas();
 
-    /** Pre-computed: block state id → has full cube collision.  Indexed by {@code Block.getId(BlockState)}. */
-    public static boolean[] FULL_CUBE;
-
-    /** Must be called once during mod init. */
-    public static void initFullCubeCache() {
-        int maxId = 0;
-        for (Block block : BuiltInRegistries.BLOCK) {
-            for (BlockState state : block.getStateDefinition().getPossibleStates()) {
-                maxId = Math.max(maxId, Block.getId(state));
-            }
-        }
-        FULL_CUBE = new boolean[maxId + 1]; // defaults to false
-        net.minecraft.core.BlockPos zero = net.minecraft.core.BlockPos.ZERO;
-        for (Block block : BuiltInRegistries.BLOCK) {
-            for (BlockState state : block.getStateDefinition().getPossibleStates()) {
-                try {
-                    boolean fullCube = state.isCollisionShapeFullBlock(null, zero);
-                    FULL_CUBE[Block.getId(state)] = fullCube;
-                } catch (NullPointerException ignored) {
-                    // Some blocks (shulker boxes etc.) require a Level context
-                    // for collision shape checks. Skip them — they won't be
-                    // full cubes at explosion time either.
-                } catch (Exception e) {
-                    LOGGER.warn("Failed to check full-cube for block {} state {}", block, state, e);
-                }
-            }
-        }
-    }
-
-    public static boolean isFullCube(BlockState state) {
-        boolean[] fullCube = FULL_CUBE;
-        int id = net.minecraft.world.level.block.Block.getId(state);
-        return fullCube != null && id >= 0 && id < fullCube.length && fullCube[id];
-    }
-
     // ── Ray generation ───────────────────────────
 
     private static List<RayParam> generateRayParams() {
