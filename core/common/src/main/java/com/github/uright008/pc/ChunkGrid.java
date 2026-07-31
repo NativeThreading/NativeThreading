@@ -199,6 +199,48 @@ public final class ChunkGrid {
         return false;
     }
 
+    public static boolean rayIntersectsOcclusionGrid(double fx, double fy, double fz,
+                                                      double tx, double ty, double tz,
+                                                      boolean[] grid,
+                                                      int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+                                                      int strideY, int strideZ) {
+        double dx = tx - fx, dy = ty - fy, dz = tz - fz;
+        double lenSq = dx * dx + dy * dy + dz * dz;
+        if (lenSq < 1.0E-7) return false;
+
+        int stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+        int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+        int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+        double tDeltaX = stepX != 0 ? stepX / dx : Double.MAX_VALUE;
+        double tDeltaY = stepY != 0 ? stepY / dy : Double.MAX_VALUE;
+        double tDeltaZ = stepZ != 0 ? stepZ / dz : Double.MAX_VALUE;
+        double tMaxX = tDeltaX * (stepX > 0 ? 1.0 - Mth.frac(fx) : Mth.frac(fx));
+        double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - Mth.frac(fy) : Mth.frac(fy));
+        double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - Mth.frac(fz) : Mth.frac(fz));
+        int x = Mth.floor(fx), y = Mth.floor(fy), z = Mth.floor(fz);
+        int endX = Mth.floor(tx), endY = Mth.floor(ty), endZ = Mth.floor(tz);
+
+        while (true) {
+            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
+            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
+            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
+
+            if (x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ) {
+                int idx = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
+                if (grid[idx]) return true;
+            }
+
+            if (tMaxX < tMaxY) {
+                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; tMaxX += tDeltaX; }
+                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+            } else {
+                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
+                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+            }
+        }
+        return false;
+    }
+
     private static boolean rayAabbIntersects(double fx, double fy, double fz,
                                               double tx, double ty, double tz,
                                               double minX, double minY, double minZ,
