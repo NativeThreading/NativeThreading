@@ -80,14 +80,11 @@ val generateFields by tasks.registering {
         fun String.toTitle() = replaceFirstChar { it.uppercase() }
 
         val specialGetters = mapOf(
-            "bb" to "getBoundingBox",
-            "eyeHeight" to "getEyeHeight"
+            "bb" to "getBoundingBox"
         )
         val specialSetters = mapOf(
             "bb" to "setBoundingBox",
-            "position" to null,
-            "onGround" to "setOnGround",
-            "isInPowderSnow" to "setIsInPowderSnow"
+            "position" to null
         )
 
         // Getters that can't have their body replaced (VerifyError candidates)
@@ -196,14 +193,7 @@ val generateFields by tasks.registering {
         accessorsFile.writeText(accSb.toString())
 
         // ── GeneratedSync.java ──
-        val publicFields = setOf(
-            "blocksBuilding", "xo", "yo", "zo", "yRotO", "xRotO",
-            "horizontalCollision", "verticalCollision", "verticalCollisionBelow",
-            "minorHorizontalCollision", "hurtMarked", "moveDist", "flyDist",
-            "fallDistance", "xOld", "yOld", "zOld", "noPhysics", "tickCount",
-            "invulnerableTime", "needsSync", "syncPosition", "isInPowderSnow",
-            "wasInPowderSnow"
-        )
+        val publicFields = fields.filter { it.access == "public" }.map { it.name }.toSet()
         val syncSb = StringBuilder()
         syncSb.append("package com.github.uright008.vec.core;\n\n")
         syncSb.append("import net.minecraft.world.entity.Entity;\nimport net.minecraft.world.phys.Vec3;\nimport net.minecraft.world.phys.AABB;\n\n")

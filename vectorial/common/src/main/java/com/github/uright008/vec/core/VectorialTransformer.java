@@ -128,30 +128,11 @@ public final class VectorialTransformer {
             "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_Z + "][_sl]);" +
             "  return this.position; }");
 
-        // getDeltaMovement
-        setBodySafe(ct, "getDeltaMovement",
-            vec3Expr("deltaMovement", GeneratedFields.DELTA_MOVEMENT_X));
-
-        // getBoundingBox
-        setBodySafe(ct, "getBoundingBox",
-            aabbExpr("bb", GeneratedFields.BB_MIN_X));
-
-        // getYRot / getXRot / getEyeHeight
-        setBodySafe(ct, "getYRot", scalarExpr("yRot", GeneratedFields.Y_ROT, "float"));
-        setBodySafe(ct, "getXRot", scalarExpr("xRot", GeneratedFields.X_ROT, "float"));
-        setBodySafe(ct, "getEyeHeight", scalarExpr("eyeHeight", GeneratedFields.EYE_HEIGHT, "float"));
-
-        // onGround
-        setBodySafe(ct, "onGround", boolExpr("onGround", GeneratedFields.ON_GROUND));
-
-        // ── Auto: new getters from GeneratedAccessors ──
+        // ── Auto: transform all remaining getters from GeneratedAccessors ──
         int count = 0;
-        var manual = java.util.Set.of(
-            "getDeltaMovement", "getYRot", "getXRot", "getBoundingBox",
-            "getEyeHeight", "onGround", "getX", "getY", "getZ", "position"
-        );
+        var positionGetters = java.util.Set.of("getX", "getY", "getZ", "position");
         for (GeneratedAccessors.Entry e : GeneratedAccessors.ALL) {
-            if (e.getterName() == null || e.skipTransform() || manual.contains(e.getterName())) continue;
+            if (e.getterName() == null || e.skipTransform() || positionGetters.contains(e.getterName())) continue;
 
             String body = switch (e.type()) {
                 case "double" -> scalarExpr(e.fieldName(), e.baseOrdinal(), "double");
@@ -168,7 +149,7 @@ public final class VectorialTransformer {
                 count++;
             }
         }
-        VectorialAgent.report("transformed " + count + " auto getters to SoA");
+        VectorialAgent.report("transformed " + count + " getters to SoA");
     }
 
     private static void setBodySafe(CtClass ct, String methodName, String body) {
