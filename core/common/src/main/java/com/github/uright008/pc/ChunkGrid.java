@@ -2,12 +2,10 @@ package com.github.uright008.pc;
 
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
 public final class ChunkGrid {
@@ -155,82 +153,6 @@ public final class ChunkGrid {
         }
         out.chunk = chunk;
         out.section = section;
-    }
-
-    public boolean rayIntersectsBlock(double fx, double fy, double fz,
-                                       double tx, double ty, double tz) {
-        double dx = tx - fx, dy = ty - fy, dz = tz - fz;
-        double lenSq = dx * dx + dy * dy + dz * dz;
-        if (lenSq < 1.0E-7) return false;
-
-        int stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
-        int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
-        int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
-        double tDeltaX = stepX != 0 ? stepX / dx : Double.MAX_VALUE;
-        double tDeltaY = stepY != 0 ? stepY / dy : Double.MAX_VALUE;
-        double tDeltaZ = stepZ != 0 ? stepZ / dz : Double.MAX_VALUE;
-        double tMaxX = tDeltaX * (stepX > 0 ? 1.0 - Mth.frac(fx) : Mth.frac(fx));
-        double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - Mth.frac(fy) : Mth.frac(fy));
-        double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - Mth.frac(fz) : Mth.frac(fz));
-        int x = Mth.floor(fx), y = Mth.floor(fy), z = Mth.floor(fz);
-        int endX = Mth.floor(tx), endY = Mth.floor(ty), endZ = Mth.floor(tz);
-        int cx = SectionPos.blockToSectionCoord(x);
-        int cz = SectionPos.blockToSectionCoord(z);
-
-        while (true) {
-            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
-            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
-            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
-
-            BlockState state = getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
-            if (!state.isAir()) {
-                VoxelShape shape = state.getCollisionShape(null, null);
-                if (!shape.isEmpty()) {
-                    net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersects(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
-                        return true;
-                }
-            }
-
-            if (tMaxX < tMaxY) {
-                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; cx = SectionPos.blockToSectionCoord(x); tMaxX += tDeltaX; }
-                else                { if (stepZ == 0) break; z += stepZ; cz = SectionPos.blockToSectionCoord(z); tMaxZ += tDeltaZ; }
-            } else {
-                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
-                else                { if (stepZ == 0) break; z += stepZ; cz = SectionPos.blockToSectionCoord(z); tMaxZ += tDeltaZ; }
-            }
-        }
-        return false;
-    }
-
-    private static boolean rayAabbIntersects(double fx, double fy, double fz,
-                                              double tx, double ty, double tz,
-                                              double minX, double minY, double minZ,
-                                              double maxX, double maxY, double maxZ) {
-        double dirX = tx - fx, dirY = ty - fy, dirZ = tz - fz;
-        double min = 0.0, max = 1.0;
-        if (dirX == 0) { if (fx < minX || fx > maxX) return false; }
-        else {
-            double n = (minX - fx) / dirX, f = (maxX - fx) / dirX;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        if (dirY == 0) { if (fy < minY || fy > maxY) return false; }
-        else {
-            double n = (minY - fy) / dirY, f = (maxY - fy) / dirY;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        if (dirZ == 0) { if (fz < minZ || fz > maxZ) return false; }
-        else {
-            double n = (minZ - fz) / dirZ, f = (maxZ - fz) / dirZ;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        return true;
     }
 
     public int getMinY() { return minY; }
