@@ -128,7 +128,7 @@ val generateFields by tasks.registering {
         fieldsSb.append("package com.github.uright008.vec.core;\n\n")
         fieldsSb.append("// AUTO-GENERATED from Entity.class via javap — do not edit\n")
         fieldsSb.append("public final class GeneratedFields {\n")
-        fieldsSb.append("    public record Spec(String name, String type, String access) {\n")
+        fieldsSb.append("    public record Spec(String name, String type, String access, int ordinal) {\n")
         fieldsSb.append("        public boolean isDouble() { return type.equals(\"double\") || type.equals(\"Vec3\"); }\n")
         fieldsSb.append("        public boolean isFloat() { return type.equals(\"float\"); }\n")
         fieldsSb.append("        public boolean isInt() { return type.equals(\"int\"); }\n")
@@ -136,10 +136,14 @@ val generateFields by tasks.registering {
         fieldsSb.append("        public boolean isVec3() { return type.equals(\"Vec3\"); }\n")
         fieldsSb.append("        public boolean isAABB() { return type.equals(\"AABB\"); }\n")
         fieldsSb.append("    }\n")
+        fieldsSb.append("    public static Spec forName(String fieldName) {\n")
+        fieldsSb.append("        for (Spec s : ALL) { if (s.name().equals(fieldName)) return s; }\n")
+        fieldsSb.append("        return null;\n")
+        fieldsSb.append("    }\n")
         fieldsSb.append("    public static final Spec[] ALL = {\n")
         for ((i, f) in fields.withIndex()) {
             val comma = if (i < fields.size - 1) "," else " "
-            fieldsSb.append("        new Spec(\"${f.name}\", \"${f.type}\", \"${f.access}\")$comma\n")
+            fieldsSb.append("        new Spec(\"${f.name}\", \"${f.type}\", \"${f.access}\", ${ordinals[f.name]!!})$comma\n")
         }
         fieldsSb.append("    };\n\n")
         fieldsSb.append("    // ── Field ordinals (array index) ──\n")

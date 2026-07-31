@@ -1,6 +1,7 @@
 package com.github.uright008.vec.core;
 
 import javassist.*;
+import javassist.bytecode.*;
 
 public final class VectorialTransformer {
     private static final String E = "net.minecraft.world.entity.Entity";
@@ -34,9 +35,8 @@ public final class VectorialTransformer {
         }
     }
 
-    // ── Expression generators (inlined into getter bodies) ──
+    // ── Expression generators ──
 
-    /** Position axis read: fields[POSITION_X/Y/Z], fallback this.position.x/y/z */
     private static String posAxisExpr(String axis, int ord) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
@@ -45,7 +45,6 @@ public final class VectorialTransformer {
             "                 : this.position." + axis.toLowerCase() + "; }";
     }
 
-    /** Vec3 read from 3 consecutive ordinals, fallback this.{fieldName} */
     private static String vec3Expr(String fieldName, int baseOrd) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
@@ -57,7 +56,6 @@ public final class VectorialTransformer {
             "  return this." + fieldName + "; }";
     }
 
-    /** AABB read from 6 consecutive ordinals, fallback this.{fieldName} */
     private static String aabbExpr(String fieldName, int baseOrd) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
@@ -72,7 +70,6 @@ public final class VectorialTransformer {
             "  return this." + fieldName + "; }";
     }
 
-    /** Scalar read (double/float/int) with NaN fallback */
     private static String scalarExpr(String fieldName, int ord, String type) {
         String cast = switch (type) {
             case "float" -> "(float)";
@@ -87,7 +84,6 @@ public final class VectorialTransformer {
             "  return this." + fieldName + "; }";
     }
 
-    /** Boolean read with NaN fallback: return _v != 0.0 */
     private static String boolExpr(String fieldName, int ord) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
@@ -97,10 +93,54 @@ public final class VectorialTransformer {
             "  return this." + fieldName + "; }";
     }
 
+    // ── Bytecode-based getter discovery ──
+
+    /** Inspects method bytecode. If it's a simple getter (ALOAD_0 → GETFIELD → RETURN),
+     *  returns the field name. Otherwise returns null (including methods with guard logic,
+     *  chained getfields, or compound computation). */
+    private static String discoverSimpleGetterField(CtMethod method) {
+        try {
+            MethodInfo minfo = method.getMethodInfo();
+            CodeAttribute ca = minfo.getCodeAttribute();
+            if (ca == null) return null;
+            byte[] code = ca.getCode();
+            if (code == null || code.length == 0) return null;
+
+            int i = 0;
+            while (i < code.length && (code[i] & 0xFF) == Opcode.NOP) i++;
+            if (i >= code.length || (code[i] & 0xFF) != Opcode.ALOAD_0) return null;
+            i++;
+            while (i < code.length && (code[i] & 0xFF) == Opcode.NOP) i++;
+            if (i + 2 >= code.length || (code[i] & 0xFF) != Opcode.GETFIELD) return null;
+            int cpIndex = ((code[i+1] & 0xFF) << 8) | (code[i+2] & 0xFF);
+            i += 3;
+            while (i < code.length && (code[i] & 0xFF) == Opcode.NOP) i++;
+            if (i >= code.length) return null;
+            int retOp = code[i] & 0xFF;
+            if (retOp < Opcode.IRETURN || retOp > Opcode.RETURN) return null;
+            i++;
+            while (i < code.length) {
+                if ((code[i] & 0xFF) != Opcode.NOP) return null;
+                i++;
+            }
+
+            if (!fieldBelongsToEntity(minfo, cpIndex)) return null;
+            return minfo.getConstPool().getFieldrefName(cpIndex);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static boolean fieldBelongsToEntity(MethodInfo minfo, int cpIndex) {
+        String className = minfo.getConstPool().getFieldrefClassName(cpIndex);
+        return "net/minecraft/world/entity/Entity".equals(className)
+            || "net.minecraft.world.entity.Entity".equals(className);
+    }
+
     // ── Transform logic ──
 
     private static void transformGetters(CtClass ct) throws Exception {
-        // ── Special: position axis getters (getX/Y/Z, getX/Y/Z(double), position()) ──
+        // Position axis getters — chained GETFIELD (position → component), handled specially
         for (String ax : new String[]{"X","Y","Z"}) {
             int ord = GeneratedFields.POSITION_X + (ax.charAt(0) - 'X');
             setBodySafe(ct, "get"+ax, posAxisExpr(ax, ord));
@@ -128,25 +168,32 @@ public final class VectorialTransformer {
             "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_Z + "][_sl]);" +
             "  return this.position; }");
 
-        // ── Auto: transform all remaining getters from GeneratedAccessors ──
+        // Bytecode-based auto-discovery: find ALL simple getters on Entity
         int count = 0;
-        var positionGetters = java.util.Set.of("getX", "getY", "getZ", "position");
-        for (GeneratedAccessors.Entry e : GeneratedAccessors.ALL) {
-            if (e.getterName() == null || e.skipTransform() || positionGetters.contains(e.getterName())) continue;
+        var skipNames = java.util.Set.of("getX", "getY", "getZ", "position");
+        for (CtMethod m : ct.getDeclaredMethods()) {
+            if (m.getParameterTypes().length > 0) continue;
+            if (skipNames.contains(m.getName())) continue;
 
-            String body = switch (e.type()) {
-                case "double" -> scalarExpr(e.fieldName(), e.baseOrdinal(), "double");
-                case "float"  -> scalarExpr(e.fieldName(), e.baseOrdinal(), "float");
-                case "int"    -> scalarExpr(e.fieldName(), e.baseOrdinal(), "int");
-                case "boolean"-> boolExpr(e.fieldName(), e.baseOrdinal());
-                case "Vec3"   -> vec3Expr(e.fieldName(), e.baseOrdinal());
-                case "AABB"   -> aabbExpr(e.fieldName(), e.baseOrdinal());
+            String fieldName = discoverSimpleGetterField(m);
+            if (fieldName == null) continue;
+
+            GeneratedFields.Spec spec = GeneratedFields.forName(fieldName);
+            if (spec == null) continue;
+
+            String body = switch (spec.type()) {
+                case "double" -> scalarExpr(fieldName, spec.ordinal(), "double");
+                case "float"  -> scalarExpr(fieldName, spec.ordinal(), "float");
+                case "int"    -> scalarExpr(fieldName, spec.ordinal(), "int");
+                case "boolean"-> boolExpr(fieldName, spec.ordinal());
+                case "Vec3"   -> vec3Expr(fieldName, spec.ordinal());
+                case "AABB"   -> aabbExpr(fieldName, spec.ordinal());
                 default       -> null;
             };
 
             if (body != null) {
-                setBodySafe(ct, e.getterName(), body);
-                count++;
+                try { m.setBody(body); count++; }
+                catch (Exception ignored) {}
             }
         }
         VectorialAgent.report("transformed " + count + " getters to SoA");
