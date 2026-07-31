@@ -158,19 +158,9 @@ public final class VectorialTransformer {
             } catch (NotFoundException ignored) {}
         }
 
-        // position() → reconstruct Vec3 from SoA
-        setBodySafe(ct, "position",
-            "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
-            "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
-            "  if (_sl >= 0) return new net.minecraft.world.phys.Vec3(" +
-            "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_X + "][_sl]," +
-            "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_Y + "][_sl]," +
-            "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_Z + "][_sl]);" +
-            "  return this.position; }");
-
         // Bytecode-based auto-discovery: find ALL simple getters on Entity
         int count = 0;
-        var skipNames = java.util.Set.of("getX", "getY", "getZ", "position");
+        var skipNames = java.util.Set.of("getX", "getY", "getZ");
         for (CtMethod m : ct.getDeclaredMethods()) {
             if (m.getParameterTypes().length > 0) continue;
             if (skipNames.contains(m.getName())) continue;
