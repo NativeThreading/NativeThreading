@@ -34,10 +34,10 @@ public final class VectorialTransformer {
         }
     }
 
-    // Single-element read helper — inlined into getter bodies.
-    // Accesses SoAStore.idToSlot and SoAStore.fields directly (zero method calls).
-    // Falls back to original field when entity is not yet registered.
-    private static String readExpr(String axis, int ord) {
+    // ── Expression generators (inlined into getter bodies) ──
+
+    /** Position axis read: fields[POSITION_X/Y/Z], fallback this.position.x/y/z */
+    private static String posAxisExpr(String axis, int ord) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
@@ -45,9 +45,8 @@ public final class VectorialTransformer {
             "                 : this.position." + axis.toLowerCase() + "; }";
     }
 
-    // Vec3 read: reconstruct Vec3 from 3 consecutive ordinals
-    private static String vec3Expr(String axis, int baseOrd) {
-        String lo = axis.toLowerCase();
+    /** Vec3 read from 3 consecutive ordinals, fallback this.{fieldName} */
+    private static String vec3Expr(String fieldName, int baseOrd) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
@@ -55,11 +54,11 @@ public final class VectorialTransformer {
             "    " + S + ".INSTANCE.fields[" + baseOrd + "][_sl]," +
             "    " + S + ".INSTANCE.fields[" + (baseOrd+1) + "][_sl]," +
             "    " + S + ".INSTANCE.fields[" + (baseOrd+2) + "][_sl]);" +
-            "  return this." + lo + "; }";
+            "  return this." + fieldName + "; }";
     }
 
-    // AABB read: reconstruct AABB from 6 consecutive ordinals
-    private static String aabbExpr(int baseOrd) {
+    /** AABB read from 6 consecutive ordinals, fallback this.{fieldName} */
+    private static String aabbExpr(String fieldName, int baseOrd) {
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
@@ -70,26 +69,37 @@ public final class VectorialTransformer {
             "    " + S + ".INSTANCE.fields[" + (baseOrd+3) + "][_sl]," +
             "    " + S + ".INSTANCE.fields[" + (baseOrd+4) + "][_sl]," +
             "    " + S + ".INSTANCE.fields[" + (baseOrd+5) + "][_sl]);" +
-            "  return this.bb; }";
+            "  return this." + fieldName + "; }";
     }
 
-    // Scalar read with NaN fallback for float/int fields
+    /** Scalar read (double/float/int) with NaN fallback */
     private static String scalarExpr(String fieldName, int ord, String type) {
-        String fallback = "this." + fieldName;
         String cast = type.equals("float") ? "(float)" : "";
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
             "  if (_sl >= 0) { double _v = " + S + ".INSTANCE.fields[" + ord + "][_sl];" +
             "    if (!Double.isNaN(_v)) return " + cast + "_v; }" +
-            "  return " + fallback + "; }";
+            "  return this." + fieldName + "; }";
     }
 
+    /** Boolean read with NaN fallback: return _v != 0.0 */
+    private static String boolExpr(String fieldName, int ord) {
+        return
+            "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
+            "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
+            "  if (_sl >= 0) { double _v = " + S + ".INSTANCE.fields[" + ord + "][_sl];" +
+            "    if (!Double.isNaN(_v)) return _v != 0.0; }" +
+            "  return this." + fieldName + "; }";
+    }
+
+    // ── Transform logic ──
+
     private static void transformGetters(CtClass ct) throws Exception {
-        // getX/Y/Z → inline idToSlot + fields[POSITION_X/Y/Z][slot]
+        // ── Special: position axis getters (getX/Y/Z, getX/Y/Z(double), position()) ──
         for (String ax : new String[]{"X","Y","Z"}) {
             int ord = GeneratedFields.POSITION_X + (ax.charAt(0) - 'X');
-            setBodySafe(ct, "get"+ax, readExpr(ax, ord));
+            setBodySafe(ct, "get"+ax, posAxisExpr(ax, ord));
 
             // getX/Y/Z(double progress) — used in ray tracing, projectile collisions
             try {
@@ -104,7 +114,7 @@ public final class VectorialTransformer {
             } catch (NotFoundException ignored) {}
         }
 
-        // position() → reconstruct Vec3 from SoA with field fallback
+        // position() → reconstruct Vec3 from SoA
         setBodySafe(ct, "position",
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
@@ -114,26 +124,34 @@ public final class VectorialTransformer {
             "    " + S + ".INSTANCE.fields[" + GeneratedFields.POSITION_Z + "][_sl]);" +
             "  return this.position; }");
 
-        // getDeltaMovement → inline Vec3 from fields[DELTA_MOVEMENT_X..Z]
+        // getDeltaMovement
         setBodySafe(ct, "getDeltaMovement",
             vec3Expr("deltaMovement", GeneratedFields.DELTA_MOVEMENT_X));
 
-        // getBoundingBox → inline AABB from fields[BB_MIN_X..BB_MAX_Z]
+        // getBoundingBox
         setBodySafe(ct, "getBoundingBox",
-            aabbExpr(GeneratedFields.BB_MIN_X));
+            aabbExpr("bb", GeneratedFields.BB_MIN_X));
 
         // getYRot / getXRot / getEyeHeight
         setBodySafe(ct, "getYRot", scalarExpr("yRot", GeneratedFields.Y_ROT, "float"));
         setBodySafe(ct, "getXRot", scalarExpr("xRot", GeneratedFields.X_ROT, "float"));
         setBodySafe(ct, "getEyeHeight", scalarExpr("eyeHeight", GeneratedFields.EYE_HEIGHT, "float"));
 
-        // onGround() — most-called boolean on Entity
-        setBodySafe(ct, "onGround",
-            "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
-            "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
-            "  if (_sl >= 0) { double _v = " + S + ".INSTANCE.fields[" + GeneratedFields.ON_GROUND + "][_sl];" +
-            "    if (!Double.isNaN(_v)) return _v != 0.0; }" +
-            "  return this.onGround; }");
+        // onGround
+        setBodySafe(ct, "onGround", boolExpr("onGround", GeneratedFields.ON_GROUND));
+
+        // ── Auto: new getters from GeneratedAccessors (skip handled + blacklisted) ──
+        // TODO: enable after debugging — currently all auto getters cause VerifyError on retransform
+        // int count = 0;
+        // var manual = java.util.Set.of(
+        //     "getDeltaMovement", "getYRot", "getXRot", "getBoundingBox",
+        //     "getEyeHeight", "onGround", "getX", "getY", "getZ", "position"
+        // );
+        // for (GeneratedAccessors.Entry e : GeneratedAccessors.ALL) {
+        //     if (e.getterName() == null || e.skipTransform() || manual.contains(e.getterName())) continue;
+        //     String body = ...
+        // }
+        // VectorialAgent.report("transformed " + count + " getters to SoA");
     }
 
     private static void setBodySafe(CtClass ct, String methodName, String body) {
