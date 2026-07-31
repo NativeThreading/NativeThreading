@@ -7,6 +7,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
@@ -181,7 +182,10 @@ public final class ChunkGrid {
             BlockState state = getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
             if (!state.isAir()) {
                 VoxelShape shape = state.getCollisionShape(null, null);
-                if (!shape.isEmpty()) {
+                if (shape == Shapes.block()) {
+                    if (rayAabbIntersects(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
+                        return true;
+                } else if (!shape.isEmpty()) {
                     net.minecraft.world.phys.AABB bb = shape.bounds();
                     if (rayAabbIntersects(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
                         return true;
