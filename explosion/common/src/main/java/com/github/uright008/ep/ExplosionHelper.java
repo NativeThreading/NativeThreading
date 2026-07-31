@@ -3,7 +3,11 @@ package com.github.uright008.ep;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -115,6 +119,9 @@ public final class ExplosionHelper {
     private static float getSeenPercentChunkGrid(EntityDamageSnapshot snapshot,
                                                   double centerX, double centerY, double centerZ,
                                                   com.github.uright008.pc.ChunkGrid chunkGrid) {
+        com.github.uright008.pc.ChunkGridBlockGetter bg =
+                new com.github.uright008.pc.ChunkGridBlockGetter(chunkGrid);
+        Vec3 center = new Vec3(centerX, centerY, centerZ);
         double minX = snapshot.minX, maxX = snapshot.maxX;
         double minY = snapshot.minY, maxY = snapshot.maxY;
         double minZ = snapshot.minZ, maxZ = snapshot.maxZ;
@@ -126,6 +133,8 @@ public final class ExplosionHelper {
         double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
         if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
 
+        ClipContext.Block blockCtx = ClipContext.Block.COLLIDER;
+        ClipContext.Fluid fluidCtx = ClipContext.Fluid.NONE;
         int hits = 0, count = 0;
         for (double xx = 0.0; xx <= 1.0; xx += xs) {
             for (double yy = 0.0; yy <= 1.0; yy += ys) {
@@ -133,7 +142,11 @@ public final class ExplosionHelper {
                     double sx = minX + (maxX - minX) * xx + xOffset;
                     double sy = minY + (maxY - minY) * yy;
                     double sz = minZ + (maxZ - minZ) * zz + zOffset;
-                    if (!chunkGrid.rayIntersectsBlock(sx, sy, sz, centerX, centerY, centerZ)) hits++;
+                    Vec3 from = new Vec3(sx, sy, sz);
+                    ClipContext ctx = new ClipContext(from, center, blockCtx, fluidCtx,
+                            CollisionContext.empty());
+                    BlockHitResult hit = bg.clip(ctx);
+                    if (hit.getType() == HitResult.Type.MISS) hits++;
                     count++;
                 }
             }

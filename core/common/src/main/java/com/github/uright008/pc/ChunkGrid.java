@@ -24,9 +24,13 @@ public final class ChunkGrid {
     private final int minSectionZ;
     private final int sizeX;
     private final int sizeZ;
+    private final int minY;
+    private final int height;
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
     public ChunkGrid(ServerLevel level, double centerX, double centerZ, float radius) {
+        this.minY = level.getMinY();
+        this.height = level.getHeight();
         int scx = SectionPos.blockToSectionCoord((int) Math.floor(centerX));
         int scz = SectionPos.blockToSectionCoord((int) Math.floor(centerZ));
         int range = (int) Math.ceil(radius / 16.0) + 1;
@@ -229,4 +233,6 @@ public final class ChunkGrid {
         return true;
     }
 
+    public int getMinY() { return minY; }
+    public int getHeight() { return height; }
 }
