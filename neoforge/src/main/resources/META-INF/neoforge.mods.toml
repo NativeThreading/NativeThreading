@@ -26,6 +26,3 @@ config = "redstone-diode.mixins.json"
 
 [[mixins]]
 config = "vectorial.mixins.json"
-
-[[mixins]]
-config = "palette.mixins.json"
