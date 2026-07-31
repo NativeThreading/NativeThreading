@@ -76,22 +76,6 @@ public final class ExplosionHelper {
         return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
     }
 
-    public static EntityDamageResult computeEntityDamage(
-            EntityDamageSnapshot snapshot,
-            double centerX,
-            double centerY,
-            double centerZ,
-            float doubleRadius,
-            boolean[] occlusionGrid,
-            int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
-            int strideY, int strideZ) {
-        float exposure = snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F
-                ? getSeenPercentOcclusion(snapshot, centerX, centerY, centerZ,
-                        occlusionGrid, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ)
-                : 0.0F;
-        return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
-    }
-
     private static EntityDamageResult computeEntityDamage(
             EntityDamageSnapshot snapshot,
             double centerX,
@@ -150,39 +134,6 @@ public final class ExplosionHelper {
                     double sy = minY + (maxY - minY) * yy;
                     double sz = minZ + (maxZ - minZ) * zz + zOffset;
                     if (!chunkGrid.rayIntersectsBlock(sx, sy, sz, centerX, centerY, centerZ)) hits++;
-                    count++;
-                }
-            }
-        }
-        return (float) hits / count;
-    }
-
-    private static float getSeenPercentOcclusion(EntityDamageSnapshot snapshot,
-                                                  double centerX, double centerY, double centerZ,
-                                                  boolean[] occlusionGrid,
-                                                  int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
-                                                  int strideY, int strideZ) {
-        double minBX = snapshot.minX, maxBX = snapshot.maxX;
-        double minBY = snapshot.minY, maxBY = snapshot.maxY;
-        double minBZ = snapshot.minZ, maxBZ = snapshot.maxZ;
-        float samplingFactor = snapshot.samplingFactor;
-        double xs = 1.0 / ((maxBX - minBX) * samplingFactor + 1.0);
-        double ys = 1.0 / ((maxBY - minBY) * samplingFactor + 1.0);
-        double zs = 1.0 / ((maxBZ - minBZ) * samplingFactor + 1.0);
-        double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
-        double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
-        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
-
-        int hits = 0, count = 0;
-        for (double xx = 0.0; xx <= 1.0; xx += xs) {
-            for (double yy = 0.0; yy <= 1.0; yy += ys) {
-                for (double zz = 0.0; zz <= 1.0; zz += zs) {
-                    double sx = minBX + (maxBX - minBX) * xx + xOffset;
-                    double sy = minBY + (maxBY - minBY) * yy;
-                    double sz = minBZ + (maxBZ - minBZ) * zz + zOffset;
-                    if (!com.github.uright008.pc.ChunkGrid.rayIntersectsOcclusionGrid(
-                            sx, sy, sz, centerX, centerY, centerZ,
-                            occlusionGrid, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ)) hits++;
                     count++;
                 }
             }

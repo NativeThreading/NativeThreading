@@ -82,11 +82,6 @@ public abstract class ServerExplosionMixin {
 
     @Unique private ChunkGrid cachedChunkGrid;
 
-    @Unique private boolean[] cachedOcclusionGrid;
-    @Unique private int cachedOcclusionMinX, cachedOcclusionMinY, cachedOcclusionMinZ;
-    @Unique private int cachedOcclusionMaxX, cachedOcclusionMaxY, cachedOcclusionMaxZ;
-    @Unique private int cachedOcclusionStrideY, cachedOcclusionStrideZ;
-
     @Unique private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:explosion");
     @Unique private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
     @Unique private static final AtomicLong ENTITY_WORKER_BATCHES = new AtomicLong();
@@ -194,7 +189,6 @@ public abstract class ServerExplosionMixin {
 
         List<BitSet> workerGrids;
         final BlockState[] flatBlocks = new BlockState[gridSize];
-        final boolean[] occlusionGrid = new boolean[gridSize];
         for (int z = minZ; z <= maxZ; z++) {
             int zOff = (z - minZ) * strideZ;
             for (int y = minY; y <= maxY; y++) {
@@ -202,13 +196,7 @@ public abstract class ServerExplosionMixin {
                 for (int x = minX; x <= maxX; x++) {
                     int cx = SectionPos.blockToSectionCoord(x);
                     int cz = SectionPos.blockToSectionCoord(z);
-                    int idx = yzOff + (x - minX);
-                    BlockState state = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
-                    flatBlocks[idx] = state;
-                    if (!state.isAir()) {
-                        net.minecraft.world.phys.shapes.VoxelShape shape = state.getCollisionShape(null, null);
-                        occlusionGrid[idx] = !shape.isEmpty();
-                    }
+                    flatBlocks[yzOff + (x - minX)] = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
                 }
             }
         }
@@ -268,15 +256,6 @@ public abstract class ServerExplosionMixin {
         for (BitSet wg : workerGrids) grid.or(wg);
 
         this.cachedFirstBlockDistances = firstBlockDistances;
-        this.cachedOcclusionGrid = occlusionGrid;
-        this.cachedOcclusionMinX = minX;
-        this.cachedOcclusionMinY = minY;
-        this.cachedOcclusionMinZ = minZ;
-        this.cachedOcclusionMaxX = maxX;
-        this.cachedOcclusionMaxY = maxY;
-        this.cachedOcclusionMaxZ = maxZ;
-        this.cachedOcclusionStrideY = strideY;
-        this.cachedOcclusionStrideZ = strideZ;
 
         List<BlockPos> result = new ArrayList<>(gridSize);
         BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
@@ -414,15 +393,9 @@ public abstract class ServerExplosionMixin {
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             } else {
-                final boolean[] occGrid = cachedOcclusionGrid;
-                final int occMinX = cachedOcclusionMinX, occMinY = cachedOcclusionMinY, occMinZ = cachedOcclusionMinZ;
-                final int occMaxX = cachedOcclusionMaxX, occMaxY = cachedOcclusionMaxY, occMaxZ = cachedOcclusionMaxZ;
-                final int occStrideY = cachedOcclusionStrideY, occStrideZ = cachedOcclusionStrideZ;
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(
-                                snapshot, centerX, centerY, centerZ, dr,
-                                occGrid, occMinX, occMinY, occMinZ, occMaxX, occMaxY, occMaxZ,
-                                occStrideY, occStrideZ),
+                                snapshot, centerX, centerY, centerZ, dr, this.cachedChunkGrid),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
