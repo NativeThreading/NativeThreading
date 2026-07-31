@@ -74,7 +74,11 @@ public final class VectorialTransformer {
 
     /** Scalar read (double/float/int) with NaN fallback */
     private static String scalarExpr(String fieldName, int ord, String type) {
-        String cast = type.equals("float") ? "(float)" : "";
+        String cast = switch (type) {
+            case "float" -> "(float)";
+            case "int"   -> "(int)";
+            default      -> "";
+        };
         return
             "{ int[] _s = " + S + ".INSTANCE.idToSlotCache;" +
             "  int _sl = (id >= 0 && id < _s.length) ? _s[id] : -1;" +
@@ -140,18 +144,31 @@ public final class VectorialTransformer {
         // onGround
         setBodySafe(ct, "onGround", boolExpr("onGround", GeneratedFields.ON_GROUND));
 
-        // ── Auto: new getters from GeneratedAccessors (skip handled + blacklisted) ──
-        // TODO: enable after debugging — currently all auto getters cause VerifyError on retransform
-        // int count = 0;
-        // var manual = java.util.Set.of(
-        //     "getDeltaMovement", "getYRot", "getXRot", "getBoundingBox",
-        //     "getEyeHeight", "onGround", "getX", "getY", "getZ", "position"
-        // );
-        // for (GeneratedAccessors.Entry e : GeneratedAccessors.ALL) {
-        //     if (e.getterName() == null || e.skipTransform() || manual.contains(e.getterName())) continue;
-        //     String body = ...
-        // }
-        // VectorialAgent.report("transformed " + count + " getters to SoA");
+        // ── Auto: new getters from GeneratedAccessors ──
+        int count = 0;
+        var manual = java.util.Set.of(
+            "getDeltaMovement", "getYRot", "getXRot", "getBoundingBox",
+            "getEyeHeight", "onGround", "getX", "getY", "getZ", "position"
+        );
+        for (GeneratedAccessors.Entry e : GeneratedAccessors.ALL) {
+            if (e.getterName() == null || e.skipTransform() || manual.contains(e.getterName())) continue;
+
+            String body = switch (e.type()) {
+                case "double" -> scalarExpr(e.fieldName(), e.baseOrdinal(), "double");
+                case "float"  -> scalarExpr(e.fieldName(), e.baseOrdinal(), "float");
+                case "int"    -> scalarExpr(e.fieldName(), e.baseOrdinal(), "int");
+                case "boolean"-> boolExpr(e.fieldName(), e.baseOrdinal());
+                case "Vec3"   -> vec3Expr(e.fieldName(), e.baseOrdinal());
+                case "AABB"   -> aabbExpr(e.fieldName(), e.baseOrdinal());
+                default       -> null;
+            };
+
+            if (body != null) {
+                setBodySafe(ct, e.getterName(), body);
+                count++;
+            }
+        }
+        VectorialAgent.report("transformed " + count + " auto getters to SoA");
     }
 
     private static void setBodySafe(CtClass ct, String methodName, String body) {

@@ -90,8 +90,8 @@ val generateFields by tasks.registering {
             "isInPowderSnow" to "setIsInPowderSnow"
         )
 
-        // Getters that produce VerifyError when body-set via Javassist (field/method name collision, etc.)
-        val skipTransformGetters = setOf("hasGlowingTag")
+        // Getters that can't have their body replaced (VerifyError candidates)
+        val skipTransformGetters = setOf<String>()
 
         fun guessGetter(fieldName: String): String? {
             specialGetters[fieldName]?.let { return if (it in methodSet) it else null }

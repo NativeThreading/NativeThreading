@@ -5,7 +5,7 @@ public final class GeneratedAccessors {
     public record Entry(String fieldName, String type, String getterName, String setterName, int baseOrdinal) {
         public int ordCount() { return switch (type) { case "Vec3" -> 3; case "AABB" -> 6; default -> 1; }; }
         public boolean skipTransform() {
-            return java.util.Set.of("hasGlowingTag").contains(fieldName);
+            return java.util.Set.of().contains(fieldName);
         }
     }
     public static final Entry[] ALL = {
