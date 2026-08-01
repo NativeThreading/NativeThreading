@@ -72,6 +72,19 @@ public final class ExplosionHelper {
         return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
     }
 
+    public static EntityDamageResult computeEntityDamage(
+            EntityDamageSnapshot snapshot,
+            double centerX,
+            double centerY,
+            double centerZ,
+            float doubleRadius,
+            WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        float exposure = snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F
+                ? getSeenPercentFromFlatView(snapshot, centerX, centerY, centerZ, worldView)
+                : 0.0F;
+        return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
+    }
+
     private static EntityDamageResult computeEntityDamage(
             EntityDamageSnapshot snapshot,
             double centerX,
@@ -133,6 +146,113 @@ public final class ExplosionHelper {
             }
         }
         return (float) hits / count;
+    }
+
+    private static float getSeenPercentFromFlatView(EntityDamageSnapshot snapshot,
+                                                    double centerX, double centerY, double centerZ,
+                                                    WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        double minX = snapshot.minX, maxX = snapshot.maxX;
+        double minY = snapshot.minY, maxY = snapshot.maxY;
+        double minZ = snapshot.minZ, maxZ = snapshot.maxZ;
+        float samplingFactor = snapshot.samplingFactor;
+        double xs = 1.0 / ((maxX - minX) * samplingFactor + 1.0);
+        double ys = 1.0 / ((maxY - minY) * samplingFactor + 1.0);
+        double zs = 1.0 / ((maxZ - minZ) * samplingFactor + 1.0);
+        double xOffset = (1.0 - Math.floor(1.0 / xs) * xs) / 2.0;
+        double zOffset = (1.0 - Math.floor(1.0 / zs) * zs) / 2.0;
+        if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
+
+        int hits = 0, count = 0;
+        for (double xx = 0.0; xx <= 1.0; xx += xs) {
+            for (double yy = 0.0; yy <= 1.0; yy += ys) {
+                for (double zz = 0.0; zz <= 1.0; zz += zs) {
+                    double sx = minX + (maxX - minX) * xx + xOffset;
+                    double sy = minY + (maxY - minY) * yy;
+                    double sz = minZ + (maxZ - minZ) * zz + zOffset;
+                    if (!rayIntersectsBlockFlat(sx, sy, sz, centerX, centerY, centerZ, worldView)) hits++;
+                    count++;
+                }
+            }
+        }
+        return (float) hits / count;
+    }
+
+    private static boolean rayIntersectsBlockFlat(double fx, double fy, double fz,
+                                                  double tx, double ty, double tz,
+                                                  WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        double dx = tx - fx, dy = ty - fy, dz = tz - fz;
+        double lenSq = dx * dx + dy * dy + dz * dz;
+        if (lenSq < 1.0E-7) return false;
+
+        int stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+        int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+        int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+        double tDeltaX = stepX != 0 ? stepX / dx : Double.MAX_VALUE;
+        double tDeltaY = stepY != 0 ? stepY / dy : Double.MAX_VALUE;
+        double tDeltaZ = stepZ != 0 ? stepZ / dz : Double.MAX_VALUE;
+        double tMaxX = tDeltaX * (stepX > 0 ? 1.0 - net.minecraft.util.Mth.frac(fx) : net.minecraft.util.Mth.frac(fx));
+        double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - net.minecraft.util.Mth.frac(fy) : net.minecraft.util.Mth.frac(fy));
+        double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - net.minecraft.util.Mth.frac(fz) : net.minecraft.util.Mth.frac(fz));
+        int x = net.minecraft.util.Mth.floor(fx), y = net.minecraft.util.Mth.floor(fy), z = net.minecraft.util.Mth.floor(fz);
+        int endX = net.minecraft.util.Mth.floor(tx), endY = net.minecraft.util.Mth.floor(ty), endZ = net.minecraft.util.Mth.floor(tz);
+
+        while (true) {
+            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
+            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
+            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
+
+            net.minecraft.world.level.block.state.BlockState state = worldView.getBlockState(x, y, z);
+            if (!state.isAir()) {
+                net.minecraft.world.phys.shapes.VoxelShape shape = state.getCollisionShape(null, null);
+                if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
+                        return true;
+                } else if (!shape.isEmpty()) {
+                    net.minecraft.world.phys.AABB bb = shape.bounds();
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
+                        return true;
+                }
+            }
+
+            if (tMaxX < tMaxY) {
+                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; tMaxX += tDeltaX; }
+                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+            } else {
+                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
+                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+            }
+        }
+        return false;
+    }
+
+    private static boolean rayAabbIntersectsFlat(double fx, double fy, double fz,
+                                                 double tx, double ty, double tz,
+                                                 double minX, double minY, double minZ,
+                                                 double maxX, double maxY, double maxZ) {
+        double dirX = tx - fx, dirY = ty - fy, dirZ = tz - fz;
+        double min = 0.0, max = 1.0;
+        if (dirX == 0) { if (fx < minX || fx > maxX) return false; }
+        else {
+            double n = (minX - fx) / dirX, f = (maxX - fx) / dirX;
+            if (n > f) { double t = n; n = f; f = t; }
+            if (n > min) min = n; if (f < max) max = f;
+            if (min > max) return false;
+        }
+        if (dirY == 0) { if (fy < minY || fy > maxY) return false; }
+        else {
+            double n = (minY - fy) / dirY, f = (maxY - fy) / dirY;
+            if (n > f) { double t = n; n = f; f = t; }
+            if (n > min) min = n; if (f < max) max = f;
+            if (min > max) return false;
+        }
+        if (dirZ == 0) { if (fz < minZ || fz > maxZ) return false; }
+        else {
+            double n = (minZ - fz) / dirZ, f = (maxZ - fz) / dirZ;
+            if (n > f) { double t = n; n = f; f = t; }
+            if (n > min) min = n; if (f < max) max = f;
+            if (min > max) return false;
+        }
+        return true;
     }
 
     public static float getSeenPercentFast(EntityDamageSnapshot snapshot,

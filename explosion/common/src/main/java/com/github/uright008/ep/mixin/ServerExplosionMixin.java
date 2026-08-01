@@ -80,6 +80,7 @@ public abstract class ServerExplosionMixin {
     @Unique private volatile float[] cachedFirstBlockDistances;
 
     @Unique private ChunkGrid cachedChunkGrid;
+    @Unique private WorldReadViewImpl cachedWorldView;
 
     @Unique private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:explosion");
     @Unique private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
@@ -202,6 +203,7 @@ public abstract class ServerExplosionMixin {
 
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
                 flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+        this.cachedWorldView = worldView;
 
         final ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
@@ -390,7 +392,7 @@ public abstract class ServerExplosionMixin {
             } else {
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(
-                                snapshot, centerX, centerY, centerZ, dr, this.cachedChunkGrid),
+                                snapshot, centerX, centerY, centerZ, dr, this.cachedWorldView),
                         ParallelWorker.autoBatchSize(snapshots.size()), 5);
             }
         } catch (RuntimeException e) {
