@@ -15,7 +15,7 @@
     ]
   },
   "mixins": [
-    "core.mixins.json"
+    "parallel-core.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.2",

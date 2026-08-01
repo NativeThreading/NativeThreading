@@ -30,13 +30,14 @@ public final class RedstoneWireHelper {
     private static final Set<Level> GUARDS = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Long2IntOpenHashMap PROCESSED = new Long2IntOpenHashMap();
     private static int processEpoch = 1;
+    static final int PROCESSED_CAPACITY = 1 << 16;
     private static final int CPU_CORES = Runtime.getRuntime().availableProcessors();
 
     private RedstoneWireHelper() {}
 
     public static void clearProcessed() {
         processEpoch++;
-        if (processEpoch < 0) {
+        if (processEpoch < 0 || PROCESSED.size() > PROCESSED_CAPACITY) {
             PROCESSED.clear();
             processEpoch = 1;
         }
@@ -80,6 +81,10 @@ public final class RedstoneWireHelper {
 
     static boolean markComponentForTesting(List<BlockPos> positions) {
         return markUnprocessed(positions);
+    }
+
+    static int processedSizeForTesting() {
+        return PROCESSED.size();
     }
 
     static Set<BlockPos> notificationCentersForTesting(BlockPos pos) {

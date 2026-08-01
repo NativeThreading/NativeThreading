@@ -104,6 +104,26 @@ class RedstoneWireHelperExecutionTest {
     }
 
     @Test
+    void clearProcessedResetsTheMapWhenTheCapacityLimitIsExceeded() {
+        RedstoneWireHelper.clearProcessed();
+
+        List<BlockPos> overflow = component(RedstoneWireHelper.PROCESSED_CAPACITY + 1);
+        assertThat(RedstoneWireHelper.markComponentForTesting(overflow)).isTrue();
+        assertThat(RedstoneWireHelper.processedSizeForTesting())
+                .as("map must be allowed to exceed the cap mid-tick, only the next clearProcessed() bounds it")
+                .isGreaterThan(RedstoneWireHelper.PROCESSED_CAPACITY);
+
+        RedstoneWireHelper.clearProcessed();
+
+        assertThat(RedstoneWireHelper.processedSizeForTesting())
+                .as("over-capacity clearProcessed() must drop all stale entries")
+                .isZero();
+        assertThat(RedstoneWireHelper.markComponentForTesting(overflow))
+                .as("positions must be seen as unprocessed after the capacity reset")
+                .isTrue();
+    }
+
+    @Test
     void changedWireNotifiesItsCenterThenAllSixDirections() {
         BlockPos pos = new BlockPos(4, 70, -9);
 
