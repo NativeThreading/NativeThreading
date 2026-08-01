@@ -2,10 +2,12 @@ package com.github.uright008.ep;
 
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     private final BlockState[] states;
+    private final VoxelShape[] shapes;
     private final int minX;
     private final int minY;
     private final int minZ;
@@ -20,7 +22,16 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
+        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+    }
+
+    public WorldReadViewImpl(
+            BlockState[] states, VoxelShape[] shapes,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ) {
         this.states = states;
+        this.shapes = shapes;
         this.minX = minX;
         this.minY = minY;
         this.minZ = minZ;
@@ -49,6 +60,10 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     BlockState[] states() {
         return states;
+    }
+
+    VoxelShape[] shapes() {
+        return shapes;
     }
 
     int minX() {

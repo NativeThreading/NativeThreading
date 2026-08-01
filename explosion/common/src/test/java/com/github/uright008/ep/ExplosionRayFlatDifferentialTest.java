@@ -68,6 +68,18 @@ class ExplosionRayFlatDifferentialTest {
         return new WorldReadViewImpl(states, MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
     }
 
+    /** Like {@link #buildView()} but with the production precomputed shapes array. */
+    private static WorldReadViewImpl buildViewWithShapes() {
+        WorldReadViewImpl view = buildView();
+        BlockState[] states = view.states();
+        net.minecraft.world.phys.shapes.VoxelShape[] shapes = new net.minecraft.world.phys.shapes.VoxelShape[states.length];
+        for (int i = 0; i < states.length; i++) {
+            BlockState s = states[i];
+            shapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
+        }
+        return new WorldReadViewImpl(states, shapes, MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
+    }
+
     // ── Per-ray differential: fast == slow == dispatcher ──
 
     @Test
@@ -125,6 +137,25 @@ class ExplosionRayFlatDifferentialTest {
         assertRayMatchesAll(view, 20.1, 60.1, 30.1, 20.2, 60.2, 30.2);
         // Ray hugging the boundary plane.
         assertRayMatchesAll(view, 10.0, 55.0, 30.0, 12.0, 57.0, 33.0);
+    }
+
+    @Test
+    void rayDifferential_precomputedShapes_matchLivePath() {
+        WorldReadViewImpl view = buildViewWithShapes();
+        double cx = 25.0, cy = 60.0, cz = 40.0;
+
+        double[][] starts = {
+                {22.0, 62.0, 42.0}, {15.5, 55.0, 55.0}, {31.0, 45.5, 26.0},
+                {19.5, 60.0, 30.0}, {25.0, 60.0, 59.5}, {25.0, 41.5, 40.0},
+                {10.0, 60.0, 40.0}, {40.0, 60.0, 40.0}, {10.5, 40.5, 20.5},
+                {39.5, 79.5, 59.5}, {0.0, 0.0, 0.0}, {50.0, 90.0, 70.0},
+        };
+        for (double[] s : starts) {
+            assertRayMatchesAll(view, s[0], s[1], s[2], cx, cy, cz);
+            assertRayMatchesAll(view, cx, cy, cz, s[0], s[1], s[2]);
+        }
+        assertRayMatchesAll(view, 10.0, 40.0, 20.0, 40.0, 80.0, 60.0);
+        assertRayMatchesAll(view, 32.5, 46.5, 26.5, 32.5, 43.5, 26.5);
     }
 
     private static void assertRayMatchesAll(WorldReadViewImpl view,

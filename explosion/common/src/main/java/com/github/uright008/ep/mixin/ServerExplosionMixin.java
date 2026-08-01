@@ -192,8 +192,17 @@ public abstract class ServerExplosionMixin {
         ExplosionFlatViewBuilder.fill(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid::getBlockState);
 
+        // Precompute collision shapes once so workers never call
+        // getCollisionShape in the DDA inner loop. Same call as the live path
+        // (getCollisionShape(null, null)), so results are identical.
+        final VoxelShape[] flatShapes = new VoxelShape[gridSize];
+        for (int i = 0; i < gridSize; i++) {
+            BlockState s = flatBlocks[i];
+            flatShapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
+        }
+
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+                flatBlocks, flatShapes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
         this.cachedWorldView = worldView;
 
         final ServerExplosion self = (ServerExplosion) (Object) this;

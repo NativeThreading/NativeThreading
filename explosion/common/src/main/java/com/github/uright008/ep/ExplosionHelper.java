@@ -4,6 +4,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -234,6 +235,7 @@ public final class ExplosionHelper {
         // Loop-invariant view geometry is captured once per ray; the DDA then
         // walks the raw array with incremental index updates.
         BlockState[] states = worldView.states();
+        VoxelShape[] shapes = worldView.shapes();
         int minX = worldView.minX(), minY = worldView.minY(), minZ = worldView.minZ();
         int strideY = worldView.strideY(), strideZ = worldView.strideZ();
         int index = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
@@ -247,7 +249,7 @@ public final class ExplosionHelper {
 
             net.minecraft.world.level.block.state.BlockState state = states[index];
             if (!state.isAir()) {
-                net.minecraft.world.phys.shapes.VoxelShape shape = state.getCollisionShape(null, null);
+                VoxelShape shape = shapes != null ? shapes[index] : state.getCollisionShape(null, null);
                 if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
                     if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
                         return true;
