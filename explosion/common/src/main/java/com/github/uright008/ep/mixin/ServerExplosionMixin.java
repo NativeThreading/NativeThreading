@@ -258,14 +258,13 @@ public abstract class ServerExplosionMixin {
         this.cachedFirstBlockDistances = firstBlockDistances;
 
         List<BlockPos> result = new ArrayList<>(gridSize);
-        BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos();
         for (int z = minZ; z <= maxZ; z++) {
             int zOff = (z - minZ) * strideZ;
             for (int y = minY; y <= maxY; y++) {
                 int yzOff = zOff + (y - minY) * strideY;
                 for (int x = minX; x <= maxX; x++)
                     if (grid.get(yzOff + (x - minX)))
-                        result.add(mpos.set(x, y, z).immutable());
+                        result.add(new BlockPos(x, y, z));
             }
         }
         return result;
@@ -457,13 +456,14 @@ public abstract class ServerExplosionMixin {
                 this.center.x, this.center.y, this.center.z, distanceSquares);
         double radiusSquare = (double) doubleRadius * doubleRadius;
         ServerExplosion self = (ServerExplosion) (Object) this;
+        int sourceId = this.source != null ? this.source.getId() : -1;
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
         for (int index = 0; index < hitCount; index++) {
             if (distanceSquares[index] > radiusSquare) continue;
             int entityId = SimdBatchOps.slotToEntityId(hits[index]);
-            if (entityId < 0) continue;
+            if (entityId < 0 || entityId == sourceId) continue;
             Entity entity = this.level.getEntity(entityId);
-            if (entity == null || entity.equals(this.source) || entity.isRemoved() || entity.ignoreExplosion(self)) continue;
+            if (entity == null || entity.isRemoved() || entity.ignoreExplosion(self)) continue;
             ExplosionHelper.EntityDamageSnapshot snapshot = captureEntityDamageSnapshot(entity, doubleRadius);
             if (snapshot != null) snapshots.add(snapshot);
         }
