@@ -154,16 +154,15 @@ class ExplosionRayFlatDifferentialTest {
         assertThat(FAST.hit(20.5, 59.5, 30.5, 19.5, 60.5, 30.5, view)).isTrue();
         // Open-air short ray — must not hit.
         assertThat(FAST.hit(12.5, 42.5, 22.5, 14.5, 44.5, 24.5, view)).isFalse();
-        // Partial slab (non-full VoxelShape): both paths use the slab's
-        // relative bounds, so neither reports a hit — consistent with the
-        // pre-existing slow-path behavior. Pinned as isFalse to lock parity.
-        assertThat(FAST.hit(32.5, 46.5, 26.5, 32.5, 43.5, 26.5, view)).isFalse();
+        // Partial slab (non-full VoxelShape): with the relative-bounds fix the
+        // ray from y=46.5 down through the slab's lower half must hit in both paths.
+        assertThat(FAST.hit(32.5, 46.5, 26.5, 32.5, 43.5, 26.5, view)).isTrue();
 
         // Slow agrees on the same rays.
         assertThat(SLOW.hit(12.5, 50.5, 55.5, 24.5, 70.5, 55.5, view)).isTrue();
         assertThat(SLOW.hit(20.5, 59.5, 30.5, 19.5, 60.5, 30.5, view)).isTrue();
         assertThat(SLOW.hit(12.5, 42.5, 22.5, 14.5, 44.5, 24.5, view)).isFalse();
-        assertThat(SLOW.hit(32.5, 46.5, 26.5, 32.5, 43.5, 26.5, view)).isFalse();
+        assertThat(SLOW.hit(32.5, 46.5, 26.5, 32.5, 43.5, 26.5, view)).isTrue();
     }
 
     // ── getSeenPercent hit-count / fraction differential ──

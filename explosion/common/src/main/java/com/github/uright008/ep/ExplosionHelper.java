@@ -167,7 +167,9 @@ public final class ExplosionHelper {
                         return true;
                 } else if (!shape.isEmpty()) {
                     net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                            x + bb.minX, y + bb.minY, z + bb.minZ,
+                            x + bb.maxX, y + bb.maxY, z + bb.maxZ))
                         return true;
                 }
             }
@@ -251,7 +253,9 @@ public final class ExplosionHelper {
                         return true;
                 } else if (!shape.isEmpty()) {
                     net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                            x + bb.minX, y + bb.minY, z + bb.minZ,
+                            x + bb.maxX, y + bb.maxY, z + bb.maxZ))
                         return true;
                 }
             }
