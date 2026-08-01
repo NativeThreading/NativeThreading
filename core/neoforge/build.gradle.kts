@@ -17,6 +17,8 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(26)
 
 repositories {
     mavenCentral()
+    // vectorial is published to mavenLocal (see vectorial/build.gradle.kts publishing)
+    mavenLocal()
 }
 
 dependencies {
