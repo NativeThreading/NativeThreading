@@ -455,7 +455,6 @@ public abstract class ServerExplosionMixin {
         SimdBatchOps.distanceSqBySlotBatch(hits, hitCount,
                 this.center.x, this.center.y, this.center.z, distanceSquares);
         double radiusSquare = (double) doubleRadius * doubleRadius;
-        ServerExplosion self = (ServerExplosion) (Object) this;
         int sourceId = this.source != null ? this.source.getId() : -1;
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
         for (int index = 0; index < hitCount; index++) {
@@ -463,7 +462,7 @@ public abstract class ServerExplosionMixin {
             int entityId = SimdBatchOps.slotToEntityId(hits[index]);
             if (entityId < 0 || entityId == sourceId) continue;
             Entity entity = this.level.getEntity(entityId);
-            if (entity == null || entity.isRemoved() || entity.ignoreExplosion(self)) continue;
+            if (entity == null || entity.isRemoved()) continue;
             ExplosionHelper.EntityDamageSnapshot snapshot = captureEntityDamageSnapshot(entity, doubleRadius);
             if (snapshot != null) snapshots.add(snapshot);
         }
