@@ -52,9 +52,6 @@ final class FlatWorldReadView<B> implements WorldReadView<B> {
             return airDefault;
         }
         int index = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
-        if (index < 0 || index >= states.length) {
-            return airDefault;
-        }
         return states[index];
     }
 

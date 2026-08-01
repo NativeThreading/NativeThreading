@@ -4,7 +4,6 @@
   "compatibilityLevel": "JAVA_25",
   "mixins": [
     "BlockGetterMixin",
-    "LevelBlockStateCacheMixin",
     "LevelRandomMixin",
     "ServerChunkCacheMixin",
     "TickBlockEntitiesNullGuardMixin"

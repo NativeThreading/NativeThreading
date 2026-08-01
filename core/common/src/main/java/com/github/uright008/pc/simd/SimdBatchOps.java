@@ -1,6 +1,5 @@
 package com.github.uright008.pc.simd;
 
-import java.util.BitSet;
 import com.github.uright008.pc.ParallelCoreConfig;
 
 /**
@@ -43,10 +42,6 @@ public final class SimdBatchOps {
         return getEntityDataView().slotCount();
     }
 
-    public static com.github.uright008.vec.core.EntityDataView entityData() {
-        return getEntityDataView();
-    }
-
     public static double posX(int slot) { return getEntityDataView().posX()[slot]; }
     public static double posY(int slot) { return getEntityDataView().posY()[slot]; }
     public static double posZ(int slot) { return getEntityDataView().posZ()[slot]; }
@@ -61,25 +56,6 @@ public final class SimdBatchOps {
         double[][] f = com.github.uright008.vec.core.SoAStore.getFields();
         double[] ey = f[com.github.uright008.vec.core.GeneratedFields.EYE_HEIGHT];
         return (slot >= 0 && slot < ey.length) ? ey[slot] : Double.NaN;
-    }
-
-public static void extractPositions(int[] slots, int count,
-                                    double[] dstX, double[] dstY, double[] dstZ) {
-    double[][] f = com.github.uright008.vec.core.SoAStore.getFields();
-    double[] sx = f[com.github.uright008.vec.core.GeneratedFields.POSITION_X];
-    double[] sy = f[com.github.uright008.vec.core.GeneratedFields.POSITION_Y];
-    double[] sz = f[com.github.uright008.vec.core.GeneratedFields.POSITION_Z];
-        for (int i = 0; i < count; i++) {
-            int s = slots[i];
-            dstX[i] = sx[s];
-            dstY[i] = sy[s];
-            dstZ[i] = sz[s];
-        }
-    }
-
-    public static int entityIdToSlot(int entityId) {
-        int[] i2s = com.github.uright008.vec.core.SoAStore.getIdToSlot();
-        return (entityId >= 0 && entityId < i2s.length) ? i2s[entityId] : -1;
     }
 
 public static void distanceSqBySlotBatch(int[] slots, int count,
@@ -159,20 +135,6 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
                 qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ, result);
     }
 
-    public static void distanceSqBatch(double[] srcX, double[] srcY, double[] srcZ,
-                                        double cx, double cy, double cz,
-                                        double[] dst, int start, int count) {
-        if (count < SIMD_THRESHOLD) {
-            int end = start + count;
-            for (int i = start; i < end; i++) {
-                double dx = srcX[i] - cx, dy = srcY[i] - cy, dz = srcZ[i] - cz;
-                dst[i] = dx * dx + dy * dy + dz * dz;
-            }
-            return;
-        }
-        VectorApi.distanceSqBatch(srcX, srcY, srcZ, cx, cy, cz, dst, start, count);
-    }
-
     public static int intersectAABBBatch(
             double[] minX, double[] minY, double[] minZ,
             double[] maxX, double[] maxY, double[] maxZ,
@@ -203,36 +165,6 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
         return out;
     }
 
-    // ── Bitmask AABB ──
-    // Phase 1: comparison has highly predictable branch (sparse hits → almost never taken).
-    //           No loop-carried dependency on `out` → SuperWord can vectorize comparisons.
-    // Phase 2: BitSet.nextSetBit() → O(hits) extraction.
-
-    public static int intersectAABBBitmask(
-            double[] minX, double[] minY, double[] minZ,
-            double[] maxX, double[] maxY, double[] maxZ,
-            int start, int count,
-            double qMinX, double qMinY, double qMinZ,
-            double qMaxX, double qMaxY, double qMaxZ,
-            int[] result, int maxResults) {
-        BitSet hits = new BitSet(count);
-        int end = start + count;
-
-        for (int i = start; i < end; i++) {
-            if (minX[i] <= qMaxX & maxX[i] >= qMinX
-              & minY[i] <= qMaxY & maxY[i] >= qMinY
-              & minZ[i] <= qMaxZ & maxZ[i] >= qMinZ) {
-                hits.set(i - start);
-            }
-        }
-
-        int out = 0;
-        for (int idx = hits.nextSetBit(0); idx >= 0 && out < maxResults; idx = hits.nextSetBit(idx + 1)) {
-            result[out++] = start + idx;
-        }
-        return out;
-    }
-
     // ── Explicit Vector API SIMD ──────────────────
 
     private static final int SIMD_THRESHOLD = 32768;
@@ -253,66 +185,4 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
                 start, count, qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ, result, maxResults);
     }
 
-    /**
-     * Finds entity indices whose AABBs may intersect the query.
-     * Uses Morton-code spatial ordering + sweep window.
-     *
-     * @param keys  morton codes (SoAStore.keys)
-     * @param count number of slots
-     * @param qMinX..qMaxZ query AABB
-     * @param result output: candidate indices. Must be at least count long.
-     * @return number of candidates
-     */
-    public static int spatialQuery(long[] keys, int count,
-                                    double[] minX, double[] minY, double[] minZ,
-                                    double[] maxX, double[] maxY, double[] maxZ,
-                                    double qMinX, double qMinY, double qMinZ,
-                                    double qMaxX, double qMaxY, double qMaxZ,
-                                    int[] result) {
-        // Build and sort index array by morton key
-        int[] idx = new int[count];
-        for (int i = 0; i < count; i++) idx[i] = i;
-        sortIndicesByKeys(idx, keys, 0, count - 1);
-
-        // Sweep through sorted indices; check a sliding window
-        int out = 0;
-        int window = Math.min(64, count / 16 + 8);
-        for (int i = 0; i < count; i++) {
-            int si = idx[i];
-            int limit = Math.min(i + window, count);
-            for (int j = Math.max(0, i - window); j < limit; j++) {
-                if (i == j) continue;
-                int sj = idx[j];
-                // AABB intersection check
-                if (minX[si] <= maxX[sj] && maxX[si] >= minX[sj]
-                 && minY[si] <= maxY[sj] && maxY[si] >= minY[sj]
-                 && minZ[si] <= maxZ[sj] && maxZ[si] >= minZ[sj]) {
-                    result[out++] = si;
-                    break;
-                }
-            }
-        }
-        return out;
-    }
-
-    private static void sortIndicesByKeys(int[] idx, long[] keys, int lo, int hi) {
-        if (lo >= hi) return;
-        int mid = (lo + hi) >>> 1;
-        long a = keys[idx[lo]], b = keys[idx[mid]], c = keys[idx[hi]];
-        int pi = (a < b) ? ((b < c) ? mid : (a < c) ? hi : lo)
-                         : ((a < c) ? lo : (b < c) ? hi : mid);
-        int tmp = idx[pi]; idx[pi] = idx[hi]; idx[hi] = tmp;
-        long pivot = keys[idx[hi]];
-        int i = lo - 1;
-        for (int j = lo; j < hi; j++) {
-            if (keys[idx[j]] < pivot) {
-                i++;
-                tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
-            }
-        }
-        i++;
-        tmp = idx[i]; idx[i] = idx[hi]; idx[hi] = tmp;
-        sortIndicesByKeys(idx, keys, lo, i - 1);
-        sortIndicesByKeys(idx, keys, i + 1, hi);
-    }
 }

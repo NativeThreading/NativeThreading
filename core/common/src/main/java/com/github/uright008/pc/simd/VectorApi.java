@@ -8,30 +8,6 @@ final class VectorApi {
 
     private VectorApi() {}
 
-    static void distanceSqBatch(double[] srcX, double[] srcY, double[] srcZ,
-                                 double cx, double cy, double cz,
-                                 double[] dst, int start, int count) {
-        VectorSpecies<Double> S = DoubleVector.SPECIES_PREFERRED;
-        int step = S.length();
-        int end = start + count;
-        var vCx = DoubleVector.broadcast(S, cx);
-        var vCy = DoubleVector.broadcast(S, cy);
-        var vCz = DoubleVector.broadcast(S, cz);
-        int i;
-        for (i = start; i <= end - step; i += step) {
-            var dx = DoubleVector.fromArray(S, srcX, i).sub(vCx);
-            var dy = DoubleVector.fromArray(S, srcY, i).sub(vCy);
-            var dz = DoubleVector.fromArray(S, srcZ, i).sub(vCz);
-            dx.fma(dx, dy.fma(dy, dz.mul(dz))).intoArray(dst, i);
-        }
-        for (; i < end; i++) {
-            double dx = srcX[i] - cx;
-            double dy = srcY[i] - cy;
-            double dz = srcZ[i] - cz;
-            dst[i] = dx * dx + dy * dy + dz * dz;
-        }
-    }
-
     static int intersectAABBSimd(
             double[] minX, double[] minY, double[] minZ,
             double[] maxX, double[] maxY, double[] maxZ,

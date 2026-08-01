@@ -28,95 +28,6 @@ public final class ParallelWorker {
     private ParallelWorker() {}
 
     /**
-     * Execute a mapper function in parallel and return results in original order.
-     * Worker functions must operate only on their explicit inputs; they must
-     * not access live world or container state.
-     *
-     * @param executor       thread pool
-     * @param items          input items
-     * @param mapper         function applied to each item
-     * @param timeoutSeconds latch timeout
-     * @param <T>            input type
-     * @param <R>            result type
-     * @return list of results (may contain nulls for error slots)
-     * @throws RuntimeException if workers time out or the latch is interrupted
-     */
-    public static <T, R> List<R> map(
-            ExecutorService executor, List<T> items,
-            Function<T, R> mapper, int timeoutSeconds) {
-
-        int n = items.size();
-        if (n == 0) return List.of();
-
-        int workers = computeWorkers(n);
-        if (workers == 1) {
-            List<R> results = new ArrayList<>(n);
-            for (T item : items) results.add(mapper.apply(item));
-            SafeOps.drainWrites();
-            return results;
-        }
-
-        List<R> results = new ArrayList<>(Collections.nCopies(n, null));
-        int perWorker = n / workers;
-        int extra = n % workers;
-        List<Runnable> work = new ArrayList<>(workers);
-        int offset = 0;
-        for (int w = 0; w < workers; w++) {
-            final int start = offset;
-            final int end = offset + perWorker + (w < extra ? 1 : 0);
-            offset = end;
-            work.add(() -> {
-                for (int i = start; i < end; i++) {
-                    results.set(i, mapper.apply(items.get(i)));
-                }
-            });
-        }
-        executePhase(executor, work, timeoutSeconds);
-        return results;
-    }
-
-    /**
-     * Execute an action in parallel (void — for inline read+write tasks).
-     *
-     * @param executor       thread pool
-     * @param items          input items
-     * @param action         action performed on each item, may write via {@link SafeOps}
-     * @param timeoutSeconds latch timeout
-     * @param <T>            input type
-     * @throws RuntimeException if workers time out or the latch is interrupted
-     */
-    public static <T> void forEach(
-            ExecutorService executor, List<T> items,
-            Consumer<T> action, int timeoutSeconds) {
-
-        int n = items.size();
-        if (n == 0) return;
-
-        int workers = computeWorkers(n);
-        if (workers == 1) {
-            for (T item : items) action.accept(item);
-            SafeOps.drainWrites();
-            return;
-        }
-
-        int perWorker = n / workers;
-        int extra = n % workers;
-        List<Runnable> work = new ArrayList<>(workers);
-        int offset = 0;
-        for (int w = 0; w < workers; w++) {
-            final int start = offset;
-            final int end = offset + perWorker + (w < extra ? 1 : 0);
-            offset = end;
-            work.add(() -> {
-                for (int i = start; i < end; i++) {
-                    action.accept(items.get(i));
-                }
-            });
-        }
-        executePhase(executor, work, timeoutSeconds);
-    }
-
-    /**
      * Execute a mapper function in parallel, one worker per input item
      * (no further partitioning).  Use when each task is already a
      * pre-sized batch.
@@ -141,7 +52,7 @@ public final class ParallelWorker {
     }
 
     /**
-     * Like {@link #map} but groups items into batches. Each batch is dispatched
+     * Like {@link #mapEach} but groups items into batches. Each batch is dispatched
      * as a single work item, reducing fork/join overhead for fine-grained tasks.
      *
      * @param <T>            input type
