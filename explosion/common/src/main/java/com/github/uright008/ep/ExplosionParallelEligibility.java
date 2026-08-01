@@ -22,8 +22,4 @@ public final class ExplosionParallelEligibility {
         if (calculatorType == EntityBasedExplosionDamageCalculator.class) return Tier.B;
         return Tier.C;
     }
-
-    public static boolean allowsWorkerExecution(Class<? extends ExplosionDamageCalculator> calculatorType) {
-        return resolveTier(calculatorType).allowsParallel();
-    }
 }

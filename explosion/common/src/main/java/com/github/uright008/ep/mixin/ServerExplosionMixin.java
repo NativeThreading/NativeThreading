@@ -124,7 +124,7 @@ public abstract class ServerExplosionMixin {
         ensureChunksLoaded();
         ProfilerFiller profiler = Profiler.get();
         profiler.push("explosion_entities_parallel");
-        if (hurtEntitiesParallel(tier)) {
+        if (hurtEntitiesParallel()) {
             ci.cancel();
         }
         profiler.pop();
@@ -359,7 +359,7 @@ public abstract class ServerExplosionMixin {
     //  Parallel entity damage
     // ──────────────────────────────────────────────
     @Unique
-    private boolean hurtEntitiesParallel(ExplosionParallelEligibility.Tier tier) {
+    private boolean hurtEntitiesParallel() {
         if (this.radius < 1.0E-5F) return true;
 
         if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {

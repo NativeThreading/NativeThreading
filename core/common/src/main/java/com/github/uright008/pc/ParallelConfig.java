@@ -143,7 +143,7 @@ public abstract class ParallelConfig {
     }
 
     private static final Set<String> KNOWN_SECTIONS = Set.of(
-            "parallel-core", "explosion", "hopper", "redstone", "light", "pathfinding"
+            "parallel-core", "explosion", "hopper", "redstone"
     );
 
     public static void validateConfigSections() {
