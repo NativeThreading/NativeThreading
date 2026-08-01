@@ -11,6 +11,11 @@ gradle/wrapper/gradle-wrapper.jar
 
 .omo/
 
+# Local tooling caches and directories
+.opencode/
+.ruff_cache/
+bench/
+
 # Generated and temp
 __pycache__/
 *.pyc
