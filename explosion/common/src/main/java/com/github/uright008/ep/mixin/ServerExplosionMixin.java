@@ -1,5 +1,6 @@
 package com.github.uright008.ep.mixin;
 
+import com.github.uright008.ep.ExplosionFlatViewBuilder;
 import com.github.uright008.ep.ExplosionHelper;
 import com.github.uright008.ep.ExplosionEntityApplication;
 import com.github.uright008.ep.ExplosionParallelEligibility;
@@ -12,7 +13,6 @@ import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
 import com.github.uright008.pc.simd.SimdBatchOps;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EntityTypeTags;
 import net.minecraft.util.profiling.Profiler;
@@ -189,17 +189,8 @@ public abstract class ServerExplosionMixin {
 
         List<BitSet> workerGrids;
         final BlockState[] flatBlocks = new BlockState[gridSize];
-        for (int z = minZ; z <= maxZ; z++) {
-            int zOff = (z - minZ) * strideZ;
-            for (int y = minY; y <= maxY; y++) {
-                int yzOff = zOff + (y - minY) * strideY;
-                for (int x = minX; x <= maxX; x++) {
-                    int cx = SectionPos.blockToSectionCoord(x);
-                    int cz = SectionPos.blockToSectionCoord(z);
-                    flatBlocks[yzOff + (x - minX)] = chunkGrid.getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
-                }
-            }
-        }
+        ExplosionFlatViewBuilder.fill(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+                strideY, strideZ, chunkGrid::getBlockState);
 
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
                 flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);

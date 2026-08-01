@@ -37,14 +37,49 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             return Blocks.AIR.defaultBlockState();
         }
         int index = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
-        if (index < 0 || index >= states.length) {
-            return Blocks.AIR.defaultBlockState();
-        }
         return states[index];
     }
 
     @Override
     public boolean isAir(int x, int y, int z) {
         return getBlockState(x, y, z).isAir();
+    }
+
+    // ── Package-private accessors for the fast ray path ──
+
+    BlockState[] states() {
+        return states;
+    }
+
+    int minX() {
+        return minX;
+    }
+
+    int minY() {
+        return minY;
+    }
+
+    int minZ() {
+        return minZ;
+    }
+
+    int maxX() {
+        return maxX;
+    }
+
+    int maxY() {
+        return maxY;
+    }
+
+    int maxZ() {
+        return maxZ;
+    }
+
+    int strideY() {
+        return strideY;
+    }
+
+    int strideZ() {
+        return strideZ;
     }
 }
