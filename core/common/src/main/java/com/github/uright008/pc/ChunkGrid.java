@@ -174,12 +174,36 @@ public final class ChunkGrid {
         int cx = SectionPos.blockToSectionCoord(x);
         int cz = SectionPos.blockToSectionCoord(z);
 
+        // Cache chunk index and section index across DDA steps
+        int gx = cx - minSectionX, gz = cz - minSectionZ;
+        int idx = gx * sizeZ + gz;
+        int prevCx = cx, prevCz = cz;
+        int secIdx = -1;
+        LevelChunkSection section = null;
+
         while (true) {
             if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
             if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
             if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
 
-            BlockState state = getBlockState(cx, cz, y, x & 15, y & 15, z & 15);
+            // Update chunk index when crossing chunk boundary
+            if (cx != prevCx || cz != prevCz) {
+                gx = cx - minSectionX; gz = cz - minSectionZ;
+                idx = gx * sizeZ + gz;
+                secIdx = -1; // invalidate section cache
+                prevCx = cx; prevCz = cz;
+            }
+
+            // Update section when y changes
+            int newSecIdx = SectionPos.blockToSectionCoord(y) - minSections[idx];
+            if (newSecIdx != secIdx) {
+                secIdx = newSecIdx;
+                LevelChunkSection[] chunkSections = sections[idx];
+                section = (chunkSections != null && secIdx >= 0 && secIdx < chunkSections.length)
+                        ? chunkSections[secIdx] : null;
+            }
+
+            BlockState state = section != null ? section.getBlockState(x & 15, y & 15, z & 15) : AIR;
             if (!state.isAir()) {
                 VoxelShape shape = state.getCollisionShape(null, null);
                 if (shape == Shapes.block()) {
