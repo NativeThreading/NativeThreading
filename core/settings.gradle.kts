@@ -12,4 +12,4 @@ pluginManagement {
     }
 }
 rootProject.name = "core"
-include(":common", ":fabric", ":neoforge", ":horizon")
+include(":common", ":fabric", ":neoforge")

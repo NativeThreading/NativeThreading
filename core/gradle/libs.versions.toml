@@ -1,15 +1,5 @@
 [versions]
-weaver = "2.4.5"
-horizonPlugin = "1.0.2"
-horizonApi = "1.0.0+76"
-paperApi = "26.2.build.22-alpha"
-runPaper = "2.3.1"
 
 [libraries]
-horizonCore = { group = "io.canvasmc.horizon", name = "core", version.ref = "horizonApi" }
-paperDevBundle = { group = "io.papermc.paper", name = "dev-bundle", version.ref = "paperApi" }
 
 [plugins]
-weaverUserdev = { id = "io.canvasmc.weaver.userdev", version.ref = "weaver" }
-horizon = { id = "io.canvasmc.horizon", version.ref = "horizonPlugin" }
-runPaper = { id = "xyz.jpenilla.run-paper", version.ref = "runPaper" }

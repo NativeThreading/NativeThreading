@@ -7,8 +7,7 @@
     "LevelBlockStateCacheMixin",
     "LevelRandomMixin",
     "ServerChunkCacheMixin",
-    "TickBlockEntitiesNullGuardMixin",
-    "IgniteParallelCoreInit"
+    "TickBlockEntitiesNullGuardMixin"
   ],
   "injectors": {
     "defaultRequire": 1
