@@ -51,7 +51,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Mixin(ServerExplosion.class)
@@ -443,18 +442,16 @@ public abstract class ServerExplosionMixin {
             double bbMaxY = SimdBatchOps.bbMaxY(slot);
             double bbMaxZ = SimdBatchOps.bbMaxZ(slot);
 
-            // Entity lookup — needed for damage calculator, UUID, and instanceof
+            // Entity lookup — needed for damage calculator and instanceof
             Entity entity = this.level.getEntity(entityId);
             if (entity == null || entity.isRemoved()) continue;
 
             boolean shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
             float knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
-            UUID uuid = entity.getUUID();
             double eyeY = entity instanceof PrimedTnt
-                    ? feetY : feetY + entity.getEyeHeight();
+                    ? feetY : feetY + SimdBatchOps.eyeHeight(slot);
 
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
-                    uuid.getMostSignificantBits(), uuid.getLeastSignificantBits(),
                     feetX, feetY, feetZ, eyeY,
                     bbMinX, bbMinY, bbMinZ, bbMaxX, bbMaxY, bbMaxZ,
                     shouldDamage, knockbackMultiplier, 0.0F,
@@ -479,11 +476,6 @@ public abstract class ServerExplosionMixin {
     private void applyEntityDamage(ExplosionHelper.EntityDamageResult result) {
         Entity entity = this.level.getEntity(result.entityId());
         if (entity == null) return;
-        UUID uuid = entity.getUUID();
-        if (result.uuidMostSignificantBits() != 0 || result.uuidLeastSignificantBits() != 0) {
-            if (uuid.getMostSignificantBits() != result.uuidMostSignificantBits()
-                    || uuid.getLeastSignificantBits() != result.uuidLeastSignificantBits()) return;
-        }
         ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
             @Override
             public void hurt(float damage) {

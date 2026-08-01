@@ -20,8 +20,6 @@ public final class ExplosionHelper {
                            double stepX, double stepY, double stepZ) {}
     public record EntityDamageSnapshot(
             int entityId,
-            long uuidMostSignificantBits,
-            long uuidLeastSignificantBits,
             double feetX,
             double feetY,
             double feetZ,
@@ -41,8 +39,6 @@ public final class ExplosionHelper {
 
     public record EntityDamageResult(
             int entityId,
-            long uuidMostSignificantBits,
-            long uuidLeastSignificantBits,
             float damage,
             double kbX,
             double kbY,
@@ -107,8 +103,6 @@ public final class ExplosionHelper {
                 ? vanillaDamage(doubleRadius, distanceRatio, exposure)
                 : 0.0F;
         return new EntityDamageResult(snapshot.entityId,
-                snapshot.uuidMostSignificantBits,
-                snapshot.uuidLeastSignificantBits,
                 damage, knockbackX, knockbackY, knockbackZ);
     }
 

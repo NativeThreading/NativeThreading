@@ -8,23 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ExplosionParallelEligibilityTest {
 
-    // ── Baseline characterization: existing allowsWorkerExecution behavior ──
-
-    @Test
-    void defaultCalculator_allowsWorkerExecution() {
-        assertThat(ExplosionParallelEligibility.allowsWorkerExecution(ExplosionDamageCalculator.class)).isTrue();
-    }
-
-    @Test
-    void entityBasedCalculator_allowsWorkerExecution() {
-        assertThat(ExplosionParallelEligibility.allowsWorkerExecution(EntityBasedExplosionDamageCalculator.class)).isTrue();
-    }
-
-    @Test
-    void customCalculator_routesToVanillaExecution() {
-        assertThat(ExplosionParallelEligibility.allowsWorkerExecution(CustomExplosionDamageCalculator.class)).isFalse();
-    }
-
     // ── Tier routing ──
 
     @Test

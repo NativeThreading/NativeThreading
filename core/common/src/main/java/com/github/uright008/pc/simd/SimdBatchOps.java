@@ -57,6 +57,12 @@ public final class SimdBatchOps {
     public static double bbMaxY(int slot) { return getEntityDataView().bbMaxY()[slot]; }
     public static double bbMaxZ(int slot) { return getEntityDataView().bbMaxZ()[slot]; }
 
+    public static double eyeHeight(int slot) {
+        double[][] f = com.github.uright008.vec.core.SoAStore.getFields();
+        double[] ey = f[com.github.uright008.vec.core.GeneratedFields.EYE_HEIGHT];
+        return (slot >= 0 && slot < ey.length) ? ey[slot] : Double.NaN;
+    }
+
 public static void extractPositions(int[] slots, int count,
                                     double[] dstX, double[] dstY, double[] dstZ) {
     double[][] f = com.github.uright008.vec.core.SoAStore.getFields();

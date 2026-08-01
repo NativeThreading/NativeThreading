@@ -186,7 +186,7 @@ class ExplosionHelperRayTest {
         assertThat(ray.stepY()).isNotNull();
         assertThat(ray.stepZ()).isNotNull();
 
-        var result = new ExplosionHelper.EntityDamageResult(1, 2L, 3L, 0f, 0, 0, 0);
+        var result = new ExplosionHelper.EntityDamageResult(1, 0f, 0, 0, 0);
         assertThat(result.damage()).isZero();
     }
 
