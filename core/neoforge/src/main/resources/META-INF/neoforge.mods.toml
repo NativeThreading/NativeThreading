@@ -3,11 +3,11 @@ loaderVersion = "[4,)"
 license = "MIT"
 
 [[mods]]
-modId = "core"
+modId = "parallel-core"
 version = "${version}"
 displayName = "Parallel Core"
 description = "Central thread pool, world management, and /parallel command system for MC Parallel mods."
 authors = ["uright008"]
 
 [[mixins]]
-config = "core.mixins.json"
+config = "parallel-core.mixins.json"
