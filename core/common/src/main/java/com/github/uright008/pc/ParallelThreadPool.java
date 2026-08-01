@@ -27,7 +27,8 @@ public final class ParallelThreadPool {
 
     @SuppressWarnings("unchecked")
     public static <T extends ExecutorService> T getPool(String name) {
-        return (T) POOLS.computeIfAbsent(name, ParallelThreadPool::createPool);
+        ExecutorService pool = POOLS.get(name);
+        return (T) (pool != null ? pool : POOLS.computeIfAbsent(name, ParallelThreadPool::createPool));
     }
 
     public static void recreateAll() {
