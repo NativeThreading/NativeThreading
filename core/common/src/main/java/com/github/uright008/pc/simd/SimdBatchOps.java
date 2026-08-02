@@ -114,8 +114,24 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
         }
 
         if (count < SIMD_THRESHOLD) {
+            // Position pre-filter: an entity's bbox can only intersect the query
+            // box if its feet position lies within an inflated box. Most slots in
+            // the capacity are far from the (typically small) explosion AABB, so
+            // the 3 position reads + compares skip the 6 bbox reads + compares
+            // for the vast majority. MAX_ENTITY_EXTENT bounds the inflation.
+            double[] px = view.posX(), py = view.posY(), pz = view.posZ();
+            double e = MAX_ENTITY_EXTENT;
+            double xLo = qMinX - e, xHi = qMaxX + e;
+            double yLo = qMinY - e, yHi = qMaxY + e;
+            double zLo = qMinZ - e, zHi = qMaxZ + e;
             int out = 0;
             for (int i = 0; i < count && out < maxResults; i++) {
+                double pxi = px[i];
+                if (pxi < xLo || pxi > xHi) continue;
+                double pyi = py[i];
+                if (pyi < yLo || pyi > yHi) continue;
+                double pzi = pz[i];
+                if (pzi < zLo || pzi > zHi) continue;
                 if (bx0[i] <= qMaxX & bx1[i] >= qMinX
                   & by0[i] <= qMaxY & by1[i] >= qMinY
                   & bz0[i] <= qMaxZ & bz1[i] >= qMinZ) {
@@ -173,6 +189,7 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
 
     private static final int SIMD_THRESHOLD = 32768;
     private static final int SPATIAL_THRESHOLD = 131072;
+    private static final double MAX_ENTITY_EXTENT = 16.0;
 
     public static int intersectAABBSimd(
             double[] minX, double[] minY, double[] minZ,
