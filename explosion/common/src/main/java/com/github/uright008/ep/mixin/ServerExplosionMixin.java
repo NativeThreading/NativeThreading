@@ -189,8 +189,8 @@ public abstract class ServerExplosionMixin {
 
         List<BitSet> workerGrids;
         final BlockState[] flatBlocks = new BlockState[gridSize];
-        ExplosionFlatViewBuilder.fill(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
-                strideY, strideZ, chunkGrid::getBlockState);
+        ExplosionFlatViewBuilder.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+                strideY, strideZ, chunkGrid);
 
         // Precompute collision shapes once so workers never call
         // getCollisionShape in the DDA inner loop. Same call as the live path
