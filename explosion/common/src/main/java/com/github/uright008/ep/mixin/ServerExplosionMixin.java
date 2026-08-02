@@ -192,10 +192,17 @@ public abstract class ServerExplosionMixin {
         ExplosionFlatViewBuilder.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid);
 
-        // Collision shapes are lazily precomputed in hurtEntitiesParallel only
-        // when there are entities to damage — most explosions damage none.
+        // Precompute collision shapes so workers never call getCollisionShape
+        // in the DDA inner loop. Same call as the live path
+        // (getCollisionShape(null, null)), so results are identical.
+        final VoxelShape[] flatShapes = new VoxelShape[gridSize];
+        for (int i = 0; i < gridSize; i++) {
+            BlockState s = flatBlocks[i];
+            flatShapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
+        }
+
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+                flatBlocks, flatShapes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
         this.cachedWorldView = worldView;
 
         final ServerExplosion self = (ServerExplosion) (Object) this;
@@ -378,9 +385,6 @@ public abstract class ServerExplosionMixin {
             snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
             if (snapshots.isEmpty()) return true;
             ENTITY_WORKER_BATCHES.incrementAndGet();
-            if (!ExplosionParallelConfig.isRayLookup()) {
-                this.cachedWorldView.ensureShapes();
-            }
             if (ExplosionParallelConfig.isRayLookup()) {
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
