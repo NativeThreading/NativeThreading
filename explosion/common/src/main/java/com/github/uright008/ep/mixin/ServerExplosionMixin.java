@@ -445,22 +445,28 @@ public abstract class ServerExplosionMixin {
             double bbMaxY = SimdBatchOps.bbMaxY(slot);
             double bbMaxZ = SimdBatchOps.bbMaxZ(slot);
 
-            // Entity lookup — needed for damage calculator and instanceof
-            Entity entity = this.level.getEntity(entityId);
-            if (entity == null || entity.isRemoved()) continue;
-
             // The default ExplosionDamageCalculator returns constants for both
-            // calls; only a non-default calculator needs the entity dispatch.
+            // calls, so the entity object is only needed for the primed-TNT
+            // eye-height check. On that path read the flag from SoA instead of
+            // level.getEntity (6.6% of capture time): intersectAABB only hits
+            // live slots (freed slots have NaN bounds that never compare
+            // true), and SoAStore unregisters synchronously in Entity.remove,
+            // so no removed entity can be hit here.
             boolean shouldDamage;
             float knockbackMultiplier;
+            boolean isPrimedTnt;
             if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
+                isPrimedTnt = SimdBatchOps.isPrimedTnt(slot);
             } else {
+                Entity entity = this.level.getEntity(entityId);
+                if (entity == null || entity.isRemoved()) continue;
                 shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
                 knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
+                isPrimedTnt = entity instanceof PrimedTnt;
             }
-            double eyeY = entity instanceof PrimedTnt
+            double eyeY = isPrimedTnt
                     ? feetY : feetY + SimdBatchOps.eyeHeight(slot);
 
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,

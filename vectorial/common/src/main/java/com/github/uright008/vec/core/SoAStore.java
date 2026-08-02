@@ -4,6 +4,7 @@ import java.lang.invoke.VarHandle;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.item.PrimedTnt;
 
 /**
  * SoA storage with per-field double[] arrays.
@@ -96,6 +97,25 @@ public final class SoAStore implements EntityDataView {
     /** Morton-code sort keys. Exposed for SimdBatchOps spatial filtering. */
     public static long[] getKeys() { return INSTANCE.keys; }
 
+    // ── Entity type flags ─────────────────────────
+
+    /**
+     * Ordinal of the "is primed TNT" flag. Reuses ordinal 31, one of the two
+     * free slots in the generated ordinal space (stuckSpeedMultiplier Y/Z are
+     * never written by GeneratedSync nor read by SimdBatchOps). Do not reuse
+     * ordinal 30 (STUCK_SPEED_MULTIPLIER_X).
+     *
+     * <p>unregisterImpl clears every field array to NaN, so this flag is
+     * automatically reset when an entity is removed.</p>
+     */
+    static final int IS_PRIMED_TNT_ORD = 31;
+
+    /** Whether the entity at {@code slot} is a primed TNT (flagged at registration). */
+    public static boolean isPrimedTntSlot(int slot) {
+        double[] flag = INSTANCE.fields[IS_PRIMED_TNT_ORD];
+        return slot >= 0 && slot < flag.length && flag[slot] == 1.0;
+    }
+
     // ── Registration (lock-free allocate, lock on expand only) ──
 
     public static void register(Entity entity) {
@@ -114,6 +134,7 @@ public final class SoAStore implements EntityDataView {
 
         int slot = allocateSlot();
         slotToId[slot] = id;
+        if (entity instanceof PrimedTnt) fields[IS_PRIMED_TNT_ORD][slot] = 1.0;
         VarHandle.storeStoreFence();
         idToSlot[id] = slot;
         idToSlotCache = idToSlot;

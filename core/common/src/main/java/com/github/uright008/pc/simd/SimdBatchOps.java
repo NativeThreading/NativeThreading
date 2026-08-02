@@ -58,6 +58,10 @@ public final class SimdBatchOps {
         return (slot >= 0 && slot < ey.length) ? ey[slot] : Double.NaN;
     }
 
+    public static boolean isPrimedTnt(int slot) {
+        return com.github.uright008.vec.core.SoAStore.isPrimedTntSlot(slot);
+    }
+
 public static void distanceSqBySlotBatch(int[] slots, int count,
                                           double cx, double cy, double cz, double[] dst) {
     double[][] f = com.github.uright008.vec.core.SoAStore.getFields();
