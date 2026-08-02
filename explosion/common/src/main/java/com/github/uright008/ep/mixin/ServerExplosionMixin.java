@@ -277,7 +277,7 @@ public abstract class ServerExplosionMixin {
     @Unique
     private void traceRay(ExplosionHelper.RayParam ray, int rayIndex,
                           BitSet grid, int minX, int minY, int minZ,
-                          int maxX, int maxY, int maxZ, WorldReadView<BlockState> worldView,
+                          int maxX, int maxY, int maxZ, WorldReadViewImpl worldView,
                           int strideY, int strideZ, float[] firstBlockDistances,
                           float initialPower,
                           boolean isDefaultCalc,
@@ -301,7 +301,7 @@ public abstract class ServerExplosionMixin {
                 pos.set(bx, by, bz);
                 if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
-                BlockState block = worldView.getBlockState(bx, by, bz);
+                BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
                 FluidState fluid = block.getFluidState();
                 if (!block.isAir() || !fluid.isEmpty()) {
                     float baseRes = Math.max(block.getBlock().getExplosionResistance(),
@@ -330,7 +330,7 @@ public abstract class ServerExplosionMixin {
                 pos.set(bx, by, bz);
                 if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
-                BlockState block = worldView.getBlockState(bx, by, bz);
+                BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
                 FluidState fluid = block.getFluidState();
                 if (!block.isAir() || !fluid.isEmpty()) {
                     float baseRes = Math.max(block.getBlock().getExplosionResistance(),

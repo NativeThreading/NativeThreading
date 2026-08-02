@@ -56,6 +56,15 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
         return getBlockState(x, y, z).isAir();
     }
 
+    /**
+     * Reads without the bounds check. Caller must have already verified the
+     * coordinates are inside [min..max] on every axis (traceRay's loop break
+     * guarantees this before each read).
+     */
+    public BlockState getBlockStateUnchecked(int x, int y, int z) {
+        return states[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
+    }
+
     // ── Package-private accessors for the fast ray path ──
 
     BlockState[] states() {
