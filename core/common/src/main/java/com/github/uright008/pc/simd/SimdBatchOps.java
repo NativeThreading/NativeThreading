@@ -89,30 +89,6 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
         double[] bz0 = view.bbMinZ(), bz1 = view.bbMaxZ();
         int maxResults = result.length;
 
-        // Pre-filter by chunk-section for very large datasets.
-        // Uses Minecraft's 30M offset to avoid Math.floor for negative coords.
-        if (count >= SPATIAL_THRESHOLD) {
-            double[] px = view.posX(), py = view.posY(), pz = view.posZ();
-            int cxMin = (int)((qMinX + 30_000_000) / 16), cxMax = (int)((qMaxX + 30_000_000) / 16);
-            int cyMin = (int)((qMinY + 30_000_000) / 16), cyMax = (int)((qMaxY + 30_000_000) / 16);
-            int czMin = (int)((qMinZ + 30_000_000) / 16), czMax = (int)((qMaxZ + 30_000_000) / 16);
-            int out = 0;
-            for (int i = 0; i < count && out < maxResults; i++) {
-                int cx = (int)((px[i] + 30_000_000) / 16);
-                if (cx < cxMin || cx > cxMax) continue;
-                int cy = (int)((py[i] + 30_000_000) / 16);
-                if (cy < cyMin || cy > cyMax) continue;
-                int cz = (int)((pz[i] + 30_000_000) / 16);
-                if (cz < czMin || cz > czMax) continue;
-                if (bx0[i] <= qMaxX & bx1[i] >= qMinX
-                  & by0[i] <= qMaxY & by1[i] >= qMinY
-                  & bz0[i] <= qMaxZ & bz1[i] >= qMinZ) {
-                    result[out++] = i;
-                }
-            }
-            return out;
-        }
-
         if (count < SIMD_THRESHOLD) {
             int out = 0;
             for (int i = 0; i < count && out < maxResults; i++) {
@@ -172,7 +148,6 @@ public static void distanceSqBySlotBatch(int[] slots, int count,
     // ── Explicit Vector API SIMD ──────────────────
 
     private static final int SIMD_THRESHOLD = 32768;
-    private static final int SPATIAL_THRESHOLD = 131072;
 
     public static int intersectAABBSimd(
             double[] minX, double[] minY, double[] minZ,
