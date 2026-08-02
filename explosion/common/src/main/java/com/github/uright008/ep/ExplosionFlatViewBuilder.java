@@ -35,41 +35,53 @@ public final class ExplosionFlatViewBuilder {
     }
 
     /**
-     * Fills the flat array from a {@link ChunkGrid}, caching the current section
-     * so reads inside one section go straight to
-     * {@link LevelChunkSection#getBlockState} (O(1) array access) instead of the
-     * per-cell ChunkGrid palette chain. Result is identical to {@link #fill}
-     * with {@code chunkGrid::getBlockState}.
+     * Fills the flat array from a {@link ChunkGrid} in section-major order.
+     * Each section is resolved once; sections that are entirely air (the common
+     * case in an explosion volume) are skipped with a bulk AIR fill instead of
+     * per-cell palette reads. Result is identical to {@link #fill} with
+     * {@code chunkGrid::getBlockState}.
      */
     public static BlockState[] fillSectioned(BlockState[] dst,
                                              int minX, int minY, int minZ,
                                              int maxX, int maxY, int maxZ,
                                              int strideY, int strideZ,
                                              ChunkGrid chunkGrid) {
+        BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
         ChunkGrid.SectionRef ref = new ChunkGrid.SectionRef();
-        int cachedSx = Integer.MIN_VALUE, cachedSz = Integer.MIN_VALUE, cachedSecY = Integer.MIN_VALUE;
-        for (int z = minZ; z <= maxZ; z++) {
-            int cz = z >> 4;
-            int lz = z & 15;
-            int zOff = (z - minZ) * strideZ;
-            for (int y = minY; y <= maxY; y++) {
-                int secY = y >> 4;
-                int ly = y & 15;
-                int yzOff = zOff + (y - minY) * strideY;
-                int cx = minX >> 4;
-                int lx = minX & 15;
-                int i = yzOff;
-                for (int x = minX; x <= maxX; x++, i++) {
-                    if (cx != cachedSx || cz != cachedSz || secY != cachedSecY) {
-                        chunkGrid.getSection(cx, cz, y, ref);
-                        cachedSx = cx;
-                        cachedSz = cz;
-                        cachedSecY = secY;
-                    }
+        for (int cz = minZ >> 4; cz <= maxZ >> 4; cz++) {
+            int zMin = Math.max(minZ, cz << 4);
+            int zMax = Math.min(maxZ, (cz << 4) + 15);
+            for (int secY = minY >> 4; secY <= maxY >> 4; secY++) {
+                int yMin = Math.max(minY, secY << 4);
+                int yMax = Math.min(maxY, (secY << 4) + 15);
+                for (int cx = minX >> 4; cx <= maxX >> 4; cx++) {
+                    int xMin = Math.max(minX, cx << 4);
+                    int xMax = Math.min(maxX, (cx << 4) + 15);
+
+                    chunkGrid.getSection(cx, cz, secY << 4, ref);
                     LevelChunkSection section = ref.section;
-                    dst[i] = section != null ? section.getBlockState(lx, ly, lz)
-                                             : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-                    if (++lx == 16) { lx = 0; cx++; }
+                    if (section == null || section.hasOnlyAir()) {
+                        for (int z = zMin; z <= zMax; z++) {
+                            int zOff = (z - minZ) * strideZ;
+                            for (int y = yMin; y <= yMax; y++) {
+                                java.util.Arrays.fill(dst,
+                                        zOff + (y - minY) * strideY + (xMin - minX),
+                                        zOff + (y - minY) * strideY + (xMax - minX) + 1, air);
+                            }
+                        }
+                    } else {
+                        for (int z = zMin; z <= zMax; z++) {
+                            int zOff = (z - minZ) * strideZ;
+                            int lz = z & 15;
+                            for (int y = yMin; y <= yMax; y++) {
+                                int i = zOff + (y - minY) * strideY + (xMin - minX);
+                                int ly = y & 15;
+                                for (int x = xMin; x <= xMax; x++, i++) {
+                                    dst[i] = section.getBlockState(x & 15, ly, lz);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

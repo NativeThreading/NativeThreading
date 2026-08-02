@@ -42,4 +42,37 @@ public final class ExplosionFlatViewParityGameTest {
         }
         helper.succeed();
     }
+
+    @GameTest(maxTicks = 12, padding = 40)
+    public void fillSectionedAirSectionsMatchBlockLookup(GameTestHelper helper) {
+        // Bounds high in the air spanning several sections that are pure air —
+        // exercises the hasOnlyAir bulk-fill fast path.
+        helper.setBlock(new BlockPos(24, 44, 24), Blocks.STONE.defaultBlockState());
+        helper.setBlock(new BlockPos(40, 52, 40), Blocks.OBSIDIAN.defaultBlockState());
+
+        var level = helper.getLevel();
+        ChunkGrid grid = new ChunkGrid(level, 32.0, 32.0, 16.0F);
+
+        int minX = 20, minY = 40, minZ = 20;
+        int maxX = 44, maxY = 60, maxZ = 44;
+        int strideY = maxX - minX + 1;
+        int strideZ = strideY * (maxY - minY + 1);
+        int size = strideZ * (maxZ - minZ + 1);
+
+        BlockState[] slow = new BlockState[size];
+        ExplosionFlatViewBuilder.fill(slow, minX, minY, minZ, maxX, maxY, maxZ,
+                strideY, strideZ, grid::getBlockState);
+
+        BlockState[] fast = new BlockState[size];
+        ExplosionFlatViewBuilder.fillSectioned(fast, minX, minY, minZ, maxX, maxY, maxZ,
+                strideY, strideZ, grid);
+
+        for (int i = 0; i < size; i++) {
+            if (slow[i] != fast[i]) {
+                helper.fail("fillSectioned air-section differs at index " + i
+                        + ": slow=" + slow[i] + " fast=" + fast[i]);
+            }
+        }
+        helper.succeed();
+    }
 }

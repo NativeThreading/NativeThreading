@@ -192,17 +192,10 @@ public abstract class ServerExplosionMixin {
         ExplosionFlatViewBuilder.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid);
 
-        // Precompute collision shapes once so workers never call
-        // getCollisionShape in the DDA inner loop. Same call as the live path
-        // (getCollisionShape(null, null)), so results are identical.
-        final VoxelShape[] flatShapes = new VoxelShape[gridSize];
-        for (int i = 0; i < gridSize; i++) {
-            BlockState s = flatBlocks[i];
-            flatShapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
-        }
-
+        // Collision shapes are lazily precomputed in hurtEntitiesParallel only
+        // when there are entities to damage — most explosions damage none.
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, flatShapes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+                flatBlocks, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
         this.cachedWorldView = worldView;
 
         final ServerExplosion self = (ServerExplosion) (Object) this;
@@ -385,6 +378,9 @@ public abstract class ServerExplosionMixin {
             snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
             if (snapshots.isEmpty()) return true;
             ENTITY_WORKER_BATCHES.incrementAndGet();
+            if (!ExplosionParallelConfig.isRayLookup()) {
+                this.cachedWorldView.ensureShapes();
+            }
             if (ExplosionParallelConfig.isRayLookup()) {
                 results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                         snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
@@ -425,6 +421,7 @@ public abstract class ServerExplosionMixin {
                 ? this.cachedFirstBlockDistances : null;
         float samplingFactor = ExplosionParallelConfig.getSamplingFactor();
         ServerExplosion self = (ServerExplosion) (Object) this;
+        final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
 
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
         for (int index = 0; index < hitCount; index++) {
@@ -448,8 +445,17 @@ public abstract class ServerExplosionMixin {
             Entity entity = this.level.getEntity(entityId);
             if (entity == null || entity.isRemoved()) continue;
 
-            boolean shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
-            float knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
+            // The default ExplosionDamageCalculator returns constants for both
+            // calls; only a non-default calculator needs the entity dispatch.
+            boolean shouldDamage;
+            float knockbackMultiplier;
+            if (isDefaultCalc) {
+                shouldDamage = true;
+                knockbackMultiplier = 1.0F;
+            } else {
+                shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
+                knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
+            }
             double eyeY = entity instanceof PrimedTnt
                     ? feetY : feetY + SimdBatchOps.eyeHeight(slot);
 

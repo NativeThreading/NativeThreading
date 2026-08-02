@@ -7,7 +7,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     private final BlockState[] states;
-    private final VoxelShape[] shapes;
+    private VoxelShape[] shapes;
     private final int minX;
     private final int minY;
     private final int minZ;
@@ -73,6 +73,17 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     VoxelShape[] shapes() {
         return shapes;
+    }
+
+    /** Lazily precomputes collision shapes (main thread, before worker dispatch). */
+    public void ensureShapes() {
+        if (shapes != null) return;
+        VoxelShape[] computed = new VoxelShape[states.length];
+        for (int i = 0; i < states.length; i++) {
+            BlockState s = states[i];
+            computed[i] = s.isAir() ? null : s.getCollisionShape(null, null);
+        }
+        shapes = computed;
     }
 
     int minX() {
