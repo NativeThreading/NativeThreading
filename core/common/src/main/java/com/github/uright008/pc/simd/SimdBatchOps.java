@@ -62,6 +62,29 @@ public final class SimdBatchOps {
         return com.github.uright008.vec.core.SoAStore.isPrimedTntSlot(slot);
     }
 
+    public static double[] primedTntFlags() {
+        return com.github.uright008.vec.core.SoAStore.primedTntFlagArray();
+    }
+
+    public static final int POS_X_ORD = com.github.uright008.vec.core.GeneratedFields.POSITION_X;
+    public static final int POS_Y_ORD = com.github.uright008.vec.core.GeneratedFields.POSITION_Y;
+    public static final int POS_Z_ORD = com.github.uright008.vec.core.GeneratedFields.POSITION_Z;
+    public static final int BB_MIN_X_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MIN_X;
+    public static final int BB_MIN_Y_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MIN_Y;
+    public static final int BB_MIN_Z_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MIN_Z;
+    public static final int BB_MAX_X_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MAX_X;
+    public static final int BB_MAX_Y_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MAX_Y;
+    public static final int BB_MAX_Z_ORD = com.github.uright008.vec.core.GeneratedFields.BB_MAX_Z;
+    public static final int EYE_HEIGHT_ORD = com.github.uright008.vec.core.GeneratedFields.EYE_HEIGHT;
+
+    public static double[][] batchFields() {
+        return com.github.uright008.vec.core.SoAStore.getFields();
+    }
+
+    public static int[] slotToIdArray() {
+        return com.github.uright008.vec.core.SoAStore.getSlotToId();
+    }
+
 public static void distanceSqBySlotBatch(int[] slots, int count,
                                           double cx, double cy, double cz, double[] dst) {
     double[][] f = com.github.uright008.vec.core.SoAStore.getFields();

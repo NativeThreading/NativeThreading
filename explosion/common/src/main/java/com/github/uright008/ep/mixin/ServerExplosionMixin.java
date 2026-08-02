@@ -427,23 +427,36 @@ public abstract class ServerExplosionMixin {
         ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
 
+        double[][] fields = com.github.uright008.pc.simd.SimdBatchOps.batchFields();
+        double[] posX = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_X_ORD];
+        double[] posY = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_Y_ORD];
+        double[] posZ = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_Z_ORD];
+        double[] bbMinX = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_X_ORD];
+        double[] bbMinY = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_Y_ORD];
+        double[] bbMinZ = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_Z_ORD];
+        double[] bbMaxX = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_X_ORD];
+        double[] bbMaxY = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_Y_ORD];
+        double[] bbMaxZ = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_Z_ORD];
+        double[] eyeHeights = fields[com.github.uright008.pc.simd.SimdBatchOps.EYE_HEIGHT_ORD];
+        int[] slotToId = com.github.uright008.pc.simd.SimdBatchOps.slotToIdArray();
+        double[] primedTntFlags = com.github.uright008.pc.simd.SimdBatchOps.primedTntFlags();
+
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
         for (int index = 0; index < hitCount; index++) {
             if (distanceSquares[index] > radiusSquare) continue;
             int slot = hits[index];
-            int entityId = SimdBatchOps.slotToEntityId(slot);
+            int entityId = slotToId[slot];
             if (entityId < 0 || entityId == sourceId) continue;
 
-            // Read position and bounding box from SoA (zero-allocation)
-            double feetX = SimdBatchOps.posX(slot);
-            double feetY = SimdBatchOps.posY(slot);
-            double feetZ = SimdBatchOps.posZ(slot);
-            double bbMinX = SimdBatchOps.bbMinX(slot);
-            double bbMinY = SimdBatchOps.bbMinY(slot);
-            double bbMinZ = SimdBatchOps.bbMinZ(slot);
-            double bbMaxX = SimdBatchOps.bbMaxX(slot);
-            double bbMaxY = SimdBatchOps.bbMaxY(slot);
-            double bbMaxZ = SimdBatchOps.bbMaxZ(slot);
+            double feetX = posX[slot];
+            double feetY = posY[slot];
+            double feetZ = posZ[slot];
+            double bbMinXv = bbMinX[slot];
+            double bbMinYv = bbMinY[slot];
+            double bbMinZv = bbMinZ[slot];
+            double bbMaxXv = bbMaxX[slot];
+            double bbMaxYv = bbMaxY[slot];
+            double bbMaxZv = bbMaxZ[slot];
 
             // The default ExplosionDamageCalculator returns constants for both
             // calls, so the entity object is only needed for the primed-TNT
@@ -458,7 +471,7 @@ public abstract class ServerExplosionMixin {
             if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
-                isPrimedTnt = SimdBatchOps.isPrimedTnt(slot);
+                isPrimedTnt = primedTntFlags[slot] == 1.0;
             } else {
                 Entity entity = this.level.getEntity(entityId);
                 if (entity == null || entity.isRemoved()) continue;
@@ -467,11 +480,11 @@ public abstract class ServerExplosionMixin {
                 isPrimedTnt = entity instanceof PrimedTnt;
             }
             double eyeY = isPrimedTnt
-                    ? feetY : feetY + SimdBatchOps.eyeHeight(slot);
+                    ? feetY : feetY + eyeHeights[slot];
 
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
-                    bbMinX, bbMinY, bbMinZ, bbMaxX, bbMaxY, bbMaxZ,
+                    bbMinXv, bbMinYv, bbMinZv, bbMaxXv, bbMaxYv, bbMaxZv,
                     shouldDamage, knockbackMultiplier, 0.0F,
                     samplingFactor, firstBlockDistances));
         }

@@ -116,6 +116,11 @@ public final class SoAStore implements EntityDataView {
         return slot >= 0 && slot < flag.length && flag[slot] == 1.0;
     }
 
+    /** Raw primed-TNT flag array for batch readers (call once, index per slot). */
+    public static double[] primedTntFlagArray() {
+        return INSTANCE.fields[IS_PRIMED_TNT_ORD];
+    }
+
     // ── Registration (lock-free allocate, lock on expand only) ──
 
     public static void register(Entity entity) {
