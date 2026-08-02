@@ -4,9 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -14,15 +12,19 @@ import net.minecraft.world.level.block.state.BlockState;
  * Shared infrastructure for TNT-chamber explosion gametests.
  *
  * <p>The chamber mirrors the benchmark world layout: an obsidian shell
- * enclosing an interior where TNT blocks sit on the center cross. Tests built
- * on this base start from a clean slate: stray entities cleared, a freshly
- * built chamber, and a single {@code Fuse:0} PrimedTnt detonator spawned just
- * above the shell so it drops onto the TNT stack and triggers the reaction.</p>
+ * enclosing an interior filled with TNT and stone. Tests built on this base
+ * build the chamber programmatically (no command blocks — the benchmark world's
+ * command-block fillers are unnecessary), clear stray entities, detonate, wait
+ * 10 seconds, and assert the obsidian interior is empty: no leftover blocks and
+ * no item entities.</p>
  */
 public abstract class TntChamberTestBase {
 
     /** Chamber side length in blocks (odd, so a center block exists). */
     protected static final int CHAMBER_SIZE = 5;
+
+    /** Ticks to wait after detonation before asserting the interior is empty. */
+    protected static final int DETONATION_SETTLE_TICKS = 200; // 10s
 
     /**
      * Builds the chamber at the given origin: obsidian shell, interior filled
@@ -59,23 +61,10 @@ public abstract class TntChamberTestBase {
     }
 
     /**
-     * Spawns a {@code Fuse:0} PrimedTnt at the given relative position — it
-     * detonates on the next tick, triggering the chamber chain reaction.
-     */
-    protected void spawnDetonator(GameTestHelper helper, BlockPos pos) {
-        ServerLevel level = helper.getLevel();
-        BlockPos abs = helper.absolutePos(pos);
-        PrimedTnt tnt = new PrimedTnt(level,
-                abs.getX() + 0.5, abs.getY() + 0.5, abs.getZ() + 0.5, null);
-        tnt.setFuse(0);
-        level.addFreshEntity(tnt);
-    }
-
-    /**
-     * Triggers a chamber explosion. {@link PrimedTnt#tick()} does not reliably
-     * explode in the gametest server (the entity is ticked but no world change
-     * occurs), so the detonator is placed as a {@code Fuse:0} entity AND a
-     * direct {@link ServerLevel#explode} is issued at the chamber center.
+     * Detonates an explosion at the chamber center. The benchmark world relies
+     * on command blocks to fill the chamber; here a direct
+     * {@link ServerLevel#explode} is the trigger (PrimedTnt tick does not
+     * reliably explode in the gametest server).
      */
     protected void detonateChamber(GameTestHelper helper, BlockPos center) {
         BlockPos abs = helper.absolutePos(center);
@@ -84,24 +73,40 @@ public abstract class TntChamberTestBase {
                 4.0F, false, net.minecraft.world.level.Level.ExplosionInteraction.TNT);
     }
 
-    /** Counts TNT-block states in the chamber volume (post-explosion residue). */
-    protected long countTntBlocks(GameTestHelper helper, BlockPos origin) {
-        long count = 0;
+    /**
+     * Returns a description of anything found inside the obsidian shell after
+     * detonation — non-air blocks (excluding the shell itself) and item
+     * entities. Empty string means the interior is clean.
+     */
+    protected String interiorFindings(GameTestHelper helper, BlockPos origin) {
+        StringBuilder findings = new StringBuilder();
         for (int x = 0; x < CHAMBER_SIZE; x++) {
             for (int y = 0; y < CHAMBER_SIZE; y++) {
                 for (int z = 0; z < CHAMBER_SIZE; z++) {
+                    boolean shell = x == 0 || x == CHAMBER_SIZE - 1
+                            || y == 0 || y == CHAMBER_SIZE - 1
+                            || z == 0 || z == CHAMBER_SIZE - 1;
+                    if (shell) continue;
                     BlockPos pos = origin.offset(x, y, z);
-                    if (helper.getBlockState(pos).is(Blocks.TNT)) count++;
+                    BlockState state = helper.getBlockState(pos);
+                    if (!state.isAir()) {
+                        findings.append("block ").append(pos).append('=')
+                                .append(state).append("; ");
+                    }
                 }
             }
         }
-        return count;
+        int half = CHAMBER_SIZE / 2;
+        var items = helper.findEntities(EntityTypes.ITEM,
+                half, half, half, CHAMBER_SIZE);
+        if (!items.isEmpty()) {
+            findings.append(items.size()).append(" item entities; ");
+        }
+        return findings.toString();
     }
 
-    /** Counts PrimedTnt entities near the chamber (structure-scoped). */
-    protected long countTntEntities(GameTestHelper helper) {
-        int half = CHAMBER_SIZE / 2;
-        return helper.findEntities(EntityTypes.TNT,
-                half, CHAMBER_SIZE, half, CHAMBER_SIZE + 2).size();
+    /** True if the obsidian interior holds no blocks and no item entities. */
+    protected boolean interiorIsEmpty(GameTestHelper helper, BlockPos origin) {
+        return interiorFindings(helper, origin).isEmpty();
     }
 }

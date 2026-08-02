@@ -8,84 +8,74 @@ import net.minecraft.world.level.block.Blocks;
 /**
  * TNT-chamber explosion gametest built on {@link TntChamberTestBase}.
  *
- * <p>The backup world (world-tnt-backup) is a post-explosion snapshot: it
- * contains 2400+ TNT entities and no intact chamber. These tests therefore
- * build the chamber programmatically, clear all entities, place a single
- * {@code Fuse:0} PrimedTnt detonator above the shell, and verify the explosion
- * behaves identically with the parallel pipeline enabled vs disabled.</p>
+ * <p>No command blocks are used: the chamber is built programmatically, detonated,
+ * and after 10 seconds the obsidian interior must be empty — no leftover blocks,
+ * no item entities. The parallel pipeline must be a no-op with respect to this
+ * observable outcome, so the same assertion is checked with the pipeline both
+ * disabled and enabled.</p>
  */
 public final class TntChamberParityGameTest extends TntChamberTestBase {
 
     private static final BlockPos ORIGIN = new BlockPos(0, 0, 0);
-    private static final BlockPos DETONATOR = ORIGIN.offset(
-            CHAMBER_SIZE / 2, CHAMBER_SIZE + 1, CHAMBER_SIZE / 2);
+    private static final BlockPos CENTER = ORIGIN.offset(
+            CHAMBER_SIZE / 2, CHAMBER_SIZE / 2, CHAMBER_SIZE / 2);
 
     @GameTest(maxTicks = 400, padding = 40)
-    public void parallelAndVanillaLeaveSameTntResidue(GameTestHelper helper) {
-        boolean originalEnabled = ExplosionParallelConfig.isEnabled();
-        long[] vanillaResidue = new long[1];
-        long[] parallelResidue = new long[1];
-
+    public void interiorIsEmptyAfterDetonation(GameTestHelper helper) {
+        String[] findings = new String[1];
         helper.startSequence()
                 .thenExecute(() -> {
                     clearEntities(helper);
                     buildChamber(helper, ORIGIN);
-                    ExplosionParallelConfig.setEnabled(false);
-                    spawnDetonator(helper, DETONATOR);
-                    detonateChamber(helper, ORIGIN.offset(
-                            CHAMBER_SIZE / 2, CHAMBER_SIZE / 2, CHAMBER_SIZE / 2));
+                    detonateChamber(helper, CENTER);
                 })
-                .thenIdle(160)
-                .thenExecute(() -> vanillaResidue[0] = countTntBlocks(helper, ORIGIN))
+                .thenIdle(DETONATION_SETTLE_TICKS)
+                .thenExecute(() -> {
+                    findings[0] = interiorFindings(helper, ORIGIN);
+                    if (!findings[0].isEmpty()) {
+                        helper.fail("interior not empty after detonation: " + findings[0]);
+                    }
+                })
+                .thenExecute(helper::succeed);
+    }
+
+    @GameTest(maxTicks = 400, padding = 40)
+    public void interiorEmptyMatchesWithParallelEnabled(GameTestHelper helper) {
+        boolean originalEnabled = ExplosionParallelConfig.isEnabled();
+        String[] vanillaFindings = new String[1];
+        String[] parallelFindings = new String[1];
+
+        helper.startSequence()
+                // Baseline: vanilla (parallel disabled).
+                .thenExecute(() -> {
+                    clearEntities(helper);
+                    buildChamber(helper, ORIGIN);
+                    ExplosionParallelConfig.setEnabled(false);
+                    detonateChamber(helper, CENTER);
+                })
+                .thenIdle(DETONATION_SETTLE_TICKS)
+                .thenExecute(() -> vanillaFindings[0] = interiorFindings(helper, ORIGIN))
+                // Candidate: parallel enabled.
                 .thenExecute(() -> {
                     clearEntities(helper);
                     buildChamber(helper, ORIGIN);
                     ExplosionParallelConfig.setEnabled(true);
-                    spawnDetonator(helper, DETONATOR);
-                    detonateChamber(helper, ORIGIN.offset(
-                            CHAMBER_SIZE / 2, CHAMBER_SIZE / 2, CHAMBER_SIZE / 2));
+                    detonateChamber(helper, CENTER);
                 })
-                .thenIdle(160)
+                .thenIdle(DETONATION_SETTLE_TICKS)
                 .thenExecute(() -> {
-                    parallelResidue[0] = countTntBlocks(helper, ORIGIN);
-                    helper.assertTrue(
-                            vanillaResidue[0] == parallelResidue[0],
-                            "TNT residue differs: vanilla=" + vanillaResidue[0]
-                                    + " parallel=" + parallelResidue[0]);
-                    helper.assertTrue(countTntEntities(helper) == 0,
-                            "TNT entities remained after explosion");
+                    parallelFindings[0] = interiorFindings(helper, ORIGIN);
+                    if (!parallelFindings[0].isEmpty()) {
+                        helper.fail("interior not empty (parallel): " + parallelFindings[0]);
+                    }
+                    if (!vanillaFindings[0].equals(parallelFindings[0])) {
+                        helper.fail("findings differ: vanilla='" + vanillaFindings[0]
+                                + "' parallel='" + parallelFindings[0] + "'");
+                    }
                 })
                 .thenExecute(() -> {
                     ExplosionParallelConfig.setEnabled(originalEnabled);
                     helper.succeed();
                 });
-    }
-
-    @GameTest(maxTicks = 200, padding = 40)
-    public void chamberIsCleanAndExplodes(GameTestHelper helper) {
-        helper.startSequence()
-                .thenExecute(() -> {
-                    clearEntities(helper);
-                    buildChamber(helper, ORIGIN);
-                })
-                .thenExecute(() -> {
-                    helper.assertTrue(helper.getBlockState(
-                            ORIGIN.offset(CHAMBER_SIZE / 2, CHAMBER_SIZE / 2, CHAMBER_SIZE / 2))
-                            .is(Blocks.TNT),
-                            "chamber center must be TNT");
-                    helper.assertTrue(countTntEntities(helper) == 0,
-                            "entities must be cleared before detonation");
-                })
-                .thenExecute(() -> {
-                    spawnDetonator(helper, DETONATOR);
-                    detonateChamber(helper, ORIGIN.offset(
-                            CHAMBER_SIZE / 2, CHAMBER_SIZE / 2, CHAMBER_SIZE / 2));
-                })
-                .thenIdle(160)
-                .thenExecute(() -> {
-                    helper.assertTrue(countTntEntities(helper) == 0,
-                            "TNT entities remained after explosion");
-                })
-                .thenExecute(helper::succeed);
     }
 }
