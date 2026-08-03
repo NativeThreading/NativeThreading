@@ -445,7 +445,22 @@ public final class ExplosionHelper {
         return length < 1.0E-5F ? Vec3.ZERO : new Vec3(x / length * power, y / length * power, z / length * power);
     }
 
-    public static final int MAX_RAY_STEPS = 128;
+    /** Maximum ray steps a single trace may walk. Must cover the largest
+     *  blast radius a server can produce: vanilla has no step cap (its loop
+     *  runs while remainingPower > 0), and NT's region grows as
+     *  ceil(radius*1.3/0.225)*0.3 blocks per axis, so the step budget must
+     *  cover that reach. 512 steps covers radius <= 88 (the old 128 capped
+     *  rays at radius ~22, truncating bigger blasts). */
+    public static final int MAX_RAY_STEPS = 512;
+
+    /** Step budget for a given explosion radius: the number of 0.3-block steps
+     *  needed to walk the region reach ({@code ceil(radius*1.3/0.225)*0.3}
+     *  blocks), plus one so the ray terminates on or past the boundary exactly
+     *  as vanilla's power-decay loop would. */
+    public static int rayMaxSteps(float radius) {
+        int reach = (int) Math.ceil(Math.ceil(radius * 1.3F / 0.22500001F) * 0.3);
+        return (int) Math.ceil(reach / 0.3) + 1;
+    }
 
     public static final List<RayParam> RAY_PARAMS = generateRayParams();
     public static final int[][][] RAY_INDEX_BY_GRID = buildRayIndexGrid();

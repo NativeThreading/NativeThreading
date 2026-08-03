@@ -176,6 +176,24 @@ class ExplosionHelperRayTest {
     }
 
     @Test
+    @DisplayName("rayMaxSteps: step budget covers region reach for large radii")
+    void rayMaxSteps_coversLargeRadii() {
+        // The old hardcoded 128-step cap truncated rays once radius exceeded
+        // ~22 (128 steps x 0.3 = 38.4 blocks reach; region reach = ceil(r*1.3/0.225)*0.3).
+        // The dynamic budget must cover the region reach at every radius.
+        for (float radius : new float[]{4.0F, 6.5F, 12.0F, 22.0F, 30.0F, 50.0F}) {
+            int steps = ExplosionHelper.rayMaxSteps(radius);
+            int reach = (int) Math.ceil(Math.ceil(radius * 1.3F / 0.22500001F) * 0.3);
+            int stepsToReach = (int) Math.ceil(reach / 0.3);
+            assertThat(steps)
+                    .as("step budget for radius %s must reach %s blocks", radius, reach)
+                    .isGreaterThanOrEqualTo(stepsToReach);
+        }
+        assertThat(ExplosionHelper.rayMaxSteps(4.0F)).as("TNT radius").isLessThan(128);
+        assertThat(ExplosionHelper.rayMaxSteps(50.0F)).as("large radius needs more than old 128 cap").isGreaterThan(128);
+    }
+
+    @Test
     @DisplayName("Vanilla: each RayParam record has correct field count")
     void rayParam_recordFields() {
         var ray = ExplosionHelper.buildRayParams(16).getFirst();

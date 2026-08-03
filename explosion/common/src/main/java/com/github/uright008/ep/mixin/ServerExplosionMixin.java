@@ -288,7 +288,11 @@ public abstract class ServerExplosionMixin {
         float remainingPower = initialPower;
         final int gMinX = minX, gMinY = minY, gMinZ = minZ;
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
-        final int MAX = ExplosionHelper.MAX_RAY_STEPS;
+        final int MAX = ExplosionHelper.rayMaxSteps(this.radius);
+        // Non-precise rays read precomputed per-step integer deltas packed into
+        // 8 bits per axis; that encoding caps each axis at 128 blocks, so their
+        // step budget is additionally bounded by the delta table length.
+        final int MAX_DELTAS = Math.min(MAX, ExplosionHelper.MAX_RAY_STEPS);
         final int strideY_ = strideY, strideZ_ = strideZ;
         final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
@@ -328,7 +332,7 @@ public abstract class ServerExplosionMixin {
             int bz = net.minecraft.util.Mth.floor(this.center.z);
             final int[] deltas = ExplosionHelper.RAY_DELTAS[rayIndex];
 
-            for (int s = 0; s < MAX && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
+            for (int s = 0; s < MAX_DELTAS && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
                 pos.set(bx, by, bz);
                 if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
