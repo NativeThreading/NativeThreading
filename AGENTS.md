@@ -11,6 +11,15 @@ NativeThreading is a Minecraft 26.2 multi-module mod that parallelizes selected 
 
 Keep feature-specific complexity in its owning workload module. In particular, explosion logic belongs in `explosion`, not `core`.
 
+## Vectorial Agent Boundary
+
+`vectorial` has two independent dependency chains. They must stay decoupled:
+
+1. **SoA data fill (Mixin-only, agent-independent)** — `EntityMixin` registers/unregisters entities and `GeneratedSync.syncAll` writes the `SoAStore` field arrays every tick using the entity's getters. This path works whether or not the agent injected.
+2. **Entity getter redirect (agent-dependent)** — `VectorialAgent`/`VectorialTransformer` rewrite `Entity` getters to read the SoA arrays first (`_sl >= 0 ? SoA value : this.field`). This is a pure performance optimization; the fallback to `this.field` is embedded in the generated getter body.
+
+Agent injection failure (e.g. a future JVM forbidding dynamic agent attach) must never break explosion, hopper, or redstone. `GeneratedSync` reads getters, so the SoA arrays stay correct regardless of injection; `SimdBatchOps` reads those arrays and therefore does not depend on `VectorialTransformer.isTransformed()`. Do not gate any workload pipeline on injection success — only on `VECTORIAL_AVAILABLE` (class presence) where a SoA vs vanilla branch is needed.
+
 ## Threading Boundary
 
 Workers receive only immutable values or data captured on the main thread. Do not pass a generic `Level`, a live container, block entity, entity, or arbitrary mod callback to worker code. A subsystem captures inputs on the main thread, performs pure computation in workers, then applies world changes on the main thread.
