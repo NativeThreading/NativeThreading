@@ -1,5 +1,6 @@
 package com.github.uright008.ep;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import org.junit.jupiter.api.Test;
@@ -291,5 +292,53 @@ class ExplosionRayFlatDifferentialTest {
                 42, 0.0, 0.0, 0.0, 0.0,
                 minX, minY, minZ, maxX, maxY, maxZ,
                 false, 0.0F, 0.0F, false, 2.0F, null);
+    }
+
+    // ── Multi-box shapes: exact per-box test vs bounding-box approximation ──
+
+    /** Builds a view with a single oak fence post at (20, 60, 30). */
+    private static WorldReadViewImpl buildFenceView() {
+        BlockState[] states = new BlockState[STRIDE_Z * (MAX_Z - MIN_Z + 1)];
+        Arrays.fill(states, Blocks.AIR.defaultBlockState());
+        setBlock(states, 20, 60, 30, Blocks.OAK_FENCE.defaultBlockState());
+        net.minecraft.world.phys.shapes.VoxelShape[] shapes =
+                new net.minecraft.world.phys.shapes.VoxelShape[states.length];
+        for (int i = 0; i < states.length; i++) {
+            BlockState s = states[i];
+            shapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
+        }
+        double[][] boxes = ExplosionHelper.flattenShapeBoxes(states, shapes, states.length);
+        return new WorldReadViewImpl(states, shapes, boxes,
+                MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
+    }
+
+    /**
+     * A fence is a multi-box shape (posts + rails). A ray passing through the
+     * fence gap (e.g. at eye height between rails) must NOT hit — vanilla's
+     * clip tests the exact per-box decomposition. The precomputed per-box path
+     * must agree with vanilla clip on the same rays.
+     */
+    @Test
+    void fenceGap_multiBoxMatchesVanillaClip() {
+        WorldReadViewImpl view = buildFenceView();
+
+        // Fence center at x=20, z=30. Its horizontal rails sit in the lower and
+        // upper thirds; the mid-gap ray passes through the opening.
+        // Ray from west of the fence to east, at a height through the gap:
+        double gapY = 60.5;
+        double fx = 19.0, fz = 30.5;
+        double tx = 21.0, tz = 30.5;
+
+        // Vanilla clip semantics: does the ray hit the fence's exact shape?
+        net.minecraft.world.phys.Vec3 from = new net.minecraft.world.phys.Vec3(fx, gapY, fz);
+        net.minecraft.world.phys.Vec3 to = new net.minecraft.world.phys.Vec3(tx, gapY, tz);
+        net.minecraft.world.phys.BlockHitResult vanillaHit =
+                view.shapes()[index(20, 60, 30)].clip(from, to, new BlockPos(20, 60, 30));
+
+        // NT fast path with precomputed per-box shapes.
+        boolean flatHit = ExplosionHelper.rayIntersectsBlockFlatFast(
+                fx, gapY, fz, tx, gapY, tz, view);
+
+        assertThat(flatHit).as("flat per-box path must agree with vanilla clip").isEqualTo(vanillaHit != null);
     }
 }

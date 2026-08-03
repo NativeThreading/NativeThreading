@@ -132,6 +132,42 @@ public final class ExplosionHelper {
         return false;
     }
 
+    /** Flattens each cell's collision shape into axis-aligned boxes (6 doubles per
+     *  box, relative to the cell origin). Full-block cells yield null (the DDA's
+     *  full-box fast path); air cells yield null; partial shapes yield their exact
+     *  box decomposition so the DDA can test each box instead of the bounding box.
+     *  Precomputed on the main thread — zero per-cell allocation in the worker. */
+    public static double[][] flattenShapeBoxes(
+            BlockState[] states, VoxelShape[] shapes, int gridSize) {
+        double[][] boxes = new double[gridSize][];
+        for (int i = 0; i < gridSize; i++) {
+            VoxelShape shape = shapes != null ? shapes[i] : null;
+            if (shape == null || shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                continue;
+            }
+            java.util.List<net.minecraft.world.phys.AABB> aabbs = shape.toAabbs();
+            if (aabbs.size() == 1) {
+                net.minecraft.world.phys.AABB bb = aabbs.get(0);
+                boxes[i] = new double[] {
+                        bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ};
+            } else {
+                double[] packed = new double[aabbs.size() * 6];
+                for (int b = 0; b < aabbs.size(); b++) {
+                    net.minecraft.world.phys.AABB bb = aabbs.get(b);
+                    int o = b * 6;
+                    packed[o] = bb.minX;
+                    packed[o + 1] = bb.minY;
+                    packed[o + 2] = bb.minZ;
+                    packed[o + 3] = bb.maxX;
+                    packed[o + 4] = bb.maxY;
+                    packed[o + 5] = bb.maxZ;
+                }
+                boxes[i] = packed;
+            }
+        }
+        return boxes;
+    }
+
     /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
      *  with the real entity context (scaffolding isAbove/isDescending, powder-snow
      *  fallDistance/boots are all resolved from the entity). Main-thread only —
@@ -202,11 +238,13 @@ public final class ExplosionHelper {
                     if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
                         return true;
                 } else if (!shape.isEmpty()) {
-                    net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
-                            x + bb.minX, y + bb.minY, z + bb.minZ,
-                            x + bb.maxX, y + bb.maxY, z + bb.maxZ))
-                        return true;
+                    java.util.List<net.minecraft.world.phys.AABB> aabbs = shape.toAabbs();
+                    for (net.minecraft.world.phys.AABB bb : aabbs) {
+                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                                x + bb.minX, y + bb.minY, z + bb.minZ,
+                                x + bb.maxX, y + bb.maxY, z + bb.maxZ))
+                            return true;
+                    }
                 }
             }
 
@@ -271,6 +309,7 @@ public final class ExplosionHelper {
         // walks the raw array with incremental index updates.
         BlockState[] states = worldView.states();
         VoxelShape[] shapes = worldView.shapes();
+        double[][] shapeBoxes = worldView.shapeBoxes();
         int minX = worldView.minX(), minY = worldView.minY(), minZ = worldView.minZ();
         int strideY = worldView.strideY(), strideZ = worldView.strideZ();
         int index = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
@@ -284,16 +323,26 @@ public final class ExplosionHelper {
 
             net.minecraft.world.level.block.state.BlockState state = states[index];
             if (!state.isAir()) {
-                VoxelShape shape = shapes != null ? shapes[index] : state.getCollisionShape(null, null);
-                if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
-                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
-                        return true;
-                } else if (!shape.isEmpty()) {
-                    net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
-                            x + bb.minX, y + bb.minY, z + bb.minZ,
-                            x + bb.maxX, y + bb.maxY, z + bb.maxZ))
-                        return true;
+                double[] boxes = shapeBoxes != null ? shapeBoxes[index] : null;
+                if (boxes == null) {
+                    VoxelShape shape = shapes != null ? shapes[index] : state.getCollisionShape(null, null);
+                    if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
+                            return true;
+                    } else if (!shape.isEmpty()) {
+                        net.minecraft.world.phys.AABB bb = shape.bounds();
+                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                                x + bb.minX, y + bb.minY, z + bb.minZ,
+                                x + bb.maxX, y + bb.maxY, z + bb.maxZ))
+                            return true;
+                    }
+                } else {
+                    for (int b = 0; b < boxes.length; b += 6) {
+                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                                x + boxes[b], y + boxes[b + 1], z + boxes[b + 2],
+                                x + boxes[b + 3], y + boxes[b + 4], z + boxes[b + 5]))
+                            return true;
+                    }
                 }
             }
 

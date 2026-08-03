@@ -202,7 +202,9 @@ public abstract class ServerExplosionMixin {
         }
 
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, flatShapes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+                flatBlocks, flatShapes,
+                ExplosionHelper.flattenShapeBoxes(flatBlocks, flatShapes, gridSize),
+                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
         this.cachedWorldView = worldView;
 
         final ServerExplosion self = (ServerExplosion) (Object) this;

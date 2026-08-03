@@ -8,6 +8,10 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     private final BlockState[] states;
     private final VoxelShape[] shapes;
+    /** Per-cell axis-aligned box list (6 doubles per box, [minX,minY,minZ,maxX,maxY,maxZ]
+     *  relative to the cell origin), or null for air/full cells. Precomputed on the
+     *  main thread so the worker DDA can do exact box tests without toAabbs() allocation. */
+    private final double[][] shapeBoxes;
     private final int minX;
     private final int minY;
     private final int minZ;
@@ -22,7 +26,7 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
-        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+        this(states, null, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
     }
 
     public WorldReadViewImpl(
@@ -30,8 +34,17 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
+        this(states, shapes, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+    }
+
+    public WorldReadViewImpl(
+            BlockState[] states, VoxelShape[] shapes, double[][] shapeBoxes,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ) {
         this.states = states;
         this.shapes = shapes;
+        this.shapeBoxes = shapeBoxes;
         this.minX = minX;
         this.minY = minY;
         this.minZ = minZ;
@@ -73,6 +86,10 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     VoxelShape[] shapes() {
         return shapes;
+    }
+
+    double[][] shapeBoxes() {
+        return shapeBoxes;
     }
 
     int minX() {
