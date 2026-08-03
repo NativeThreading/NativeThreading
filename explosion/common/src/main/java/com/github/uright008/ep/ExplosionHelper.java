@@ -1,7 +1,10 @@
 package com.github.uright008.ep;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ScaffoldingBlock;
+import net.minecraft.world.level.block.PowderSnowBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -34,6 +37,7 @@ public final class ExplosionHelper {
             boolean shouldDamage,
             float knockbackMultiplier,
             float exposure,
+            boolean exposurePreset,
             float samplingFactor,
             float[] firstBlockDistances) {
     }
@@ -54,9 +58,11 @@ public final class ExplosionHelper {
             double centerY,
             double centerZ,
             float doubleRadius) {
-        float exposure = snapshot.firstBlockDistances == null
+        float exposure = snapshot.exposurePreset
                 ? snapshot.exposure
-                : getSeenPercentFast(snapshot, centerX, centerY, centerZ);
+                : snapshot.firstBlockDistances == null
+                        ? snapshot.exposure
+                        : getSeenPercentFast(snapshot, centerX, centerY, centerZ);
         return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
     }
 
@@ -67,9 +73,14 @@ public final class ExplosionHelper {
             double centerZ,
             float doubleRadius,
             WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
-        float exposure = snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F
-                ? getSeenPercentFromFlatView(snapshot, centerX, centerY, centerZ, worldView)
-                : 0.0F;
+        float exposure;
+        if (snapshot.exposurePreset) {
+            exposure = snapshot.exposure;
+        } else if (snapshot.shouldDamage || snapshot.knockbackMultiplier != 0.0F) {
+            exposure = getSeenPercentFromFlatView(snapshot, centerX, centerY, centerZ, worldView);
+        } else {
+            exposure = 0.0F;
+        }
         return computeEntityDamage(snapshot, centerX, centerY, centerZ, doubleRadius, exposure);
     }
 
@@ -105,6 +116,30 @@ public final class ExplosionHelper {
                 : 0.0F;
         return new EntityDamageResult(snapshot.entityId,
                 damage, knockbackX, knockbackY, knockbackZ);
+    }
+
+    /** True if the flat view contains scaffolding or powder snow — blocks whose
+     *  collision shape depends on the querying entity. When present, exposure
+     *  must be computed with the real entity context (vanilla-exact) instead of
+     *  the context-free flat shapes. */
+    public static boolean hasEntityContextBlocks(WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        if (!(worldView instanceof WorldReadViewImpl impl)) return false;
+        BlockState[] states = impl.states();
+        for (BlockState state : states) {
+            Block block = state.getBlock();
+            if (block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock) return true;
+        }
+        return false;
+    }
+
+    /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
+     *  with the real entity context (scaffolding isAbove/isDescending, powder-snow
+     *  fallDistance/boots are all resolved from the entity). Main-thread only —
+     *  touches the entity, never run on workers. */
+    public static float computeContextAwareExposure(
+            Entity entity, double centerX, double centerY, double centerZ) {
+        return net.minecraft.world.level.ServerExplosion.getSeenPercent(
+                new Vec3(centerX, centerY, centerZ), entity);
     }
 
     private static float getSeenPercentFromFlatView(EntityDamageSnapshot snapshot,

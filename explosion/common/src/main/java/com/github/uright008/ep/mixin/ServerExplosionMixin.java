@@ -427,6 +427,12 @@ public abstract class ServerExplosionMixin {
         ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
 
+        // Context-free flat shapes are vanilla-exact for 99.9% of blocks. Only
+        // scaffolding and powder snow vary their collision shape by the querying
+        // entity; when either is present in the blast box, exposure must be
+        // computed with the real entity context (vanilla-exact) per hit entity.
+        final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(this.cachedWorldView);
+
         double[][] fields = com.github.uright008.pc.simd.SimdBatchOps.batchFields();
         double[] posX = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_X_ORD];
         double[] posY = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_Y_ORD];
@@ -468,7 +474,20 @@ public abstract class ServerExplosionMixin {
             boolean shouldDamage;
             float knockbackMultiplier;
             boolean isPrimedTnt;
-            if (isDefaultCalc) {
+            float exposure = 0.0F;
+            boolean exposurePreset = false;
+            if (needsEntityContext) {
+                Entity entity = this.level.getEntity(entityId);
+                if (entity == null || entity.isRemoved()) continue;
+                shouldDamage = isDefaultCalc
+                        ? true : this.damageCalculator.shouldDamageEntity(self, entity);
+                knockbackMultiplier = isDefaultCalc
+                        ? 1.0F : this.damageCalculator.getKnockbackMultiplier(entity);
+                isPrimedTnt = entity instanceof PrimedTnt;
+                exposure = ExplosionHelper.computeContextAwareExposure(
+                        entity, this.center.x, this.center.y, this.center.z);
+                exposurePreset = true;
+            } else if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
                 isPrimedTnt = primedTntFlags[slot] == 1.0;
@@ -485,7 +504,7 @@ public abstract class ServerExplosionMixin {
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
                     bbMinXv, bbMinYv, bbMinZv, bbMaxXv, bbMaxYv, bbMaxZv,
-                    shouldDamage, knockbackMultiplier, 0.0F,
+                    shouldDamage, knockbackMultiplier, exposure, exposurePreset,
                     samplingFactor, firstBlockDistances));
         }
         return snapshots;

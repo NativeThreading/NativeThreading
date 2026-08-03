@@ -16,7 +16,7 @@ class ExplosionEntityDamageComputationTest {
         ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
                 42, 2.0, 0.0, 0.0, 0.0,
                 1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
-                true, 1.0F, 1.0F, 2.0F, null);
+                true, 1.0F, 1.0F, false, 2.0F, null);
 
         ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
                 snapshot, 0.0, 0.0, 0.0, 4.0F);
@@ -51,7 +51,7 @@ class ExplosionEntityDamageComputationTest {
         ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
                 42, 2.0, 0.0, 0.0, 0.0,
                 1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
-                true, 1.0F, 0.0F, 2.0F, openDepths);
+                true, 1.0F, 0.0F, false, 2.0F, openDepths);
 
         float exposure = ExplosionHelper.getSeenPercentFast(snapshot, 0.0, 0.0, 0.0);
 
