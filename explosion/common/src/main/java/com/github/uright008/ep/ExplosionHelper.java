@@ -133,16 +133,22 @@ public final class ExplosionHelper {
     }
 
     /** Flattens each cell's collision shape into axis-aligned boxes (6 doubles per
-     *  box, relative to the cell origin). Full-block cells yield null (the DDA's
-     *  full-box fast path); air cells yield null; partial shapes yield their exact
-     *  box decomposition so the DDA can test each box instead of the bounding box.
-     *  Precomputed on the main thread — zero per-cell allocation in the worker. */
+     *  box, relative to the cell origin). Air cells yield null; full-block cells
+     *  yield the unit box {0,0,0,1,1,1}; partial shapes yield their exact box
+     *  decomposition. The worker DDA then tests boxes directly and never touches
+     *  the BlockState object (no isAir()/getCollisionShape dereference) — the
+     *  null vs non-null test IS the air test. Precomputed on the main thread. */
     public static double[][] flattenShapeBoxes(
             BlockState[] states, VoxelShape[] shapes, int gridSize) {
         double[][] boxes = new double[gridSize][];
+        double[] fullBox = new double[] {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
         for (int i = 0; i < gridSize; i++) {
             VoxelShape shape = shapes != null ? shapes[i] : null;
-            if (shape == null || shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+            if (shape == null) {
+                continue;
+            }
+            if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                boxes[i] = fullBox;
                 continue;
             }
             java.util.List<net.minecraft.world.phys.AABB> aabbs = shape.toAabbs();
@@ -307,8 +313,6 @@ public final class ExplosionHelper {
 
         // Loop-invariant view geometry is captured once per ray; the DDA then
         // walks the raw array with incremental index updates.
-        BlockState[] states = worldView.states();
-        VoxelShape[] shapes = worldView.shapes();
         double[][] shapeBoxes = worldView.shapeBoxes();
         int minX = worldView.minX(), minY = worldView.minY(), minZ = worldView.minZ();
         int strideY = worldView.strideY(), strideZ = worldView.strideZ();
@@ -316,33 +320,56 @@ public final class ExplosionHelper {
         int stepYIndex = stepY * strideY;
         int stepZIndex = stepZ * strideZ;
 
-        while (true) {
-            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
-            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
-            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
+        // shapeBoxes encodes the full cell state: null = air (skip), non-null
+        // = solid boxes to test. This avoids the BlockState dereference +
+        // isAir() virtual call on every step (the array is L1-resident).
+        // When shapeBoxes is absent (legacy view), fall back to per-step
+        // BlockState checks.
+        if (shapeBoxes != null) {
+            while (true) {
+                if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
+                if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
+                if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
 
-            net.minecraft.world.level.block.state.BlockState state = states[index];
-            if (!state.isAir()) {
-                double[] boxes = shapeBoxes != null ? shapeBoxes[index] : null;
-                if (boxes == null) {
-                    VoxelShape shape = shapes != null ? shapes[index] : state.getCollisionShape(null, null);
-                    if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
-                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
-                            return true;
-                    } else if (!shape.isEmpty()) {
-                        net.minecraft.world.phys.AABB bb = shape.bounds();
-                        if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
-                                x + bb.minX, y + bb.minY, z + bb.minZ,
-                                x + bb.maxX, y + bb.maxY, z + bb.maxZ))
-                            return true;
-                    }
-                } else {
+                double[] boxes = shapeBoxes[index];
+                if (boxes != null) {
                     for (int b = 0; b < boxes.length; b += 6) {
                         if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
                                 x + boxes[b], y + boxes[b + 1], z + boxes[b + 2],
                                 x + boxes[b + 3], y + boxes[b + 4], z + boxes[b + 5]))
                             return true;
                     }
+                }
+
+                if (tMaxX < tMaxY) {
+                    if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; index += stepX; tMaxX += tDeltaX; }
+                    else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                } else {
+                    if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; index += stepYIndex; tMaxY += tDeltaY; }
+                    else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                }
+            }
+            return false;
+        }
+
+        while (true) {
+            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
+            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
+            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
+
+            BlockState[] states = worldView.states();
+            net.minecraft.world.level.block.state.BlockState state = states[index];
+            if (!state.isAir()) {
+                net.minecraft.world.phys.shapes.VoxelShape shape = state.getCollisionShape(null, null);
+                if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
+                        return true;
+                } else if (!shape.isEmpty()) {
+                    net.minecraft.world.phys.AABB bb = shape.bounds();
+                    if (rayAabbIntersectsFlat(fx, fy, fz, tx, ty, tz,
+                            x + bb.minX, y + bb.minY, z + bb.minZ,
+                            x + bb.maxX, y + bb.maxY, z + bb.maxZ))
+                        return true;
                 }
             }
 
