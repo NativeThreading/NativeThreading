@@ -15,13 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class SpinBlockingQueueTest {
+class ConditionBlockingQueueTest {
 
     private static final long DEADLOCK_GUARD_SECONDS = 5;
 
     @Test
     void takeWakesOneBlockedConsumerWhenTaskArrives() throws Exception {
-        SpinBlockingQueue<Integer> queue = new SpinBlockingQueue<>();
+        ConditionBlockingQueue<Integer> queue = new ConditionBlockingQueue<>();
         CountDownLatch enteredTake = new CountDownLatch(1);
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<Integer> result = new AtomicReference<>();
@@ -54,7 +54,7 @@ class SpinBlockingQueueTest {
 
     @Test
     void oneItemCompletesExactlyOneOfMultipleBlockedConsumers() throws Exception {
-        SpinBlockingQueue<Integer> queue = new SpinBlockingQueue<>();
+        ConditionBlockingQueue<Integer> queue = new ConditionBlockingQueue<>();
         CountDownLatch enteredTake = new CountDownLatch(2);
         CountDownLatch completed = new CountDownLatch(2);
         CountDownLatch oneCompleted = new CountDownLatch(1);
@@ -85,12 +85,12 @@ class SpinBlockingQueueTest {
 
     @Test
     void timedPollReturnsNullAfterItsTimeout() throws Exception {
-        assertNull(new SpinBlockingQueue<Integer>().poll(1, TimeUnit.SECONDS));
+        assertNull(new ConditionBlockingQueue<Integer>().poll(1, TimeUnit.SECONDS));
     }
 
     @Test
     void takePropagatesInterruptionWhileWaiting() throws Exception {
-        SpinBlockingQueue<Integer> queue = new SpinBlockingQueue<>();
+        ConditionBlockingQueue<Integer> queue = new ConditionBlockingQueue<>();
         CountDownLatch enteredTake = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         AtomicBoolean sawInterruption = new AtomicBoolean();
@@ -128,7 +128,7 @@ class SpinBlockingQueueTest {
         int producerCount = 4;
         int consumerCount = 4;
         int itemsPerProducer = 128;
-        SpinBlockingQueue<Integer> queue = new SpinBlockingQueue<>();
+        ConditionBlockingQueue<Integer> queue = new ConditionBlockingQueue<>();
         CountDownLatch consumersEntered = new CountDownLatch(consumerCount);
         CountDownLatch consumersFinished = new CountDownLatch(consumerCount);
         CountDownLatch startProducers = new CountDownLatch(1);
@@ -191,7 +191,7 @@ class SpinBlockingQueueTest {
         }
     }
 
-    private static Thread consumer(SpinBlockingQueue<Integer> queue, CountDownLatch enteredTake,
+    private static Thread consumer(ConditionBlockingQueue<Integer> queue, CountDownLatch enteredTake,
                                    CountDownLatch completed, CountDownLatch oneCompleted,
                                    ConcurrentLinkedQueue<Integer> results,
                                    AtomicReference<Throwable> failure) {

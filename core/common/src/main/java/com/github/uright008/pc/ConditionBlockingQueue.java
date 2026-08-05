@@ -10,10 +10,15 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * {@link BlockingQueue} backed by a concurrent queue with condition-based
- * waiting for task arrivals.
+ * {@link BlockingQueue} backed by a {@link ConcurrentLinkedQueue} with
+ * condition-based waiting for task arrivals.
+ *
+ * <p>Despite the historical "Spin" name this queue does <b>not</b> spin: takers
+ * block on a {@link Condition} until an item is offered. It exists to give
+ * {@link ThreadPoolExecutor} a lock-free dequeuing fast path (plain
+ * {@code poll()}) plus blocking {@code take()} for the virtual-thread pool.</p>
  */
-public final class SpinBlockingQueue<E> extends AbstractQueue<E> implements BlockingQueue<E> {
+public final class ConditionBlockingQueue<E> extends AbstractQueue<E> implements BlockingQueue<E> {
 
     private final ConcurrentLinkedQueue<E> delegate = new ConcurrentLinkedQueue<>();
     private final ReentrantLock lock = new ReentrantLock();

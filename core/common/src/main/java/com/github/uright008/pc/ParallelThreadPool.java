@@ -7,7 +7,6 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,17 +50,6 @@ public final class ParallelThreadPool {
         int size = getParallelism();
 
         return switch (ParallelCoreConfig.poolImplementation()) {
-            case THREAD_POOL -> {
-                ForkJoinPool.ForkJoinWorkerThreadFactory factory = pool -> {
-                    ForkJoinWorkerThread t = new ForkJoinWorkerThread(pool) {};
-                    t.setName("Parallel-" + name + "-" + COUNTER.incrementAndGet());
-                    t.setDaemon(true);
-                    return t;
-                };
-                ForkJoinPool fjp = new ForkJoinPool(size, factory, null, true);
-                LOGGER.info("Pool '{}' ready - THREAD_POOL x{} (async FJ)", name, size);
-                yield fjp;
-            }
             case FORK_JOIN -> {
                 ForkJoinPool.ForkJoinWorkerThreadFactory fjFactory = fjPool -> {
                     ForkJoinWorkerThread t = new ForkJoinWorkerThread(fjPool) {};
@@ -77,7 +65,7 @@ public final class ParallelThreadPool {
                 ThreadFactory vtf = Thread.ofVirtual().name("ParallelV-" + name + "-", 0).factory();
                 ThreadPoolExecutor vtp = new ThreadPoolExecutor(
                         size, size, 60L, TimeUnit.SECONDS,
-                        new SpinBlockingQueue<>(), vtf);
+                        new ConditionBlockingQueue<>(), vtf);
                 vtp.prestartAllCoreThreads();
                 LOGGER.info("Pool '{}' ready - VIRTUAL x{}", name, size);
                 yield vtp;
@@ -86,5 +74,4 @@ public final class ParallelThreadPool {
     }
 
     private static final ConcurrentHashMap<String, ExecutorService> POOLS = new ConcurrentHashMap<>();
-    private static final AtomicInteger COUNTER = new AtomicInteger(0);
 }
