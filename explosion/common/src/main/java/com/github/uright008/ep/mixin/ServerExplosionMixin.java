@@ -160,10 +160,17 @@ public abstract class ServerExplosionMixin {
         java.util.Arrays.fill(firstBlockDistances, Float.MAX_VALUE);
 
         final float[] rayPowers = new float[rayCount];
-        java.util.concurrent.ThreadLocalRandom rng = java.util.concurrent.ThreadLocalRandom.current();
         final float radiusF = this.radius;
+        // Random powers are drawn on the main thread, one nextFloat per ray,
+        // in exactly the vanilla iteration order (xx→yy→zz over the 16³ grid
+        // boundary). Reusing level.getRandom() keeps the drawn sequence
+        // identical to vanilla; the worker rays consume these precomputed
+        // values and never touch an RNG themselves, so no cross-thread RNG
+        // access exists. (adaptiveRays > 0 deliberately changes the ray count
+        // and thus the sequence length — that option is documented as
+        // behavior-breaking.)
         for (int i = 0; i < rayCount; i++) {
-            rayPowers[i] = radiusF * (0.7F + rng.nextFloat() * 0.6F);
+            rayPowers[i] = radiusF * (0.7F + this.level.getRandom().nextFloat() * 0.6F);
         }
 
         ExplosionRayBounds bounds = ExplosionRayBounds.forExplosion(this.center, this.radius);

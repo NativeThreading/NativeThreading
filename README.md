@@ -32,11 +32,9 @@ Configure modules in `config/nt.json`.
 
 > 纯 vanilla(不含 Lithium)未在本环境单独测量——`base` 组合已包含 Lithium,上表用它代表"原版+锂"基线。769 ms 是早期无黑曜石外壳、爆炸击穿导致实体数量失控时的旧数据,不适用于当前受控场景。
 
-**RNG 差异(不可规避的架构取舍)**:原版 `ServerExplosion` 的射线功率带 `level.random.nextFloat()` 扰动(0.7~1.3 倍半径)。NativeThreading 的并行射线路径改用每线程独立的 `ThreadLocalRandom`——统计分布完全一致(`0.7 + u * 0.6`),但随机序列来自不同的实例。
+**RNG(与原版序列一致)**:原版 `ServerExplosion` 在计算射线时,按 xx→yy→zz 顺序遍历 16³ 网格边界,每条射线在主线程取一次 `level.random.nextFloat()`(功率扰动 `0.7 + u * 0.6`)。NativeThreading 的并行路径在主线程以**完全相同的顺序**预生成全部 1352 个射线功率(同样调 `level.random.nextFloat()`),worker 只消费预先算好的数组、全程不接触任何 RNG——因此**同一存档、同一位置、同样数量的 TNT 引爆,随机序列与原版逐位一致**,爆炸形态按原版随机种子可复现。
 
-- **影响**:爆炸的具体形态不再由原版世界的随机数序列决定。同一个存档、同一位置、同样数量的 TNT 重复引爆,结果序列与原版(以及开启 NT 前后)不可复现;依赖随机确定性的工具——世界回放、自动化测试、存档重放——会观察到与预期不符的偏差。
-- **为什么不可避免**:`level.random` 是全局共享的可变状态,本身非线程安全。并行射线(1352 条)需要在 worker 线程上各自取随机数;若对 `level.random` 加锁串行化,每一 tick 的射线阶段都会在锁上排队,并行化的收益会被锁竞争完全抵消。因此 worker 必须使用线程本地随机源——这是并行架构的固有代价,不是实现疏漏。
-- **它本来就是随机的**:原版爆炸每次结果也都不相同——`level.random` 每次调用都推进状态,爆炸形态本就由随机数决定。这里的"差异"不是"确定性 vs 随机",而是"同一个均匀分布的两个随机序列来源";对单次爆炸而言两者都是均匀随机,统计行为一致,不构成对随机性的破坏。
+> 早期实现曾用 `ThreadLocalRandom`,导致序列不可复现(且当时误以为 worker 需要各自取随机数);后来发现 1352 次随机全部在主线程串行生成、worker 零 RNG 访问,遂改回 `level.random` 消除差异。例外:`adaptiveRays > 0` 会改变射线数量进而改变序列长度——该选项本就声明为破坏原版行为。原版爆炸本身也是随机的(每次结果都不同),但 NT 与原版共享同一随机序列。
 
 **Vectorial 取舍**:爆炸的实体捕获走 `vectorial` 的 SoA 实体数据(标量循环,由 JVM SuperWord 自动向量化)。该模块通过 mixin+javaagent 把实体字段复制进连续数组,换取捕获阶段更紧凑的内存布局;代价是 Entity getter 被 agent 改写、加载器必须捆绑 vectorial 并附加 agent。Fabric 聚合加载器启用它;NeoForge 聚合加载器**不**捆绑 vectorial,实体伤害回退原版路径。详见 [vectorial/README](vectorial/README.md)。
 
