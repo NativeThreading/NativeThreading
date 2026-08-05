@@ -11,6 +11,24 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * <p>Each worker thread buffers deferred writes in its own {@link ArrayList},
  * then atomically hands the buffer to a shared drain queue.
  * The main thread drains all buffers sequentially after the parallel phase.</p>
+ *
+ * <h3>Visibility (happens-before)</h3>
+ * <p>Deferred writes queued on a worker thread become visible to the main
+ * thread's {@code drain} through two edges:</p>
+ * <ol>
+ *   <li>{@link Phase#publish} and {@link Phase#drain} both synchronize on the
+ *       same {@code Phase} monitor — the worker's writes happen-before its
+ *       monitor release, which happens-before the main thread's acquire at
+ *       drain time.</li>
+ *   <li>{@link ParallelWorker#executePhase} additionally counts the worker
+ *       down on a {@code CountDownLatch} <em>after</em> publication, and the
+ *       main thread awaits it before draining — a second release/acquire edge.</li>
+ * </ol>
+ * <p>Result values written by workers (e.g. {@code List.set} in
+ * {@code mapEach}/{@code mapBatched}) are <em>not</em> carried through this
+ * queue; their visibility relies solely on the {@code CountDownLatch} edge in
+ * {@code ParallelWorker.executePhase} (write → {@code countDown} → {@code await}
+ * → read). Do not reorder the latch countDown before worker-side publication.</p>
  */
 public final class ConcurrentWriteQueue implements WriteQueue {
 
