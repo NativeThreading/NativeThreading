@@ -7,19 +7,18 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 <type>(<scope>): <description>
 
-perf(core): add Batch<T,R> API with auto-batching
-perf(explosion): use flat BlockState[] in traceRay
-fix(redstone): wireThreshold config override
+perf(explosion): improve flat ray capture
+fix(explosion): vanilla-exact RNG sequence
 chore(build): update Gradle
 ```
 
-**Scopes:** `core`, `explosion`, `hopper`, `redstone`, `entity`, `vectorial`, `build`, `docs`
+**Scopes:** `core`, `explosion`, `build`, `docs`
 
 ## Code Style
 
 - Java 25, 4-space indentation.
 - **No dependency on NotEnoughPalette** — modules must build standalone.
-- Prefer `Batch<T,R>` (add + flush) over raw `ParallelWorker.map` — it auto-batches and eliminates fork/join overhead.
+- Prefer `ParallelWorker.mapEach`/`mapBatched` for parallel dispatch.
 - Keep mixin injection points minimal; avoid `@Overwrite`.
 
 ## Module Guidelines

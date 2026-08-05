@@ -16,13 +16,11 @@
   },
   "mixins": [
     "parallel-core.mixins.json",
-    "explosion.mixins.json",
-    "vectorial.mixins.json"
+    "explosion.mixins.json"
   ],
   "provides": [
     "parallel-core",
-    "explosion",
-    "vectorial"
+    "explosion"
   ],
   "depends": {
     "fabricloader": ">=0.19.2",

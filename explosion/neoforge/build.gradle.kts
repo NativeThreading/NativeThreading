@@ -23,8 +23,6 @@ repositories {
 
 dependencies {
     implementation("net.neoforged:neoforge:${providers.gradleProperty("neoforge_version").get()}")
-    implementation("org.javassist:javassist:3.30.2-GA")
-    implementation("net.bytebuddy:byte-buddy-agent:1.15.11")
 }
 
 sourceSets {
@@ -32,8 +30,6 @@ sourceSets {
         java {
             srcDir("../common/src/main/java")
             srcDir("../../core/common/src/main/java")
-            srcDir("../../vectorial/common/src/main/java")
-            srcDir("../../vectorial/common/src/generated/java")
             exclude("**/ParallelCommandFabric.java")
         }
     }

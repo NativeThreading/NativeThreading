@@ -7,7 +7,6 @@ Multi-module Fabric mod for Minecraft 26.2, parallelizing selected server worklo
 | Module | What it parallelizes |
 |--------|---------------------|
 | **explosion** | TNT/creepers — ray tracing + entity damage |
-| **vectorial** | Structure-of-Arrays entity data backing the explosion entity queries |
 
 All share `core/` (thread pool, safe world access, deferred writes, config).
 
@@ -36,7 +35,7 @@ Configure modules in `config/nt.json`.
 
 > 早期实现曾用 `ThreadLocalRandom`,导致序列不可复现(且当时误以为 worker 需要各自取随机数);后来发现 1352 次随机全部在主线程串行生成、worker 零 RNG 访问,遂改回 `level.random`。`core` 曾有一个 `LevelRandomMixin`,把每个 `Level` 的 `random` 替换为 `ThreadSafeRandomSource`(为已删除的并行实体 tick 准备的线程安全包装),这会让序列经一次 `nextLong()` 派生、不再是纯原版逐位——该 mixin 已随并行实体 tick 一并移除,`level.random` 保持原版实例。例外:`adaptiveRays > 0` 会改变射线数量进而改变序列长度——该选项本就声明为破坏原版行为。原版爆炸本身也是随机的(每次结果都不同),但 NT 与原版共享同一随机序列。
 
-**Vectorial 取舍**:爆炸的实体捕获走 `vectorial` 的 SoA 实体数据(标量循环,由 JVM SuperWord 自动向量化)。该模块通过 mixin+javaagent 把实体字段复制进连续数组,换取捕获阶段更紧凑的内存布局;代价是 Entity getter 被 agent 改写、加载器必须捆绑 vectorial 并附加 agent。Fabric 聚合加载器启用它;NeoForge 聚合加载器**不**捆绑 vectorial,实体伤害回退原版路径。详见 [vectorial/README](vectorial/README.md)。
+**Vectorial(已移除)**:早期爆炸实体捕获走 SoA 实体数据以换取紧凑内存布局,但实测表明:2MB+ 的 SoA 字段数组只为捕获路径约 10 个字段服务、其余 55 个字段无消费方,且每 tick 全量同步开销与 vanilla 空间查询(`level.getEntities`)相当。捕获已改回主线程空间查询构建 snapshot,worker 阶段不变,SoA 模块(含 mixin+javaagent)随之移除。
 
 ## Build
 

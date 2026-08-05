@@ -3,7 +3,7 @@
 	"id": "explosion",
 	"version": "${version}",
 	"name": "Explosion Parallelization",
-	"description": "Parallel explosion raycasting and entity damage with SIMD batch queries. Up to 40% faster TNT at 16 chunks. Use /parallel explosion to control.",
+	"description": "Parallel explosion raycasting and entity damage. Use /parallel explosion to control.",
 	"authors": [
 		"uright008"
 	],
@@ -23,8 +23,5 @@
 		"java": ">=25",
 		"fabric-api": "*",
 		"parallel-core": "*"
-	},
-	"suggests": {
-		"vectorial": "*"
 	}
 }

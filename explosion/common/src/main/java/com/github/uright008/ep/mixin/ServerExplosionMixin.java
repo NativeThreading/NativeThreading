@@ -11,7 +11,6 @@ import com.github.uright008.ep.WorldReadViewImpl;
 import com.github.uright008.pc.ChunkGrid;
 import com.github.uright008.pc.ParallelThreadPool;
 import com.github.uright008.pc.ParallelWorker;
-import com.github.uright008.pc.simd.SimdBatchOps;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EntityTypeTags;
@@ -376,10 +375,6 @@ public abstract class ServerExplosionMixin {
     private boolean hurtEntitiesParallel() {
         if (this.radius < 1.0E-5F) return true;
 
-        // Loaders that do not bundle vectorial have no SoA entity data; route
-        // entity damage back to vanilla rather than skip it silently.
-        if (!com.github.uright008.pc.simd.SimdBatchOps.VECTORIAL_AVAILABLE) return false;
-
         if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {
             throw new IllegalStateException("ray lookup requires completed parallel ray tracing");
         }
@@ -429,15 +424,13 @@ public abstract class ServerExplosionMixin {
     @Unique
     private List<ExplosionHelper.EntityDamageSnapshot> captureEntityDamageSnapshots(
             int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
-        int[] hits = new int[SimdBatchOps.slotCount()];
-        int hitCount = SimdBatchOps.intersectAABB(hits, x0, y0, z0, x1, y1, z1);
-        if (hitCount == 0) return List.of();
+        // Spatial query on the main thread — the same box vanilla
+        // hurtEntities scans, returning only entities inside the blast AABB.
+        List<Entity> candidates = this.level.getEntities(
+                this.source, new AABB(x0, y0, z0, x1, y1, z1));
+        if (candidates.isEmpty()) return List.of();
 
-        double[] distanceSquares = new double[hitCount];
-        SimdBatchOps.distanceSqBySlotBatch(hits, hitCount,
-                this.center.x, this.center.y, this.center.z, distanceSquares);
         double radiusSquare = (double) doubleRadius * doubleRadius;
-        int sourceId = this.source != null ? this.source.getId() : -1;
         float[] firstBlockDistances = ExplosionParallelConfig.isRayLookup()
                 ? this.cachedFirstBlockDistances : null;
         float samplingFactor = ExplosionParallelConfig.getSamplingFactor();
@@ -450,51 +443,21 @@ public abstract class ServerExplosionMixin {
         // computed with the real entity context (vanilla-exact) per hit entity.
         final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(this.cachedWorldView);
 
-        double[][] fields = com.github.uright008.pc.simd.SimdBatchOps.batchFields();
-        double[] posX = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_X_ORD];
-        double[] posY = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_Y_ORD];
-        double[] posZ = fields[com.github.uright008.pc.simd.SimdBatchOps.POS_Z_ORD];
-        double[] bbMinX = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_X_ORD];
-        double[] bbMinY = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_Y_ORD];
-        double[] bbMinZ = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MIN_Z_ORD];
-        double[] bbMaxX = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_X_ORD];
-        double[] bbMaxY = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_Y_ORD];
-        double[] bbMaxZ = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_Z_ORD];
-        double[] eyeHeights = fields[com.github.uright008.pc.simd.SimdBatchOps.EYE_HEIGHT_ORD];
-        int[] slotToId = com.github.uright008.pc.simd.SimdBatchOps.slotToIdArray();
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(candidates.size());
+        for (Entity entity : candidates) {
+            if (entity.ignoreExplosion(self)) continue;
+            int entityId = entity.getId();
+            double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
+            if (entity.distanceToSqr(this.center) > radiusSquare) continue;
 
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
-        for (int index = 0; index < hitCount; index++) {
-            if (distanceSquares[index] > radiusSquare) continue;
-            int slot = hits[index];
-            int entityId = slotToId[slot];
-            if (entityId < 0 || entityId == sourceId) continue;
-
-            double feetX = posX[slot];
-            double feetY = posY[slot];
-            double feetZ = posZ[slot];
-            double bbMinXv = bbMinX[slot];
-            double bbMinYv = bbMinY[slot];
-            double bbMinZv = bbMinZ[slot];
-            double bbMaxXv = bbMaxX[slot];
-            double bbMaxYv = bbMaxY[slot];
-            double bbMaxZv = bbMaxZ[slot];
-
-            // The default ExplosionDamageCalculator returns constants for both
-            // calls, so the entity object is only needed for the primed-TNT
-            // eye-height check. On that path read the flag from SoA instead of
-            // level.getEntity (6.6% of capture time): intersectAABB only hits
-            // live slots (freed slots have NaN bounds that never compare
-            // true), and SoAStore unregisters synchronously in Entity.remove,
-            // so no removed entity can be hit here.
+            AABB bb = entity.getBoundingBox();
             boolean shouldDamage;
             float knockbackMultiplier;
             boolean isPrimedTnt;
             float exposure = 0.0F;
             boolean exposurePreset = false;
             if (needsEntityContext) {
-                Entity entity = this.level.getEntity(entityId);
-                if (entity == null || entity.isRemoved()) continue;
+                if (entity.isRemoved()) continue;
                 shouldDamage = isDefaultCalc
                         ? true : this.damageCalculator.shouldDamageEntity(self, entity);
                 knockbackMultiplier = isDefaultCalc
@@ -506,20 +469,18 @@ public abstract class ServerExplosionMixin {
             } else if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
-                isPrimedTnt = com.github.uright008.pc.simd.SimdBatchOps.isPrimedTnt(slot);
+                isPrimedTnt = entity instanceof PrimedTnt;
             } else {
-                Entity entity = this.level.getEntity(entityId);
-                if (entity == null || entity.isRemoved()) continue;
+                if (entity.isRemoved()) continue;
                 shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
                 knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
                 isPrimedTnt = entity instanceof PrimedTnt;
             }
-            double eyeY = isPrimedTnt
-                    ? feetY : feetY + eyeHeights[slot];
+            double eyeY = isPrimedTnt ? feetY : feetY + entity.getEyeHeight();
 
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
-                    bbMinXv, bbMinYv, bbMinZv, bbMaxXv, bbMaxYv, bbMaxZv,
+                    bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
                     shouldDamage, knockbackMultiplier, exposure, exposurePreset,
                     samplingFactor, firstBlockDistances));
         }

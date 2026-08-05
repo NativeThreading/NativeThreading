@@ -13,7 +13,6 @@ dependencies {
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
     implementation(project(":common"))
-    implementation("com.github.uright008:vectorial:${providers.gradleProperty("vectorial_version").get()}")
 }
 sourceSets {
     main {

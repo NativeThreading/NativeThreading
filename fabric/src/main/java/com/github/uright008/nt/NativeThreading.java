@@ -3,7 +3,6 @@ package com.github.uright008.nt;
 import com.github.uright008.ep.ExplosionParallelization;
 import com.github.uright008.pc.ParallelCore;
 import com.github.uright008.pc.command.ParallelCommandRegistration;
-import com.github.uright008.vec.Vectorial;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 
@@ -12,7 +11,6 @@ public class NativeThreading implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        Vectorial.init();
         new ParallelCore().onInitialize();
         new ExplosionParallelization().onInitialize();
 

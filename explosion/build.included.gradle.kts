@@ -17,9 +17,6 @@ sourceSets {
         java {
             srcDir("common/src/main/java")
             srcDir("../../core/common/src/main/java")
-            srcDir("../../vectorial/common/src/main/java")
-            srcDir("../../vectorial/common/src/generated/java")
-            srcDir("../../entity/common/src/main/java")
             exclude("**/ParallelCommandFabric.java")
         }
         resources {

@@ -6,19 +6,9 @@ NativeThreading is a Minecraft 26.2 multi-module mod that parallelizes selected 
 
 - `core` provides shared execution, configuration, commands, and capture primitives. It does not own feature pipelines.
 - `explosion` owns the explosion workload pipeline, including its main-thread capture, pure worker computation, and main-thread application.
-- `vectorial` provides Structure-of-Arrays entity storage backing the explosion entity queries.
 - `fabric` and `neoforge` are aggregate loaders that package the workload modules for their platforms.
 
 Keep feature-specific complexity in its owning workload module. In particular, explosion logic belongs in `explosion`, not `core`.
-
-## Vectorial Agent Boundary
-
-`vectorial` has two independent dependency chains. They must stay decoupled:
-
-1. **SoA data fill (Mixin-only, agent-independent)** — `EntityMixin` registers/unregisters entities and `GeneratedSync.syncAll` writes the `SoAStore` field arrays every tick using the entity's getters. This path works whether or not the agent injected.
-2. **Entity getter redirect (agent-dependent)** — `VectorialAgent`/`VectorialTransformer` rewrite `Entity` getters to read the SoA arrays first (`_sl >= 0 ? SoA value : this.field`). This is a pure performance optimization; the fallback to `this.field` is embedded in the generated getter body.
-
-Agent injection failure (e.g. a future JVM forbidding dynamic agent attach) must never break explosion. `GeneratedSync` reads getters, so the SoA arrays stay correct regardless of injection; `SimdBatchOps` reads those arrays and therefore does not depend on `VectorialTransformer.isTransformed()`. Do not gate any workload pipeline on injection success.
 
 ## Threading Boundary
 
@@ -44,7 +34,6 @@ the exception and may continue asynchronously.
 ./gradlew build
 ./gradlew :core:test
 ./gradlew :explosion:test
-./gradlew :vectorial:test
 ```
 
 Output: `build/libs/native-threading-*.jar`
@@ -62,7 +51,7 @@ fix(redstone): honor wire threshold override
 chore(build): update Gradle wrapper
 ```
 
-Scopes: `core`, `explosion`, `vectorial`, `build`, `docs`
+Scopes: `core`, `explosion`, `build`, `docs`
 
 ## No Cross-Dependency
 

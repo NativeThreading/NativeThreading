@@ -39,10 +39,6 @@ dependencies {
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
-    implementation("org.javassist:javassist:3.30.2-GA")
-    implementation("net.bytebuddy:byte-buddy-agent:1.15.11")
-    include("org.javassist:javassist:3.30.2-GA")
-    include("net.bytebuddy:byte-buddy-agent:1.15.11")
 }
 
 // Aggregate all submodule sources into the root JAR
@@ -51,8 +47,6 @@ sourceSets {
         java {
             srcDir("../core/common/src/main/java")
             srcDir("../explosion/common/src/main/java")
-            srcDir("../vectorial/common/src/main/java")
-            srcDir("../vectorial/common/src/generated/java")
         }
     }
 }
@@ -70,18 +64,10 @@ tasks.processResources {
     // Merge submodule fabric resources (mixin configs, exclude their fabric.mod.json)
     from("../core/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../explosion/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
-    from("../vectorial/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
-    from(project(":vectorial").tasks.named<Jar>("agentJar").flatMap { it.archiveFile }) {
-        into("META-INF")
-    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.release = 25
-}
-
-tasks.compileJava {
-    dependsOn(":vectorial:generateFields")
 }
 
 java {
@@ -91,10 +77,6 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
-}
-
-tasks.named("sourcesJar") {
-    dependsOn(":vectorial:generateFields")
 }
 
 tasks.named("sourcesJar", Jar::class) {
