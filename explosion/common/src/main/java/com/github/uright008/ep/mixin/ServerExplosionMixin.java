@@ -369,6 +369,10 @@ public abstract class ServerExplosionMixin {
     private boolean hurtEntitiesParallel() {
         if (this.radius < 1.0E-5F) return true;
 
+        // Loaders that do not bundle vectorial have no SoA entity data; route
+        // entity damage back to vanilla rather than skip it silently.
+        if (!com.github.uright008.pc.simd.SimdBatchOps.VECTORIAL_AVAILABLE) return false;
+
         if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {
             throw new IllegalStateException("ray lookup requires completed parallel ray tracing");
         }

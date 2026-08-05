@@ -25,7 +25,6 @@ dependencies {
     compileOnly("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation(project(":core")) { isTransitive = false }
     implementation(project(":explosion")) { isTransitive = false }
-    implementation(project(":vectorial")) { isTransitive = false }
 }
 
 tasks.processResources {
@@ -41,7 +40,6 @@ tasks.processResources {
     val subprojects = listOf(
         "parallel-core",
         "explosion",
-        "vectorial",
     )
     for (sub in subprojects) {
         from("../$sub/neoforge/src/main/resources") {
@@ -73,7 +71,6 @@ tasks.jar {
     val bundledSubprojectJars = listOf(
         project(":core").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":explosion").tasks.named<Jar>("jar").flatMap { it.archiveFile },
-        project(":vectorial").tasks.named<Jar>("jar").flatMap { it.archiveFile },
     )
 
     dependsOn(bundledSubprojectJars)
@@ -81,13 +78,5 @@ tasks.jar {
 
     from("LICENSE") {
         rename { "${it}_$projectName" }
-    }
-
-    manifest {
-        attributes(
-            "Agent-Class" to "com.github.uright008.vec.core.VectorialAgent",
-            "Can-Redefine-Classes" to "true",
-            "Can-Retransform-Classes" to "true"
-        )
     }
 }

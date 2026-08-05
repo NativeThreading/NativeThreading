@@ -10,6 +10,20 @@ import com.github.uright008.vec.core.GeneratedFields;
  */
 public final class SimdBatchOps {
 
+    /** True when the vectorial module's SoA store is on the classpath.
+     *  <p>Loaders that do not bundle vectorial (e.g. the NeoForge aggregate)
+     *  must route entity queries back to vanilla instead of touching SoA
+     *  classes. Gate on class presence only — never on agent injection.</p> */
+    public static final boolean VECTORIAL_AVAILABLE = isVectorialLoaded();
+
+    private static boolean isVectorialLoaded() {
+        try {
+            return Class.forName("com.github.uright008.vec.core.SoAStore") != null;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
     private SimdBatchOps() {}
 
     public static int slotCount() {
