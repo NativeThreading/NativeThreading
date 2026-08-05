@@ -24,8 +24,9 @@ public final class SimdBatchOps {
         return com.github.uright008.vec.core.SoAStore.getSlotToId();
     }
 
-    public static double[] primedTntFlags() {
-        return com.github.uright008.vec.core.SoAStore.primedTntFlagArray();
+    /** Whether the entity at {@code slot} is a primed TNT. */
+    public static boolean isPrimedTnt(int slot) {
+        return com.github.uright008.vec.core.SoAStore.isPrimedTntSlot(slot);
     }
 
     public static final int POS_X_ORD = GeneratedFields.POSITION_X;

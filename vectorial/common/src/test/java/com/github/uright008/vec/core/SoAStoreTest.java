@@ -150,11 +150,11 @@ class SoAStoreTest {
     // ── Primed-TNT flag ──────────────────────────
 
     @Test
-    @DisplayName("isPrimedTntSlot: reads the flag ordinal, false for unset and out-of-bounds slots")
-    void isPrimedTntSlot_readsFlagOrdinal() {
+    @DisplayName("isPrimedTntSlot: reads the dedicated flag BitSet, false for unset and out-of-bounds slots")
+    void isPrimedTntSlot_readsDedicatedFlagSet() {
         SoAStore store = SoAStore.INSTANCE;
 
-        // Fresh store: no slot is flagged (constructor fills every field with NaN).
+        // Fresh store: no slot is flagged.
         for (int slot = 0; slot < 8; slot++) {
             assertThat(SoAStore.isPrimedTntSlot(slot))
                     .as("slot %d must start unflagged", slot)
@@ -164,24 +164,11 @@ class SoAStoreTest {
         assertThat(SoAStore.isPrimedTntSlot(-1)).isFalse();
         assertThat(SoAStore.isPrimedTntSlot(store.slotCount() + 1000)).isFalse();
 
-        // The flag lives at IS_PRIMED_TNT_ORD: 1.0 reads true, NaN (the value
-        // unregisterImpl clears every field array to) reads false.
-        store.fields[SoAStore.IS_PRIMED_TNT_ORD][0] = 1.0;
+        // The flag lives in its own BitSet, independent of the field arrays.
+        store.primedTntFlags.set(0);
         assertThat(SoAStore.isPrimedTntSlot(0)).isTrue();
-        store.fields[SoAStore.IS_PRIMED_TNT_ORD][0] = Double.NaN;
+        store.primedTntFlags.clear(0);
         assertThat(SoAStore.isPrimedTntSlot(0)).isFalse();
-    }
-
-    @Test
-    @DisplayName("isPrimedTntSlot: flag ordinal is a free slot, not one GeneratedSync writes")
-    void isPrimedTntSlot_ordinalIsFree() {
-        // Ordinals 31/32 (stuckSpeedMultiplier Y/Z) are unused by the generator.
-        // Guard the reuse so a regenerated GeneratedFields cannot silently collide.
-        assertThat(SoAStore.IS_PRIMED_TNT_ORD)
-                .isEqualTo(GeneratedFields.STUCK_SPEED_MULTIPLIER_Y)
-                .isNotEqualTo(GeneratedFields.STUCK_SPEED_MULTIPLIER_X)
-                .isNotEqualTo(GeneratedFields.STUCK_SPEED_MULTIPLIER_Z);
-        assertThat(SoAStore.IS_PRIMED_TNT_ORD).isLessThan(GeneratedFields.COUNT);
     }
 
     // ── Production singleton ──────────────────────

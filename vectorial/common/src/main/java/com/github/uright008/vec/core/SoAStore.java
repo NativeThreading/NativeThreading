@@ -95,25 +95,20 @@ public final class SoAStore implements EntityDataView {
     // ── Entity type flags ─────────────────────────
 
     /**
-     * Ordinal of the "is primed TNT" flag. Reuses ordinal 31, one of the two
-     * free slots in the generated ordinal space (stuckSpeedMultiplier Y/Z are
-     * never written by GeneratedSync nor read by SimdBatchOps). Do not reuse
-     * ordinal 30 (STUCK_SPEED_MULTIPLIER_X).
+     * Whether the entity at {@code slot} is a primed TNT (flagged at registration).
      *
-     * <p>unregisterImpl clears every field array to NaN, so this flag is
-     * automatically reset when an entity is removed.</p>
+     * <p>Kept in a dedicated {@link java.util.BitSet} rather than a generated
+     * field array: the generated ordinals come from javap output order and
+     * shift across Minecraft versions, so reusing an ordinal (even a currently
+     * unwritten one) would silently corrupt real field data on the next
+     * version. The flag is independent of {@link #fields} and cleared
+     * explicitly on unregister.</p>
      */
-    static final int IS_PRIMED_TNT_ORD = 31;
+    final java.util.BitSet primedTntFlags = new java.util.BitSet();
 
     /** Whether the entity at {@code slot} is a primed TNT (flagged at registration). */
     public static boolean isPrimedTntSlot(int slot) {
-        double[] flag = INSTANCE.fields[IS_PRIMED_TNT_ORD];
-        return slot >= 0 && slot < flag.length && flag[slot] == 1.0;
-    }
-
-    /** Raw primed-TNT flag array for batch readers (call once, index per slot). */
-    public static double[] primedTntFlagArray() {
-        return INSTANCE.fields[IS_PRIMED_TNT_ORD];
+        return slot >= 0 && INSTANCE.primedTntFlags.get(slot);
     }
 
     // ── Registration (lock-free allocate, lock on expand only) ──
@@ -134,7 +129,7 @@ public final class SoAStore implements EntityDataView {
 
         int slot = allocateSlot();
         slotToId[slot] = id;
-        if (entity instanceof PrimedTnt) fields[IS_PRIMED_TNT_ORD][slot] = 1.0;
+        if (entity instanceof PrimedTnt) primedTntFlags.set(slot);
         VarHandle.storeStoreFence();
         idToSlot[id] = slot;
         idToSlotCache = idToSlot;
@@ -149,6 +144,7 @@ public final class SoAStore implements EntityDataView {
         if ((slot = slots[id]) < 0) return;
         slots[id] = -1;
         slotToId[slot] = -1;
+        primedTntFlags.clear(slot);
 
         for (double[] f : fields) f[slot] = Double.NaN;
         freeSlot(slot);

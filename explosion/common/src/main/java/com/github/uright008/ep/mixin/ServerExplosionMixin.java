@@ -451,7 +451,6 @@ public abstract class ServerExplosionMixin {
         double[] bbMaxZ = fields[com.github.uright008.pc.simd.SimdBatchOps.BB_MAX_Z_ORD];
         double[] eyeHeights = fields[com.github.uright008.pc.simd.SimdBatchOps.EYE_HEIGHT_ORD];
         int[] slotToId = com.github.uright008.pc.simd.SimdBatchOps.slotToIdArray();
-        double[] primedTntFlags = com.github.uright008.pc.simd.SimdBatchOps.primedTntFlags();
 
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(hitCount);
         for (int index = 0; index < hitCount; index++) {
@@ -496,7 +495,7 @@ public abstract class ServerExplosionMixin {
             } else if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
-                isPrimedTnt = primedTntFlags[slot] == 1.0;
+                isPrimedTnt = com.github.uright008.pc.simd.SimdBatchOps.isPrimedTnt(slot);
             } else {
                 Entity entity = this.level.getEntity(entityId);
                 if (entity == null || entity.isRemoved()) continue;
