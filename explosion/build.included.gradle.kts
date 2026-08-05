@@ -43,10 +43,6 @@ java {
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs(
-        "--add-modules=jdk.incubator.vector",
-        "--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED"
-    )
 }
 
 tasks.processResources {

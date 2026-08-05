@@ -270,10 +270,6 @@ java { withSourcesJar(); sourceCompatibility = JavaVersion.VERSION_25; targetCom
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs(
-        "--add-modules=jdk.incubator.vector",
-        "--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED"
-    )
 }
 
 val agentJar by tasks.registering(Jar::class) {

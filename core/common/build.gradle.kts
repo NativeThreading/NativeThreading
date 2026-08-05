@@ -20,13 +20,8 @@ dependencies {
 sourceSets { test { java { srcDirs("src/test/java") } } }
 tasks.test {
     useJUnitPlatform()
-    jvmArgs(
-        "--add-modules=jdk.incubator.vector",
-        "--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED"
-    )
 }
 tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("--add-modules=jdk.incubator.vector")
     options.release = 25
 }
 java { withSourcesJar(); sourceCompatibility = JavaVersion.VERSION_25; targetCompatibility = JavaVersion.VERSION_25 }

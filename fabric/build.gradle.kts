@@ -22,8 +22,6 @@ loom {
     }
     runs {
         named("server") {
-            vmArgs("--add-modules=jdk.incubator.vector")
-            vmArgs("--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED")
         }
     }
 }
@@ -83,7 +81,6 @@ tasks.processResources {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("--add-modules=jdk.incubator.vector")
     options.release = 25
 }
 

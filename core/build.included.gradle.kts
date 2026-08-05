@@ -32,8 +32,7 @@ sourceSets {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("--add-modules=jdk.incubator.vector")
-    options.compilerArgs.add("--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED")
+    options.release = 25
 }
 
 java {
@@ -44,10 +43,6 @@ java {
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs(
-        "--add-modules=jdk.incubator.vector",
-        "--add-exports=jdk.incubator.vector/jdk.incubator.vector=ALL-UNNAMED"
-    )
 }
 
 tasks.processResources {

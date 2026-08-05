@@ -48,7 +48,6 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
                 "\u00a7e/parallel core\n"
                 + "\u00a77  Pool:          \u00a7a" + ParallelCoreConfig.poolImplementation().name() + "\n"
                 + "\u00a77  Parallelism:   \u00a7a" + ParallelThreadPool.getParallelism() + "\n"
-                + "\u00a77  SIMD:          " + (ParallelCoreConfig.simdEnabled() ? "\u00a7aON" : "\u00a7cOFF") + "\n"
                 + "\u00a77Usage: /parallel core [pool <type>|parallelism <n>|reload]"
         );
         ctx.getSource().sendSuccess(() -> msg, false);

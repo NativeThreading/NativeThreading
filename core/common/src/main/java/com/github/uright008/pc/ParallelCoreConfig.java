@@ -8,7 +8,6 @@ public final class ParallelCoreConfig extends ParallelConfig {
 
     private volatile PoolImplementation poolImpl;
     private volatile int poolParallelism;
-    private volatile boolean simdEnabled;
 
     private ParallelCoreConfig() {
         super("parallel-core");
@@ -26,7 +25,6 @@ public final class ParallelCoreConfig extends ParallelConfig {
     protected void applyDefaults() {
         poolImpl = PoolImplementation.FORK_JOIN;
         poolParallelism = getParallelism();
-        simdEnabled = false;
     }
 
     @Override
@@ -39,10 +37,7 @@ public final class ParallelCoreConfig extends ParallelConfig {
         if (json.has("poolParallelism")) {
             poolParallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, json.get("poolParallelism").getAsInt()));
         }
-        if (json.has("simdEnabled")) {
-            simdEnabled = json.get("simdEnabled").getAsBoolean();
-        }
-        logger().info("Pool: {} ({} workers), SIMD: {}", poolImpl, poolParallelism, simdEnabled);
+        logger().info("Pool: {} ({} workers)", poolImpl, poolParallelism);
     }
 
     @Override
@@ -50,7 +45,6 @@ public final class ParallelCoreConfig extends ParallelConfig {
         JsonObject json = new JsonObject();
         json.addProperty("poolImplementation", poolImpl.name());
         json.addProperty("poolParallelism", poolParallelism);
-        json.addProperty("simdEnabled", simdEnabled);
         return json;
     }
 
@@ -58,8 +52,6 @@ public final class ParallelCoreConfig extends ParallelConfig {
     public static void setPoolImplementation(PoolImplementation impl) { INSTANCE.poolImpl = impl; INSTANCE.save(); }
     public static int poolParallelism() { return INSTANCE.poolParallelism; }
     public static void setPoolParallelism(int p) { INSTANCE.poolParallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors() * 2, p)); INSTANCE.save(); }
-    public static boolean simdEnabled() { return INSTANCE.simdEnabled; }
-    public static void setSimdEnabled(boolean v) { INSTANCE.simdEnabled = v; INSTANCE.save(); }
     public static void reloadConfig() { INSTANCE.reload(); }
 
     public static void resetForTesting(ConfigStorage storage) {
