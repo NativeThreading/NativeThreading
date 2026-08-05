@@ -27,3 +27,6 @@ fabric/run/
 *.lock
 *.settings/
 *.project
+
+# ZCode session artifacts
+.zcode/
