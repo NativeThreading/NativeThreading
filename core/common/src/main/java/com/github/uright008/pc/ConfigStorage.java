@@ -5,7 +5,7 @@ import com.google.gson.JsonObject;
 /**
  * Abstraction for configuration persistence.
  *
- * <p>Production uses {@link FileConfigStorage} (writes to {@code config/mc-parallel.json}).
+ * <p>Production uses {@link FileConfigStorage} (writes to {@code config/nt.json}).
  * Tests use {@link InMemoryConfigStorage} for isolation without filesystem I/O.</p>
  */
 public interface ConfigStorage {

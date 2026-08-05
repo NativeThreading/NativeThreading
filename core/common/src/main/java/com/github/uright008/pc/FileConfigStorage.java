@@ -13,7 +13,7 @@ import java.nio.file.StandardCopyOption;
 
 /**
  * File-based {@link ConfigStorage} for production use.
- * <p>Persists to {@code config/mc-parallel.json} with atomic writes.</p>
+ * <p>Persists to {@code config/nt.json} with atomic writes.</p>
  */
 public final class FileConfigStorage implements ConfigStorage {
 
@@ -66,6 +66,6 @@ public final class FileConfigStorage implements ConfigStorage {
     }
 
     private static Path configPath() {
-        return Path.of("config", "mc-parallel.json");
+        return Path.of("config", "nt.json");
     }
 }

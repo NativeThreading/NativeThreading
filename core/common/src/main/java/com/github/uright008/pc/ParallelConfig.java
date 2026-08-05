@@ -9,7 +9,7 @@ import java.util.Set;
 
 /**
  * Base class for mod configs persisted as sections in the shared
- * {@code config/mc-parallel.json} file.
+ * {@code config/nt.json} file.
  *
  * <p>Each subclass provides a section key (e.g. {@code "physics-parallelization"})
  * and reads/writes its settings as a JSON object under that key.  All sections
@@ -22,7 +22,7 @@ import java.util.Set;
  * config file with default values.</p>
  *
  * <pre>
- * // mc-parallel.json
+ * // nt.json
  * {
  *   "physics-parallelization": { "enabled": true },
  *   "explosion-parallelization": { "enabled": true, "samplingFactor": 2.0 }
@@ -133,9 +133,9 @@ public abstract class ParallelConfig {
 
     public Path getPath() {
         if (storage instanceof FileConfigStorage) {
-            return Path.of("config", "mc-parallel.json");
+            return Path.of("config", "nt.json");
         }
-        return Path.of("config", "mc-parallel.json");
+        return Path.of("config", "nt.json");
     }
 
     protected Logger logger() {
@@ -152,7 +152,7 @@ public abstract class ParallelConfig {
         Logger log = LoggerFactory.getLogger("parallel-config");
         for (String key : root.keySet()) {
             if (!KNOWN_SECTIONS.contains(key)) {
-                log.warn("Unrecognized config section '{}' in mc-parallel.json — this section will be ignored", key);
+                log.warn("Unrecognized config section '{}' in nt.json — this section will be ignored", key);
             }
         }
     }
