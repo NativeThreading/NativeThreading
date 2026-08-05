@@ -16,10 +16,4 @@ config = "parallel-core.mixins.json"
 config = "explosion.mixins.json"
 
 [[mixins]]
-config = "redstone.mixins.json"
-
-[[mixins]]
-config = "redstone-diode.mixins.json"
-
-[[mixins]]
 config = "vectorial.mixins.json"

@@ -6,7 +6,6 @@
   "environment": "server",
   "entrypoints": {
     "fabric-gametest": [
-      "com.github.uright008.rp.RedstoneWireParityGameTest",
       "com.github.uright008.ep.ExplosionFlatViewParityGameTest",
       "com.github.uright008.ep.TntChamberParityGameTest"
     ]

@@ -11,7 +11,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -104,48 +103,6 @@ public final class ParallelWorker {
         return results;
     }
 
-    public static <T> void forEachBatched(
-            ExecutorService executor, List<T> items,
-            Consumer<T> action, int batchSize, int timeoutSeconds) {
-
-        int n = items.size();
-        if (n == 0) return;
-        if (batchSize < 1) batchSize = 1;
-
-        int batches = (n + batchSize - 1) / batchSize;
-        if (batches == 1) {
-            for (T item : items) action.accept(item);
-            SafeOps.drainWrites();
-            return;
-        }
-
-        int workers = Math.min(Runtime.getRuntime().availableProcessors(), batches);
-        int[] batchRange = new int[batches + 1];
-        for (int b = 0; b <= batches; b++) {
-            batchRange[b] = Math.min(b * batchSize, n);
-        }
-
-        int perWorker = batches / workers;
-        int extra = batches % workers;
-        List<Runnable> work = new ArrayList<>(workers);
-        int offset = 0;
-        for (int w = 0; w < workers; w++) {
-            final int start = offset;
-            final int end = offset + perWorker + (w < extra ? 1 : 0);
-            offset = end;
-            work.add(() -> {
-                for (int b = start; b < end; b++) {
-                    int from = batchRange[b];
-                    int to = batchRange[b + 1];
-                    for (int i = from; i < to; i++) {
-                        action.accept(items.get(i));
-                    }
-                }
-            });
-        }
-        executePhase(executor, work, timeoutSeconds);
-    }
-
     static int computeWorkers(int itemCount) {
         int cpuCores = Runtime.getRuntime().availableProcessors();
         return Math.min(cpuCores, Math.max(2, itemCount / 16));
@@ -154,27 +111,6 @@ public final class ParallelWorker {
     public static int autoBatchSize(int itemCount) {
         int workers = computeWorkers(itemCount);
         return Math.max(1, (itemCount + workers - 1) / workers);
-    }
-
-    public static final class Batch<T, R> {
-        private final ExecutorService pool;
-        private List<T> items = new ArrayList<>();
-
-        public Batch(ExecutorService pool) { this.pool = pool; }
-
-        public void add(T item) { items.add(item); }
-
-        public List<R> flush(Function<T, R> mapper, int timeoutSec) {
-            List<T> snapshot = items;
-            items = new ArrayList<>();
-            return ParallelWorker.mapBatched(pool, snapshot, mapper, autoBatchSize(snapshot.size()), timeoutSec);
-        }
-
-        public void flushVoid(Consumer<T> action, int timeoutSec) {
-            List<T> snapshot = items;
-            items = new ArrayList<>();
-            ParallelWorker.forEachBatched(pool, snapshot, action, autoBatchSize(snapshot.size()), timeoutSec);
-        }
     }
 
     private static void executePhase(ExecutorService executor, List<Runnable> work, int timeoutSeconds) {

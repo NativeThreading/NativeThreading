@@ -20,10 +20,6 @@ class ParallelWorkerBatchedWorkerCountTest {
         CountingExecutorService mapExecutor = new CountingExecutorService();
         assertEquals(ITEMS, ParallelWorker.mapBatched(mapExecutor, ITEMS, item -> item, 1, 1));
         assertEquals(expectedWorkers, mapExecutor.submittedTasks());
-
-        CountingExecutorService forEachExecutor = new CountingExecutorService();
-        ParallelWorker.forEachBatched(forEachExecutor, ITEMS, item -> { }, 1, 1);
-        assertEquals(expectedWorkers, forEachExecutor.submittedTasks());
     }
 
     private static final class CountingExecutorService extends AbstractExecutorService {
