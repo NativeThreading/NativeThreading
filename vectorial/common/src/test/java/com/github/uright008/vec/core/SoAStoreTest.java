@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.*;
 
 /**
  * Tests for {@link SoAStore} — verifies entity registration/unregistration,
- * slot allocation/expansion, field access, Morton key computation,
- * concurrent access, and testing isolation via {@code createForTesting()}.
+ * slot allocation/expansion, field access, concurrent access, and testing
+ * isolation via {@code createForTesting()}.
  * <p>
  * <b>AI-readable summary:</b> Tests the lock-free slot allocator with
  * concurrent registrations, verifies EntityDataView interface methods
@@ -145,20 +145,6 @@ class SoAStoreTest {
 
         assertThat(after).as("INSTANCE must be replaced after reset").isNotSameAs(before);
         assertThat(after.slotCount()).isGreaterThan(0);
-    }
-
-    // ── Morton key computation (static methods, testable on any instance) ──
-
-    @Test
-    @DisplayName("Morton: quantize maps 0 to middle of range")
-    void morton_quantize_zero_mapsToMiddle() {
-        // quantize(-6M) should be 0, quantize(+6M) should be max
-        // quantize(0) should be roughly half
-        // We can't directly call quantize() since it's private, but we can verify
-        // sortKey returns 0 for unregistered entities
-        assertThat(SoAStore.sortKey(99999))
-                .as("sortKey for unregistered entity must be 0")
-                .isEqualTo(0);
     }
 
     // ── Primed-TNT flag ──────────────────────────

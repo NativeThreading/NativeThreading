@@ -28,7 +28,6 @@ public final class SoAStore implements EntityDataView {
     private volatile int[] slotToId;
     public volatile int[] idToSlotCache;
     public final double[][] fields;
-    private long[] keys;
     private int[] freeSlots;
     private final AtomicInteger freeHead = new AtomicInteger();
     private volatile int slotCount;
@@ -52,7 +51,6 @@ public final class SoAStore implements EntityDataView {
             fields[i] = new double[cap];
             Arrays.fill(fields[i], Double.NaN);
         }
-        keys = new long[cap];
         freeSlots = new int[cap];
         for (int i = 0; i < cap; i++) freeSlots[i] = i;
         freeHead.set(cap);
@@ -93,9 +91,6 @@ public final class SoAStore implements EntityDataView {
     public static int[] getIdToSlot() { return INSTANCE.idToSlot; }
     /** @deprecated Use {@link EntityDataView} methods instead. Exposed for SimdBatchOps. */
     public static double[][] getFields() { return INSTANCE.fields; }
-
-    /** Morton-code sort keys. Exposed for SimdBatchOps spatial filtering. */
-    public static long[] getKeys() { return INSTANCE.keys; }
 
     // ── Entity type flags ─────────────────────────
 
@@ -200,10 +195,6 @@ public final class SoAStore implements EntityDataView {
         INSTANCE.setDoublesImpl(entityId, ordinals, values);
     }
 
-    public static long sortKey(int entityId) {
-        return INSTANCE.sortKeyImpl(entityId);
-    }
-
     private void setDoubleImpl(int entityId, int ordinal, double value) {
         int[] slots = idToSlot;
         int slot = (entityId >= 0 && entityId < slots.length) ? slots[entityId] : -1;
@@ -216,39 +207,10 @@ public final class SoAStore implements EntityDataView {
         int slot = (entityId >= 0 && entityId < slots.length) ? slots[entityId] : -1;
         if (slot < 0) return;
         for (int i = 0; i < ordinals.length; i++) fields[ordinals[i]][slot] = values[i];
-        if (ordinals[0] == GeneratedFields.POSITION_X) updateKey(slot);
         VarHandle.storeStoreFence();
     }
 
-    private long sortKeyImpl(int entityId) {
-        int[] slots = idToSlot;
-        int slot = (entityId >= 0 && entityId < slots.length) ? slots[entityId] : -1;
-        return slot >= 0 ? keys[slot] : 0;
-    }
-
-    // ── Morton key ────────────────────────────────
-    private void updateKey(int slot) {
-        double x = fields[GeneratedFields.POSITION_X][slot];
-        double y = fields[GeneratedFields.POSITION_Y][slot];
-        double z = fields[GeneratedFields.POSITION_Z][slot];
-        if (Double.isNaN(x)) { keys[slot] = 0; return; }
-        long ix = quantize(x), iy = quantize(y), iz = quantize(z);
-        keys[slot] = splitBy3(ix) | (splitBy3(iy) << 1) | (splitBy3(iz) << 2);
-    }
-    private static long quantize(double v) {
-        return (long)((v + 30_000_000.0) * (1L << 21) / 60_000_000.0) & ((1L << 21) - 1);
-    }
-    private static long splitBy3(long x) {
-        x &= 0x1fffffL;
-        x = (x | x << 32) & 0x1f00000000ffffL;
-        x = (x | x << 16) & 0x1f0000ff0000ffL;
-        x = (x | x << 8)  & 0x100f00f00f00f00fL;
-        x = (x | x << 4)  & 0x10c30c30c30c30c3L;
-        x = (x | x << 2)  & 0x1249249249249249L;
-        return x;
-    }
-
-    // ── Internal ─────────────────────────────────
+    // ── Registration (lock-free allocate, lock on expand only) ──
     private int[] growId(int minId) {
         int[] old = idToSlot, next = new int[Math.max(old.length * 2, minId + 4096)];
         System.arraycopy(old, 0, next, 0, old.length);
@@ -271,9 +233,6 @@ public final class SoAStore implements EntityDataView {
                 System.arraycopy(old, 0, fields[i], 0, old.length);
                 Arrays.fill(fields[i], old.length, newCap, Double.NaN);
             }
-            long[] oldKeys = keys;
-            keys = new long[newCap];
-            System.arraycopy(oldKeys, 0, keys, 0, oldKeys.length);
             int[] oldSlotToId = slotToId;
             slotToId = new int[newCap];
             System.arraycopy(oldSlotToId, 0, slotToId, 0, oldSlotToId.length);
