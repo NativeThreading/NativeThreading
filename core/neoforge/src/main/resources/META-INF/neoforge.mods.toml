@@ -6,7 +6,7 @@ license = "MIT"
 modId = "parallel-core"
 version = "${version}"
 displayName = "Parallel Core"
-description = "Central thread pool, world management, and /parallel command system for MC Parallel mods."
+description = "Central thread pool, world management, and /parallel command system for NativeThreading mods."
 authors = ["uright008"]
 
 [[mixins]]

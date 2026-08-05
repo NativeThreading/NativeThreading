@@ -3,7 +3,7 @@
   "id": "core",
   "version": "${version}",
   "name": "Parallel Core",
-  "description": "Thread pool, safe-zone pattern, and /parallel command framework shared by all MC Parallel modules. Supports SIMD batch entity queries via optional Vectorial dependency.",
+  "description": "Thread pool, safe-zone pattern, and /parallel command framework shared by all NativeThreading modules. Supports SIMD batch entity queries via optional Vectorial dependency.",
   "authors": [
     "uright008"
   ],

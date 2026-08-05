@@ -82,7 +82,7 @@ public abstract class ServerExplosionMixin {
     @Unique private ChunkGrid cachedChunkGrid;
     @Unique private WorldReadViewImpl cachedWorldView;
 
-    @Unique private static final Logger LOGGER = LoggerFactory.getLogger("mc-parallel:explosion");
+    @Unique private static final Logger LOGGER = LoggerFactory.getLogger("native-threading:explosion");
     @Unique private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
     @Unique private static final AtomicLong ENTITY_WORKER_BATCHES = new AtomicLong();
     @Unique private static final AtomicLong ENTITY_FALLBACKS = new AtomicLong();

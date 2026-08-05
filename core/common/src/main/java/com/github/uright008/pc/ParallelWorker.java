@@ -22,7 +22,7 @@ import java.util.function.Function;
  */
 public final class ParallelWorker {
 
-    private static final Logger LOG = LoggerFactory.getLogger("mc-parallel:worker");
+    private static final Logger LOG = LoggerFactory.getLogger("native-threading:worker");
     private static final long ZERO_TIMEOUT_START_GRACE_MILLIS = 100;
 
     private ParallelWorker() {}
