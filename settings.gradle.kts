@@ -19,12 +19,8 @@ include(":fabric")
 include(":neoforge")
 include(":core")
 include(":explosion")
-include(":hopper")
-include(":redstone")
 include(":vectorial")
 
 project(":core").buildFileName = "build.included.gradle.kts"
 project(":explosion").buildFileName = "build.included.gradle.kts"
-project(":hopper").buildFileName = "build.included.gradle.kts"
-project(":redstone").buildFileName = "build.included.gradle.kts"
 project(":vectorial").buildFileName = "build.included.gradle.kts"

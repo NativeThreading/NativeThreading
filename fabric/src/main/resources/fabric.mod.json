@@ -17,7 +17,6 @@
   "mixins": [
     "parallel-core.mixins.json",
     "explosion.mixins.json",
-    "hopper.mixins.json",
     "redstone.mixins.json",
     "redstone-diode.mixins.json",
     "vectorial.mixins.json"
@@ -25,7 +24,6 @@
   "provides": [
     "parallel-core",
     "explosion",
-    "hopper",
     "redstone",
     "vectorial"
   ],

@@ -25,7 +25,6 @@ dependencies {
     compileOnly("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation(project(":core")) { isTransitive = false }
     implementation(project(":explosion")) { isTransitive = false }
-    implementation(project(":hopper")) { isTransitive = false }
     implementation(project(":redstone")) { isTransitive = false }
     implementation(project(":vectorial")) { isTransitive = false }
 }
@@ -43,7 +42,6 @@ tasks.processResources {
     val subprojects = listOf(
         "parallel-core",
         "explosion",
-        "hopper",
         "redstone",
         "vectorial",
     )
@@ -77,7 +75,6 @@ tasks.jar {
     val bundledSubprojectJars = listOf(
         project(":core").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":explosion").tasks.named<Jar>("jar").flatMap { it.archiveFile },
-        project(":hopper").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":redstone").tasks.named<Jar>("jar").flatMap { it.archiveFile },
         project(":vectorial").tasks.named<Jar>("jar").flatMap { it.archiveFile },
     )

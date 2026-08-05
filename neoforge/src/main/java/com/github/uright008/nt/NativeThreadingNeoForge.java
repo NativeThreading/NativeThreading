@@ -1,7 +1,6 @@
 package com.github.uright008.nt;
 
 import com.github.uright008.ep.ExplosionParallelization;
-import com.github.uright008.hp.HopperParallelization;
 import com.github.uright008.pc.ParallelCore;
 import com.github.uright008.pc.command.ParallelCommandRegistration;
 import com.github.uright008.rp.RedstoneParallelization;
@@ -19,7 +18,6 @@ public class NativeThreadingNeoForge {
 
         new ParallelCore().onInitialize();
         new ExplosionParallelization().onInitialize();
-        new HopperParallelization().onInitialize();
         new RedstoneParallelization().onInitialize();
 
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class,
