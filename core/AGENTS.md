@@ -16,7 +16,7 @@
 - `ParallelCommand` provides shared command registration.
 - Capture helpers such as `ChunkGrid` and deferred-write primitives support subsystem pipelines.
 
-Keep explosion, hopper, and redstone behavior in their modules. Do not move feature-specific scheduling, state, or computation into `core`.
+Keep explosion behavior in its module. Do not move feature-specific scheduling, state, or computation into `core`.
 
 ## Worker Boundary
 

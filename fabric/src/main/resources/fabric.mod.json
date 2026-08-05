@@ -3,7 +3,7 @@
   "id": "native-threading",
   "version": "${version}",
   "name": "Native Threading",
-  "description": "Native threading optimizations: parallel explosions, hoppers, and redstone. Use /parallel to control.",
+  "description": "Parallel explosion computation for Minecraft servers. Use /parallel to control.",
   "authors": [
     "uright008"
   ],
