@@ -5,9 +5,9 @@
     <stringAttribute key="org.eclipse.jdt.launching.PROGRAM_ARGUMENTS" value=""></stringAttribute>
     <stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value=" --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-exports jdk.naming.dns/com.sun.jndi.dns=java.naming -Dneoforge.enableGameTest=true -Djava.net.preferIPv6Addresses=system"></stringAttribute>
     <mapAttribute key="org.eclipse.debug.core.environmentVariables">
-        <mapEntry key="MOD_CLASSES" value="neoforge%%/home/uright/mc-parallel/neoforge/bin/main"></mapEntry>
+        <mapEntry key="MOD_CLASSES" value="neoforge%%/home/uright/NativeThreading/neoforge/bin/main"></mapEntry>
     </mapAttribute>
-    <stringAttribute key="org.eclipse.jdt.launching.WORKING_DIRECTORY" value="/home/uright/mc-parallel/neoforge/runs/gameTestServer"></stringAttribute>
+    <stringAttribute key="org.eclipse.jdt.launching.WORKING_DIRECTORY" value="/home/uright/NativeThreading/neoforge/runs/gameTestServer"></stringAttribute>
     <booleanAttribute key="org.eclipse.jdt.launching.STOP_IN_MAIN" value="false"></booleanAttribute>
     <booleanAttribute key="org.eclipse.jdt.launching.ATTR_ATTR_USE_ARGFILE" value="true"></booleanAttribute>
 </launchConfiguration>
