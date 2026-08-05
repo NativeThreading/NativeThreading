@@ -5,7 +5,7 @@ import com.github.uright008.pc.ParallelConfig;
 
 /**
  * Explosion config, persisted under the "explosion"
- * section in config/mc-parallel.json.
+ * section in config/nt.json.
  * Uses parallel-core's {@link ParallelConfig} for JSON persistence.
  */
 public final class ExplosionParallelConfig extends ParallelConfig {

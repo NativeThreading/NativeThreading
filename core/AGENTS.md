@@ -12,7 +12,7 @@
 ## Ownership
 
 - `ParallelWorker` and `ParallelThreadPool` provide shared execution primitives.
-- `ParallelConfig` and its storage types provide shared configuration sections in `config/mc-parallel.json`.
+- `ParallelConfig` and its storage types provide shared configuration sections in `config/nt.json`.
 - `ParallelCommand` provides shared command registration.
 - Capture helpers such as `ChunkGrid` and deferred-write primitives support subsystem pipelines.
 
@@ -32,7 +32,7 @@ Submitted `ParallelWorker` tasks enter a reentrant `SafeLevelAccess` scope. It i
 
 ## Commands and Configuration
 
-Register command extensions through `ParallelCommand.registerSubCommand()`. Define each configuration section with `ParallelConfig` and keep its data under `config/mc-parallel.json`.
+Register command extensions through `ParallelCommand.registerSubCommand()`. Define each configuration section with `ParallelConfig` and keep its data under `config/nt.json`.
 
 ## Compatibility
 

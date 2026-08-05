@@ -40,7 +40,7 @@
 
 ## 配置文件
 
-`config/mc-parallel.json` 的 `explosion` 节，重启后自动保留设置。
+`config/nt.json` 的 `explosion` 节，重启后自动保留设置。
 
 ```json
 {

@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import com.github.uright008.pc.ParallelConfig;
 
 /**
- * Hopper config, persisted in config/mc-parallel.json
+ * Hopper config, persisted in config/nt.json
  * under the "hopper" section key.
  * Uses parallel-core's {@link ParallelConfig} for JSON persistence.
  */

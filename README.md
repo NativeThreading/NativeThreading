@@ -17,7 +17,7 @@ All share `core/` (thread pool, safe world access, deferred writes, config).
 
 Drop `native-threading-1.0.0.jar` into your `mods/` folder. Requires Fabric Loader ≥ 0.19.3.
 
-Configure modules in `config/mc-parallel.json`.
+Configure modules in `config/nt.json`.
 
 ## Performance
 
