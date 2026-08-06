@@ -478,37 +478,42 @@ public abstract class ServerExplosionMixin {
     // ──────────────────────────────────────────────
     //  Compute entity damage (worker-thread safe)
     // ──────────────────────────────────────────────
+    @Unique private Entity applyEntity;
+
+    @Unique private final ExplosionEntityApplication.Target applyTarget = new ExplosionEntityApplication.Target() {
+        @Override
+        public void hurt(float damage) {
+            applyEntity.hurtServer(level, damageSource, damage);
+        }
+
+        @Override
+        public void push(Vec3 knockback) {
+            applyEntity.push(knockback);
+        }
+
+        @Override
+        public void bookkeep(Vec3 knockback) {
+            if (applyEntity.getType().builtInRegistryHolder().is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
+                    && applyEntity instanceof Projectile projectile) {
+                projectile.setOwner(damageSource.getEntity());
+            } else if (applyEntity instanceof Player player && !player.isSpectator()
+                    && (!player.isCreative() || !player.getAbilities().flying)) {
+                hitPlayers.put(player, knockback);
+            }
+        }
+
+        @Override
+        public void onExplosionHit() {
+            applyEntity.onExplosionHit(source);
+        }
+    };
+
     @Unique
     private void applyEntityDamage(ExplosionHelper.EntityDamageResult result, Entity entity) {
         // Uses the capture-time reference, not a by-ID re-lookup — vanilla
         // iterates its collected entity list and applies to every member even
         // if an earlier hit removed it.
-        ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
-            @Override
-            public void hurt(float damage) {
-                entity.hurtServer(level, damageSource, damage);
-            }
-
-            @Override
-            public void push(Vec3 knockback) {
-                entity.push(knockback);
-            }
-
-            @Override
-            public void bookkeep(Vec3 knockback) {
-                if (entity.getType().builtInRegistryHolder().is(EntityTypeTags.REDIRECTABLE_PROJECTILE)
-                        && entity instanceof Projectile projectile) {
-                    projectile.setOwner(damageSource.getEntity());
-                } else if (entity instanceof Player player && !player.isSpectator()
-                        && (!player.isCreative() || !player.getAbilities().flying)) {
-                    hitPlayers.put(player, knockback);
-                }
-            }
-
-            @Override
-            public void onExplosionHit() {
-                entity.onExplosionHit(source);
-            }
-        });
+        applyEntity = entity;
+        ExplosionEntityApplication.apply(result, applyTarget);
     }
 }
