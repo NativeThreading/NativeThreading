@@ -220,16 +220,16 @@ class ExplosionRayFlatDifferentialTest {
                 42,
                 19.0, 55.5, 49.5, 60.0,
                 16.0, 55.0, 48.0, 24.0, 63.0, 54.0,
-                true, 1.0F, 0.0F, false, 2.0F, null);
+                true, 1.0F, 0.0F, false);
         ExplosionHelper.EntityDamageResult viaView = ExplosionHelper.computeEntityDamage(
                 damageSnapshot, cx, cy, cz, 32.0F, view);
         ExplosionHelper.EntityDamageSnapshot withSlowExposure = new ExplosionHelper.EntityDamageSnapshot(
                 42,
                 19.0, 55.5, 49.5, 60.0,
                 16.0, 55.0, 48.0, 24.0, 63.0, 54.0,
-                true, 1.0F, slow, true, 2.0F, null);
+                true, 1.0F, slow, true);
         ExplosionHelper.EntityDamageResult viaSlowExposure = ExplosionHelper.computeEntityDamage(
-                withSlowExposure, cx, cy, cz, 32.0F);
+                withSlowExposure, cx, cy, cz, 32.0F, view);
         assertThat(viaView.damage()).isEqualTo(viaSlowExposure.damage());
         assertThat(viaView.kbX()).isEqualTo(viaSlowExposure.kbX());
         assertThat(viaView.kbY()).isEqualTo(viaSlowExposure.kbY());
@@ -263,7 +263,7 @@ class ExplosionRayFlatDifferentialTest {
         double minX = snapshot.minX(), maxX = snapshot.maxX();
         double minY = snapshot.minY(), maxY = snapshot.maxY();
         double minZ = snapshot.minZ(), maxZ = snapshot.maxZ();
-        float samplingFactor = snapshot.samplingFactor();
+        double samplingFactor = 2.0;
         double xs = 1.0 / ((maxX - minX) * samplingFactor + 1.0);
         double ys = 1.0 / ((maxY - minY) * samplingFactor + 1.0);
         double zs = 1.0 / ((maxZ - minZ) * samplingFactor + 1.0);
@@ -291,7 +291,7 @@ class ExplosionRayFlatDifferentialTest {
         return new ExplosionHelper.EntityDamageSnapshot(
                 42, 0.0, 0.0, 0.0, 0.0,
                 minX, minY, minZ, maxX, maxY, maxZ,
-                false, 0.0F, 0.0F, false, 2.0F, null);
+                false, 0.0F, 0.0F, false);
     }
 
     // ── Multi-box shapes: exact per-box test vs bounding-box approximation ──

@@ -13,13 +13,16 @@ class ExplosionEntityDamageComputationTest {
 
     @Test
     void computesDamageAndKnockbackFromPrimitiveSnapshot() {
+        // exposurePreset=true: exposure comes from the snapshot, so the
+        // worldView is never consulted — pass null to keep this a pure
+        // primitive test (no Minecraft Blocks/registries bootstrap).
         ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
                 42, 2.0, 0.0, 0.0, 0.0,
                 1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
-                true, 1.0F, 1.0F, false, 2.0F, null);
+                true, 1.0F, 1.0F, true);
 
         ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
-                snapshot, 0.0, 0.0, 0.0, 4.0F);
+                snapshot, 0.0, 0.0, 0.0, 4.0F, null);
 
         assertThat(result.entityId()).isEqualTo(42);
         assertThat(result.damage()).isEqualTo(11.5F);
@@ -42,19 +45,5 @@ class ExplosionEntityDamageComputationTest {
                         && type != Level.class
                         && type != BlockState.class
                         && type != VoxelShape.class);
-    }
-
-    @Test
-    void computesRayLookupExposureFromSnapshotPrimitivesAndDepthTable() {
-        float[] openDepths = new float[ExplosionHelper.RAY_PARAMS.size()];
-        Arrays.fill(openDepths, Float.MAX_VALUE);
-        ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
-                42, 2.0, 0.0, 0.0, 0.0,
-                1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
-                true, 1.0F, 0.0F, false, 2.0F, openDepths);
-
-        float exposure = ExplosionHelper.getSeenPercentFast(snapshot, 0.0, 0.0, 0.0);
-
-        assertThat(exposure).isEqualTo(1.0F);
     }
 }

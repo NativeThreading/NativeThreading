@@ -76,8 +76,6 @@ public abstract class ServerExplosionMixin {
     @Shadow private Map<Player, Vec3> hitPlayers;
     @Shadow private native boolean interactsWithBlocks();
 
-    @Unique private volatile float[] cachedFirstBlockDistances;
-
     @Unique private ChunkGrid cachedChunkGrid;
     @Unique private WorldReadViewImpl cachedWorldView;
 
@@ -149,14 +147,11 @@ public abstract class ServerExplosionMixin {
     // ──────────────────────────────────────────────
     @Unique
     private @Nullable List<BlockPos> calculateExplodedPositionsParallel() {
-        int gs = ExplosionParallelConfig.getAdaptiveRays();
-        List<ExplosionHelper.RayParam> rays = gs > 0 ? ExplosionHelper.buildRayParams(gs) : ExplosionHelper.RAY_PARAMS;
+        List<ExplosionHelper.RayParam> rays = ExplosionHelper.RAY_PARAMS;
         int rayCount = rays.size();
         int cpuCores = Runtime.getRuntime().availableProcessors();
         int numThreads = Math.min(ParallelThreadPool.getParallelism(), Math.min(cpuCores, Math.max(2, rayCount / 64)));
         final ChunkGrid chunkGrid = this.cachedChunkGrid;
-        final float[] firstBlockDistances = new float[rayCount];
-        java.util.Arrays.fill(firstBlockDistances, Float.MAX_VALUE);
 
         final float[] rayPowers = new float[rayCount];
         final float radiusF = this.radius;
@@ -165,9 +160,7 @@ public abstract class ServerExplosionMixin {
         // boundary). Reusing level.getRandom() keeps the drawn sequence
         // identical to vanilla; the worker rays consume these precomputed
         // values and never touch an RNG themselves, so no cross-thread RNG
-        // access exists. (adaptiveRays > 0 deliberately changes the ray count
-        // and thus the sequence length — that option is documented as
-        // behavior-breaking.)
+        // access exists.
         for (int i = 0; i < rayCount; i++) {
             rayPowers[i] = radiusF * (0.7F + this.level.getRandom().nextFloat() * 0.6F);
         }
@@ -252,8 +245,8 @@ public abstract class ServerExplosionMixin {
                     ranges, range -> {
                         for (int i = range.start; i < range.end; i++)
                             traceRay(rays.get(i), i, range.grid, minX, minY, minZ, maxX, maxY, maxZ,
-                                    worldView, strideY, strideZ, firstBlockDistances, rayPowers[i],
-                                    isDefaultCalc, resistanceCalc, explodeDecider);
+                                    worldView, strideY, strideZ, rayPowers[i],
+                                    resistanceCalc, explodeDecider);
                         return range.grid;
                     }, 5);
         } catch (RuntimeException e) {
@@ -263,8 +256,6 @@ public abstract class ServerExplosionMixin {
 
         BitSet grid = new BitSet(gridSize);
         for (BitSet wg : workerGrids) grid.or(wg);
-
-        this.cachedFirstBlockDistances = firstBlockDistances;
 
         List<BlockPos> result = new ArrayList<>(gridSize);
         for (int z = minZ; z <= maxZ; z++) {
@@ -286,85 +277,41 @@ public abstract class ServerExplosionMixin {
     private void traceRay(ExplosionHelper.RayParam ray, int rayIndex,
                           BitSet grid, int minX, int minY, int minZ,
                           int maxX, int maxY, int maxZ, WorldReadViewImpl worldView,
-                          int strideY, int strideZ, float[] firstBlockDistances,
+                          int strideY, int strideZ,
                           float initialPower,
-                          boolean isDefaultCalc,
                           ResistanceCalculator resistanceCalc,
                           BlockExplodeDecider explodeDecider) {
         float remainingPower = initialPower;
         final int gMinX = minX, gMinY = minY, gMinZ = minZ;
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
         final int MAX = ExplosionHelper.rayMaxSteps(this.radius);
-        // Non-precise rays read precomputed per-step integer deltas packed into
-        // 8 bits per axis; that encoding caps each axis at 128 blocks, so their
-        // step budget is additionally bounded by the delta table length.
-        final int MAX_DELTAS = Math.min(MAX, ExplosionHelper.MAX_RAY_STEPS);
         final int strideY_ = strideY, strideZ_ = strideZ;
         final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
-        if (ExplosionParallelConfig.isPreciseRays()) {
-            double xp = this.center.x, yp = this.center.y, zp = this.center.z;
-            final double sx = ray.xd() * 0.3, sy = ray.yd() * 0.3, sz = ray.zd() * 0.3;
+        // Vanilla-exact march: float accumulation from the exact centre,
+        // flooring each step — identical to ServerExplosion.calculateExplodedPositions.
+        double xp = this.center.x, yp = this.center.y, zp = this.center.z;
+        final double sx = ray.xd() * 0.3, sy = ray.yd() * 0.3, sz = ray.zd() * 0.3;
 
-            for (int s = 0; s < MAX && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
-                int bx = net.minecraft.util.Mth.floor(xp);
-                int by = net.minecraft.util.Mth.floor(yp);
-                int bz = net.minecraft.util.Mth.floor(zp);
-                pos.set(bx, by, bz);
-                if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
+        for (int s = 0; s < MAX && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
+            int bx = net.minecraft.util.Mth.floor(xp);
+            int by = net.minecraft.util.Mth.floor(yp);
+            int bz = net.minecraft.util.Mth.floor(zp);
+            pos.set(bx, by, bz);
+            if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
-                BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
-                FluidState fluid = block.getFluidState();
-                if (!block.isAir() || !fluid.isEmpty()) {
-                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
-                            fluid.getExplosionResistance());
-                    remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
-                    if (isDefaultCalc && firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
-                        double ddx = bx + 0.5 - this.center.x;
-                        double ddy = by + 0.5 - this.center.y;
-                        double ddz = bz + 0.5 - this.center.z;
-                        firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-                    }
-                }
-                if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
-                    if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
-                        grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                }
-                xp += sx; yp += sy; zp += sz;
+            BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
+            FluidState fluid = block.getFluidState();
+            if (!block.isAir() || !fluid.isEmpty()) {
+                float baseRes = Math.max(block.getBlock().getExplosionResistance(),
+                        fluid.getExplosionResistance());
+                remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
             }
-        } else {
-            int bx = net.minecraft.util.Mth.floor(this.center.x);
-            int by = net.minecraft.util.Mth.floor(this.center.y);
-            int bz = net.minecraft.util.Mth.floor(this.center.z);
-            final int[] deltas = ExplosionHelper.RAY_DELTAS[rayIndex];
-
-            for (int s = 0; s < MAX_DELTAS && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
-                pos.set(bx, by, bz);
-                if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
-
-                BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
-                FluidState fluid = block.getFluidState();
-                if (!block.isAir() || !fluid.isEmpty()) {
-                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
-                            fluid.getExplosionResistance());
-                    remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
-                    if (isDefaultCalc && firstBlockDistances[rayIndex] == Float.MAX_VALUE) {
-                        double ddx = bx + 0.5 - this.center.x;
-                        double ddy = by + 0.5 - this.center.y;
-                        double ddz = bz + 0.5 - this.center.z;
-                        firstBlockDistances[rayIndex] = (float) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-                    }
-                }
-                if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
-                    if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
-                        grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
-                }
-
-                int dp = deltas[s];
-                bx += (dp << 24) >> 24;
-                by += (dp << 16) >> 24;
-                bz += (dp << 8) >> 24;
+            if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
+                if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
+                    grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
             }
+            xp += sx; yp += sy; zp += sz;
         }
     }
 
@@ -374,10 +321,6 @@ public abstract class ServerExplosionMixin {
     @Unique
     private boolean hurtEntitiesParallel() {
         if (this.radius < 1.0E-5F) return true;
-
-        if (ExplosionParallelConfig.isRayLookup() && this.cachedFirstBlockDistances == null) {
-            throw new IllegalStateException("ray lookup requires completed parallel ray tracing");
-        }
 
         float doubleRadius = this.radius * 2.0F;
         int x0 = net.minecraft.util.Mth.floor(this.center.x - doubleRadius - 1.0);
@@ -397,16 +340,10 @@ public abstract class ServerExplosionMixin {
             snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
             if (snapshots.isEmpty()) return true;
             ENTITY_WORKER_BATCHES.incrementAndGet();
-            if (ExplosionParallelConfig.isRayLookup()) {
-                results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
-                        snapshot -> ExplosionHelper.computeEntityDamage(snapshot, centerX, centerY, centerZ, dr),
-                        ParallelWorker.autoBatchSize(snapshots.size()), 5);
-            } else {
-                results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
-                        snapshot -> ExplosionHelper.computeEntityDamage(
-                                snapshot, centerX, centerY, centerZ, dr, this.cachedWorldView),
-                        ParallelWorker.autoBatchSize(snapshots.size()), 5);
-            }
+            results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
+                    snapshot -> ExplosionHelper.computeEntityDamage(
+                            snapshot, centerX, centerY, centerZ, dr, this.cachedWorldView),
+                    ParallelWorker.autoBatchSize(snapshots.size()), 5);
         } catch (RuntimeException e) {
             ENTITY_FALLBACKS.incrementAndGet();
             LOGGER.error("Explosion entity workers failed; falling back to vanilla", e);
@@ -431,9 +368,6 @@ public abstract class ServerExplosionMixin {
         if (candidates.isEmpty()) return List.of();
 
         double radiusSquare = (double) doubleRadius * doubleRadius;
-        float[] firstBlockDistances = ExplosionParallelConfig.isRayLookup()
-                ? this.cachedFirstBlockDistances : null;
-        float samplingFactor = ExplosionParallelConfig.getSamplingFactor();
         ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
 
@@ -481,8 +415,7 @@ public abstract class ServerExplosionMixin {
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
                     bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
-                    shouldDamage, knockbackMultiplier, exposure, exposurePreset,
-                    samplingFactor, firstBlockDistances));
+                    shouldDamage, knockbackMultiplier, exposure, exposurePreset));
         }
         return snapshots;
     }

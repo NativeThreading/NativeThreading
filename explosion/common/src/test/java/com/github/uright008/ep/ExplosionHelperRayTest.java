@@ -16,22 +16,12 @@ import static org.assertj.core.api.Assertions.*;
  *
  * <h3>AI-readable summary</h3>
  * Verifies ray count (1352 = 16³ − 14³ surface cells), direction
- * normalization, step-size invariance, and structure of the ray
- * index grid that maps 3D voxel coordinates to ray indices.
+ * normalization, step-size invariance, and the dynamic step budget.
  */
 @DisplayName("ExplosionHelper — vanilla ray generation")
 class ExplosionHelperRayTest {
 
     // ── Ray count: 1352 = 16³ − 14³ ──────────
-
-    @Test
-    @DisplayName("Vanilla: gridSize=16 produces exactly 1352 rays")
-    void buildRayParams_grid16_1352Rays() {
-        var rays = ExplosionHelper.buildRayParams(16);
-        assertThat(rays)
-                .as("gridSize=16 must produce 1352 rays (16³ − 14³ surface cells)")
-                .hasSize(1352);
-    }
 
     @Test
     @DisplayName("Vanilla: RAY_PARAMS static field has 1352 rays")
@@ -41,24 +31,12 @@ class ExplosionHelperRayTest {
                 .hasSize(1352);
     }
 
-    @Test
-    @DisplayName("Vanilla: gridSize=N produces N³ − (N−2)³ rays")
-    void buildRayParams_generalFormula() {
-        for (int n = 3; n <= 12; n++) {
-            var rays = ExplosionHelper.buildRayParams(n);
-            int expected = n * n * n - (n - 2) * (n - 2) * (n - 2);
-            assertThat(rays)
-                    .as("gridSize=%d must produce %d rays (surface cells)", n, expected)
-                    .hasSize(expected);
-        }
-    }
-
     // ── Direction normalization ──────────────────
 
     @Test
     @DisplayName("Vanilla: every ray direction is unit-length (|d| ≈ 1.0)")
     void allRayDirections_unitNormalized() {
-        var rays = ExplosionHelper.buildRayParams(16);
+        var rays = ExplosionHelper.RAY_PARAMS;
         for (int i = 0; i < rays.size(); i++) {
             var r = rays.get(i);
             double len = Math.sqrt(r.xd() * r.xd() + r.yd() * r.yd() + r.zd() * r.zd());
@@ -74,7 +52,7 @@ class ExplosionHelperRayTest {
     @Test
     @DisplayName("Vanilla: each step vector = direction × 0.3")
     void allRaySteps_directionTimes0_3() {
-        var rays = ExplosionHelper.buildRayParams(16);
+        var rays = ExplosionHelper.RAY_PARAMS;
         for (int i = 0; i < rays.size(); i++) {
             var r = rays.get(i);
             assertThat(r.stepX())
@@ -94,7 +72,7 @@ class ExplosionHelperRayTest {
     @Test
     @DisplayName("Vanilla: rays are symmetric — every direction has an opposite")
     void rayDirections_areSymmetric() {
-        var rays = ExplosionHelper.buildRayParams(16);
+        var rays = ExplosionHelper.RAY_PARAMS;
 
         // Count rays with positive X vs negative X
         int posX = 0, negX = 0, posY = 0, negY = 0, posZ = 0, negZ = 0;
@@ -112,7 +90,7 @@ class ExplosionHelperRayTest {
     @Test
     @DisplayName("Vanilla: rays cover full hemisphere (no empty octant)")
     void rayDirections_coverAllOctants() {
-        var rays = ExplosionHelper.buildRayParams(16);
+        var rays = ExplosionHelper.RAY_PARAMS;
         boolean[][][] octants = new boolean[2][2][2]; // x+,y+,z+ = [1][1][1]
 
         for (var r : rays) {
@@ -131,49 +109,7 @@ class ExplosionHelperRayTest {
                             .isTrue();
     }
 
-    // ── Ray index grid structure ─────────────────
-
-    @Test
-    @DisplayName("Vanilla: RAY_INDEX_BY_GRID maps surface voxels to unique rays")
-    void rayIndexGrid_mapsSurfaceToRays() {
-        int[][][] grid = ExplosionHelper.RAY_INDEX_BY_GRID;
-
-        // Every surface cell must have a valid ray index
-        int surfaceCount = 0;
-        for (int x = 0; x < 16; x++)
-            for (int y = 0; y < 16; y++)
-                for (int z = 0; z < 16; z++)
-                    if (x == 0 || x == 15 || y == 0 || y == 15 || z == 0 || z == 15) {
-                        assertThat(grid[x][y][z])
-                                .as("surface voxel [%d,%d,%d] must have ray index ≥ 0", x, y, z)
-                                .isGreaterThanOrEqualTo(0);
-                        surfaceCount++;
-                    }
-
-        assertThat(surfaceCount).as("surface count must be 1352").isEqualTo(1352);
-    }
-
-    @Test
-    @DisplayName("Vanilla: RAY_INDEX_BY_GRID marks interior voxels with -1")
-    void rayIndexGrid_interiorVoxels_markedNegative() {
-        int[][][] grid = ExplosionHelper.RAY_INDEX_BY_GRID;
-
-        for (int x = 1; x < 15; x++)
-            for (int y = 1; y < 15; y++)
-                for (int z = 1; z < 15; z++)
-                    assertThat(grid[x][y][z])
-                            .as("interior voxel [%d,%d,%d] must be -1", x, y, z)
-                            .isEqualTo(-1);
-    }
-
-    // ── Ray deltas: cumulative path integrity ─────
-
-    @Test
-    @DisplayName("Vanilla: RAY_DELTAS dimensions match RAY_PARAMS")
-    void rayDeltas_dimensionsMatch() {
-        int[][] deltas = ExplosionHelper.RAY_DELTAS;
-        assertThat(deltas).as("RAY_DELTAS must have 1352 rows").hasDimensions(1352, ExplosionHelper.MAX_RAY_STEPS);
-    }
+    // ── Step budget ───────────────────────────────
 
     @Test
     @DisplayName("rayMaxSteps: step budget covers region reach for large radii")
@@ -196,7 +132,7 @@ class ExplosionHelperRayTest {
     @Test
     @DisplayName("Vanilla: each RayParam record has correct field count")
     void rayParam_recordFields() {
-        var ray = ExplosionHelper.buildRayParams(16).getFirst();
+        var ray = ExplosionHelper.RAY_PARAMS.getFirst();
         assertThat(ray.xd()).isNotNull();
         assertThat(ray.yd()).isNotNull();
         assertThat(ray.zd()).isNotNull();
@@ -206,36 +142,5 @@ class ExplosionHelperRayTest {
 
         var result = new ExplosionHelper.EntityDamageResult(1, 0f, 0, 0, 0);
         assertThat(result.damage()).isZero();
-    }
-
-    // ── Grid scaling ──────────────────────────────
-
-    @Test
-    @DisplayName("Vanilla: larger grid produces more rays")
-    void buildRayParams_largerGrid_moreRays() {
-        int prev = 0;
-        for (int n = 3; n <= 12; n++) {
-            int count = ExplosionHelper.buildRayParams(n).size();
-            assertThat(count)
-                    .as("gridSize=%d ray count must be greater than gridSize=%d", n, n - 1)
-                    .isGreaterThan(prev);
-            prev = count;
-        }
-    }
-
-    @Test
-    @DisplayName("Vanilla: parallel ray params match serial generation for grid=16")
-    void buildRayParams_matchesStaticRayParams() {
-        var generated = ExplosionHelper.buildRayParams(16);
-        var stored = ExplosionHelper.RAY_PARAMS;
-
-        assertThat(generated).hasSameSizeAs(stored);
-        for (int i = 0; i < generated.size(); i++) {
-            var g = generated.get(i);
-            var s = stored.get(i);
-            assertThat(g.xd()).as("ray[%d] xd", i).isCloseTo(s.xd(), within(1e-9));
-            assertThat(g.yd()).as("ray[%d] yd", i).isCloseTo(s.yd(), within(1e-9));
-            assertThat(g.zd()).as("ray[%d] zd", i).isCloseTo(s.zd(), within(1e-9));
-        }
     }
 }
