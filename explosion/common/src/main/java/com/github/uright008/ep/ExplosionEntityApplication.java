@@ -10,7 +10,7 @@ public final class ExplosionEntityApplication {
         if (result.damage() > 0.0F) {
             target.hurt(result.damage());
         }
-        Vec3 knockback = result.makeKnockback(target.knockbackResistance());
+        Vec3 knockback = result.makeKnockback();
         target.push(knockback);
         target.bookkeep(knockback);
         target.onExplosionHit();
@@ -18,8 +18,6 @@ public final class ExplosionEntityApplication {
 
     public interface Target {
         void hurt(float damage);
-
-        double knockbackResistance();
 
         void push(Vec3 knockback);
 

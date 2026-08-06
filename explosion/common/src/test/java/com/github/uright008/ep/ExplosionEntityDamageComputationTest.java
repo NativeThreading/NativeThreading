@@ -19,7 +19,7 @@ class ExplosionEntityDamageComputationTest {
         ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
                 42, 2.0, 0.0, 0.0, 0.0,
                 1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
-                true, 1.0F, 1.0F, true);
+                true, 1.0F, 1.0F, true, 0.0);
 
         ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
                 snapshot, 0.0, 0.0, 0.0, 4.0F, null);

@@ -290,14 +290,24 @@ public abstract class ServerExplosionMixin {
 
         // Vanilla-exact march: float accumulation from the exact centre,
         // flooring each step — identical to ServerExplosion.calculateExplodedPositions.
+        // Step uses the precomputed direction*0.3F (vanilla's 0.3F, not the
+        // double literal 0.3) so accumulation matches bit for bit.
         double xp = this.center.x, yp = this.center.y, zp = this.center.z;
-        final double sx = ray.xd() * 0.3, sy = ray.yd() * 0.3, sz = ray.zd() * 0.3;
+        final double sx = ray.stepX(), sy = ray.stepY(), sz = ray.stepZ();
+
+        final int worldMinY = this.level.getMinY(), worldMaxY = this.level.getMaxY();
 
         for (int s = 0; s < MAX && remainingPower > 0.0F; remainingPower -= 0.22500001F, s++) {
             int bx = net.minecraft.util.Mth.floor(xp);
             int by = net.minecraft.util.Mth.floor(yp);
             int bz = net.minecraft.util.Mth.floor(zp);
             pos.set(bx, by, bz);
+            // Vanilla breaks on !level.isInWorldBounds(pos) — the build-height
+            // check matters: cells above the world are read as AIR by the flat
+            // view, so without this the ray would keep marching past the world
+            // ceiling and set grid bits there (feeding createFire). x/z are
+            // unbounded on servers, only y needs the check.
+            if (by < worldMinY || by > worldMaxY) break;
             if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
 
             BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
@@ -391,7 +401,6 @@ public abstract class ServerExplosionMixin {
             float exposure = 0.0F;
             boolean exposurePreset = false;
             if (needsEntityContext) {
-                if (entity.isRemoved()) continue;
                 shouldDamage = isDefaultCalc
                         ? true : this.damageCalculator.shouldDamageEntity(self, entity);
                 knockbackMultiplier = isDefaultCalc
@@ -405,17 +414,22 @@ public abstract class ServerExplosionMixin {
                 knockbackMultiplier = 1.0F;
                 isPrimedTnt = entity instanceof PrimedTnt;
             } else {
-                if (entity.isRemoved()) continue;
                 shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
                 knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
                 isPrimedTnt = entity instanceof PrimedTnt;
             }
             double eyeY = isPrimedTnt ? feetY : feetY + entity.getEyeHeight();
+            // Captured on the main thread so the worker applies it in the exact
+            // vanilla product order (1-dist)*exposure*kbMult*(1-res).
+            double kbRes = entity instanceof LivingEntity living
+                    ? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
+                    : 0.0;
 
             snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
                     bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
-                    shouldDamage, knockbackMultiplier, exposure, exposurePreset));
+                    shouldDamage, knockbackMultiplier, exposure, exposurePreset,
+                    kbRes));
         }
         return snapshots;
     }
@@ -440,12 +454,6 @@ public abstract class ServerExplosionMixin {
             @Override
             public void hurt(float damage) {
                 entity.hurtServer(level, damageSource, damage);
-            }
-
-            @Override
-            public double knockbackResistance() {
-                return entity instanceof LivingEntity livingEntity
-                        ? livingEntity.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE) : 0.0;
             }
 
             @Override

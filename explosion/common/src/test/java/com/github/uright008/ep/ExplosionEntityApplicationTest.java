@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ExplosionEntityApplicationTest {
 
     @Test
-    void appliesDamageThenResistanceThenPushThenBookkeepingThenHit() {
+    void appliesDamageThenPushThenBookkeepingThenHit() {
         List<String> calls = new ArrayList<>();
         ExplosionHelper.EntityDamageResult result = new ExplosionHelper.EntityDamageResult(1, 4.0F, 2.0, 0.0, 0.0);
 
@@ -18,12 +18,6 @@ class ExplosionEntityApplicationTest {
             @Override
             public void hurt(float damage) {
                 calls.add("hurt:" + damage);
-            }
-
-            @Override
-            public double knockbackResistance() {
-                calls.add("resistance");
-                return 0.25;
             }
 
             @Override
@@ -42,6 +36,9 @@ class ExplosionEntityApplicationTest {
             }
         });
 
-        assertThat(calls).containsExactly("hurt:4.0", "resistance", "push:1.5", "bookkeep:1.5", "hit");
+        // Knockback resistance is folded into the snapshot in the worker
+        // (vanilla product order), so apply() pushes the pre-scaled vector
+        // unchanged.
+        assertThat(calls).containsExactly("hurt:4.0", "push:2.0", "bookkeep:2.0", "hit");
     }
 }

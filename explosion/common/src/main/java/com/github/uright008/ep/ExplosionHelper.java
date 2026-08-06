@@ -37,7 +37,8 @@ public final class ExplosionHelper {
             boolean shouldDamage,
             float knockbackMultiplier,
             float exposure,
-            boolean exposurePreset) {
+            boolean exposurePreset,
+            double knockbackResistance) {
     }
 
     public record EntityDamageResult(
@@ -47,7 +48,6 @@ public final class ExplosionHelper {
             double kbY,
             double kbZ) {
         public Vec3 makeKnockback() { return new Vec3(kbX, kbY, kbZ); }
-        public Vec3 makeKnockback(double resistance) { return new Vec3(kbX * (1.0 - resistance), kbY * (1.0 - resistance), kbZ * (1.0 - resistance)); }
     }
 
     public static EntityDamageResult computeEntityDamage(
@@ -79,7 +79,12 @@ public final class ExplosionHelper {
         double dy = snapshot.feetY - centerY;
         double dz = snapshot.feetZ - centerZ;
         double distanceRatio = Math.sqrt(dx * dx + dy * dy + dz * dz) / doubleRadius;
-        double power = (1.0 - distanceRatio) * exposure * snapshot.knockbackMultiplier;
+        // Vanilla: knockbackPower = (1.0 - dist) * exposure * knockbackMultiplier
+        // * (1.0 - knockbackResistance) in one product. Resistance is captured
+        // into the snapshot on the main thread so the worker computes the exact
+        // same product order.
+        double power = (1.0 - distanceRatio) * exposure * snapshot.knockbackMultiplier
+                * (1.0 - snapshot.knockbackResistance);
         double knockbackX = snapshot.feetX - centerX;
         double knockbackY = snapshot.eyeY - centerY;
         double knockbackZ = snapshot.feetZ - centerZ;
@@ -201,6 +206,9 @@ public final class ExplosionHelper {
     static boolean rayIntersectsBlockFlatSlow(double fx, double fy, double fz,
                                               double tx, double ty, double tz,
                                               WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        double[] backoff = backoffEndpoints(fx, fy, fz, tx, ty, tz);
+        fx = backoff[0]; fy = backoff[1]; fz = backoff[2];
+        tx = backoff[3]; ty = backoff[4]; tz = backoff[5];
         double dx = tx - fx, dy = ty - fy, dz = tz - fz;
         double lenSq = dx * dx + dy * dy + dz * dz;
         if (lenSq < 1.0E-7) return false;
@@ -270,6 +278,20 @@ public final class ExplosionHelper {
                 && blockSpanWithinBounds(worldView.minZ(), worldView.maxZ(), fz, tz);
     }
 
+    /** Vanilla BlockGetter.traverseBlocks nudges both endpoints toward each
+     *  other by 1.0E-7 (Mth.lerp(-1.0E-7, to, from) / (from, to)) before
+     *  walking cells, so a sample point sitting exactly on an integer boundary
+     *  starts in the cell below rather than the one above. Returns
+     *  {fx,fy,fz,tx,ty,tz} with that backoff applied — shared by both DDA
+     *  implementations so they visit the identical cell sequence. */
+    private static double[] backoffEndpoints(double fx, double fy, double fz,
+                                             double tx, double ty, double tz) {
+        double bx = (tx - fx) * 1.0E-7;
+        double by = (ty - fy) * 1.0E-7;
+        double bz = (tz - fz) * 1.0E-7;
+        return new double[]{fx + bx, fy + by, fz + bz, tx - bx, ty - by, tz - bz};
+    }
+
     private static boolean blockSpanWithinBounds(int min, int max, double from, double to) {
         int lo = net.minecraft.util.Mth.floor(from);
         int hi = net.minecraft.util.Mth.floor(to);
@@ -280,6 +302,9 @@ public final class ExplosionHelper {
     static boolean rayIntersectsBlockFlatFast(double fx, double fy, double fz,
                                               double tx, double ty, double tz,
                                               WorldReadViewImpl worldView) {
+        double[] backoff = backoffEndpoints(fx, fy, fz, tx, ty, tz);
+        fx = backoff[0]; fy = backoff[1]; fz = backoff[2];
+        tx = backoff[3]; ty = backoff[4]; tz = backoff[5];
         double dx = tx - fx, dy = ty - fy, dz = tz - fz;
         double lenSq = dx * dx + dy * dy + dz * dz;
         if (lenSq < 1.0E-7) return false;
@@ -429,14 +454,19 @@ public final class ExplosionHelper {
             for (int yy = 0; yy < 16; yy++) {
                 for (int zz = 0; zz < 16; zz++) {
                     if (xx == 0 || xx == 15 || yy == 0 || yy == 15 || zz == 0 || zz == 15) {
-                        double xd = xx / 15.0 * 2.0 - 1.0;
-                        double yd = yy / 15.0 * 2.0 - 1.0;
-                        double zd = zz / 15.0 * 2.0 - 1.0;
+                        // Vanilla computes the direction with FLOAT arithmetic
+                        // (15.0F/2.0F literals) then widens to double; step uses
+                        // 0.3F. Using double literals here changes the least
+                        // significant bits and accumulates to different block
+                        // traversals. Reproduce the exact float-then-widen order.
+                        double xd = xx / 15.0F * 2.0F - 1.0F;
+                        double yd = yy / 15.0F * 2.0F - 1.0F;
+                        double zd = zz / 15.0F * 2.0F - 1.0F;
                         double d = Math.sqrt(xd * xd + yd * yd + zd * zd);
                         double nx = xd / d;
                         double ny = yd / d;
                         double nz = zd / d;
-                        params.add(new RayParam(nx, ny, nz, nx * 0.3, ny * 0.3, nz * 0.3));
+                        params.add(new RayParam(nx, ny, nz, nx * 0.3F, ny * 0.3F, nz * 0.3F));
                     }
                 }
             }
