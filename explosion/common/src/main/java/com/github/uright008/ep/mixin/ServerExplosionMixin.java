@@ -86,6 +86,10 @@ public abstract class ServerExplosionMixin {
     @Unique private static final java.util.concurrent.atomic.AtomicReference<BlockState[]> FLAT_BLOCKS_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
     @Unique private static final java.util.concurrent.atomic.AtomicReference<VoxelShape[]> FLAT_SHAPES_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
     @Unique private static final java.util.concurrent.atomic.AtomicReference<double[][]> SHAPE_BOXES_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
+    @Unique private static final java.util.concurrent.atomic.AtomicReference<float[]> RAY_POWERS_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
+    // One mutable pos per worker thread (traceRay is called ~1352× per
+    // explosion); avoids allocating 11k+ MutableBlockPos per tick.
+    @Unique private static final ThreadLocal<BlockPos.MutableBlockPos> WORKER_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     @Unique private static final Logger LOGGER = LoggerFactory.getLogger("native-threading:explosion");
     @Unique private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
@@ -161,7 +165,8 @@ public abstract class ServerExplosionMixin {
         int numThreads = Math.min(ParallelThreadPool.getParallelism(), Math.min(cpuCores, Math.max(2, rayCount / 64)));
         final ChunkGrid chunkGrid = this.cachedChunkGrid;
 
-        final float[] rayPowers = new float[rayCount];
+        float[] rayPowers = RAY_POWERS_CACHE.getAndSet(null);
+        if (rayPowers == null || rayPowers.length < rayCount) rayPowers = new float[rayCount];
         final float radiusF = this.radius;
         // Random powers are drawn on the main thread, one nextFloat per ray,
         // in exactly the vanilla iteration order (xx→yy→zz over the 16³ grid
@@ -250,12 +255,13 @@ public abstract class ServerExplosionMixin {
                     calc.shouldBlockExplode(self, level, pos, block, remainingPower);
         }
 
+        final float[] pow = rayPowers;
         try {
             workerGrids = ParallelWorker.mapEach(ParallelThreadPool.getPool("Explosion"),
                     ranges, range -> {
                         for (int i = range.start; i < range.end; i++)
                             traceRay(rays.get(i), i, range.grid, minX, minY, minZ, maxX, maxY, maxZ,
-                                    worldView, strideY, strideZ, rayPowers[i],
+                                    worldView, strideY, strideZ, pow[i],
                                     resistanceCalc, explodeDecider);
                         return range.grid;
                     }, 5);
@@ -282,6 +288,7 @@ public abstract class ServerExplosionMixin {
         FLAT_BLOCKS_CACHE.set(flatBlocks);
         FLAT_SHAPES_CACHE.set(flatShapes);
         SHAPE_BOXES_CACHE.set(((WorldReadViewImpl) worldView).shapeBoxes());
+        RAY_POWERS_CACHE.set(rayPowers);
 
         return result;
     }
@@ -302,7 +309,7 @@ public abstract class ServerExplosionMixin {
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
         final int MAX = ExplosionHelper.rayMaxSteps(this.radius);
         final int strideY_ = strideY, strideZ_ = strideZ;
-        final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        final BlockPos.MutableBlockPos pos = WORKER_POS.get();
 
         // Vanilla-exact march: float accumulation from the exact centre,
         // flooring each step — identical to ServerExplosion.calculateExplodedPositions.
