@@ -24,8 +24,8 @@ import java.util.Set;
  * <pre>
  * // nt.json
  * {
- *   "physics-parallelization": { "enabled": true },
- *   "explosion-parallelization": { "enabled": true, "samplingFactor": 2.0 }
+ *   "parallel-core": { "enabled": true },
+ *   "explosion": { "enabled": true }
  * }
  * </pre>
  *
