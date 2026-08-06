@@ -278,7 +278,14 @@ class ExplosionRayFlatDifferentialTest {
                     double sx = minX + (maxX - minX) * xx + xOffset;
                     double sy = minY + (maxY - minY) * yy;
                     double sz = minZ + (maxZ - minZ) * zz + zOffset;
-                    if (!ray.hit(sx, sy, sz, centerX, centerY, centerZ, view)) hits++;
+                    // Production dispatcher applies the vanilla traverseBlocks
+                    // backoff before either implementation runs; emulate that
+                    // here so SLOW/FAST (which receive backoffed coords) and
+                    // the dispatcher (which re-applies it harmlessly at 1e-14
+                    // scale) all compare on the same cell sequence.
+                    double[] b = ExplosionHelper.backoffEndpoints(
+                            sx, sy, sz, centerX, centerY, centerZ);
+                    if (!ray.hit(b[0], b[1], b[2], b[3], b[4], b[5], view)) hits++;
                     count++;
                 }
             }

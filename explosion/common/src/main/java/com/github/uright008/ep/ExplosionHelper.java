@@ -211,9 +211,6 @@ public final class ExplosionHelper {
     static boolean rayIntersectsBlockFlatSlow(double fx, double fy, double fz,
                                               double tx, double ty, double tz,
                                               WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
-        double[] backoff = backoffEndpoints(fx, fy, fz, tx, ty, tz);
-        fx = backoff[0]; fy = backoff[1]; fz = backoff[2];
-        tx = backoff[3]; ty = backoff[4]; tz = backoff[5];
         double dx = tx - fx, dy = ty - fy, dz = tz - fz;
         double lenSq = dx * dx + dy * dy + dz * dz;
         if (lenSq < 1.0E-7) return false;
@@ -253,11 +250,11 @@ public final class ExplosionHelper {
             }
 
             if (tMaxX < tMaxY) {
-                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; tMaxX += tDeltaX; }
-                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+                if (tMaxX < tMaxZ) { x += stepX; tMaxX += tDeltaX; }
+                else                { z += stepZ; tMaxZ += tDeltaZ; }
             } else {
-                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
-                else                { if (stepZ == 0) break; z += stepZ; tMaxZ += tDeltaZ; }
+                if (tMaxY < tMaxZ) { y += stepY; tMaxY += tDeltaY; }
+                else                { z += stepZ; tMaxZ += tDeltaZ; }
             }
         }
         return false;
@@ -266,13 +263,19 @@ public final class ExplosionHelper {
     static boolean rayIntersectsBlockFlat(double fx, double fy, double fz,
                                           double tx, double ty, double tz,
                                           WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
+        // Vanilla BlockGetter.traverseBlocks backoff, applied ONCE here and
+        // passed to both implementations (they receive already-backoffed
+        // coordinates and must not re-apply). Bounds-check with the backoffed
+        // endpoints so an extended start cell cannot index out of the view.
+        double[] b = backoffEndpoints(fx, fy, fz, tx, ty, tz);
+        double bfx = b[0], bfy = b[1], bfz = b[2], btx = b[3], bty = b[4], btz = b[5];
         // Fast path only when every block the DDA will visit is inside the flat
         // view; otherwise fall back to the reference implementation.
         if (worldView instanceof WorldReadViewImpl impl
-                && rayWithinBounds(impl, fx, fy, fz, tx, ty, tz)) {
-            return rayIntersectsBlockFlatFast(fx, fy, fz, tx, ty, tz, impl);
+                && rayWithinBounds(impl, bfx, bfy, bfz, btx, bty, btz)) {
+            return rayIntersectsBlockFlatFast(bfx, bfy, bfz, btx, bty, btz, impl);
         }
-        return rayIntersectsBlockFlatSlow(fx, fy, fz, tx, ty, tz, worldView);
+        return rayIntersectsBlockFlatSlow(bfx, bfy, bfz, btx, bty, btz, worldView);
     }
 
     static boolean rayWithinBounds(WorldReadViewImpl worldView,
@@ -283,17 +286,18 @@ public final class ExplosionHelper {
                 && blockSpanWithinBounds(worldView.minZ(), worldView.maxZ(), fz, tz);
     }
 
-    /** Vanilla BlockGetter.traverseBlocks nudges both endpoints toward each
-     *  other by 1.0E-7 (Mth.lerp(-1.0E-7, to, from) / (from, to)) before
-     *  walking cells, so a sample point sitting exactly on an integer boundary
-     *  starts in the cell below rather than the one above. Returns
-     *  {fx,fy,fz,tx,ty,tz} with that backoff applied — shared by both DDA
+    /** Vanilla BlockGetter.traverseBlocks extends both endpoints OUTWARD by
+     *  1.0E-7×length before walking cells: {@code Mth.lerp(-1.0E-7, to, from)}
+     *  = from + 1e-7·(from−to) and {@code lerp(-1.0E-7, from, to)} = to +
+     *  1e-7·(to−from). So a sample point or center sitting exactly on an
+     *  integer boundary is pushed just past it, into the next cell. Returns
+     *  {fx,fy,fz,tx,ty,tz} with that extension applied — shared by both DDA
      *  implementations so they visit the identical cell sequence. */
-    private static double[] backoffEndpoints(double fx, double fy, double fz,
+    static double[] backoffEndpoints(double fx, double fy, double fz,
                                              double tx, double ty, double tz) {
-        double bx = (tx - fx) * 1.0E-7;
-        double by = (ty - fy) * 1.0E-7;
-        double bz = (tz - fz) * 1.0E-7;
+        double bx = (fx - tx) * 1.0E-7;
+        double by = (fy - ty) * 1.0E-7;
+        double bz = (fz - tz) * 1.0E-7;
         return new double[]{fx + bx, fy + by, fz + bz, tx - bx, ty - by, tz - bz};
     }
 
@@ -307,9 +311,6 @@ public final class ExplosionHelper {
     static boolean rayIntersectsBlockFlatFast(double fx, double fy, double fz,
                                               double tx, double ty, double tz,
                                               WorldReadViewImpl worldView) {
-        double[] backoff = backoffEndpoints(fx, fy, fz, tx, ty, tz);
-        fx = backoff[0]; fy = backoff[1]; fz = backoff[2];
-        tx = backoff[3]; ty = backoff[4]; tz = backoff[5];
         double dx = tx - fx, dy = ty - fy, dz = tz - fz;
         double lenSq = dx * dx + dy * dy + dz * dz;
         if (lenSq < 1.0E-7) return false;
@@ -357,11 +358,11 @@ public final class ExplosionHelper {
                 }
 
                 if (tMaxX < tMaxY) {
-                    if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; index += stepX; tMaxX += tDeltaX; }
-                    else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                    if (tMaxX < tMaxZ) { x += stepX; index += stepX; tMaxX += tDeltaX; }
+                    else                { z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
                 } else {
-                    if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; index += stepYIndex; tMaxY += tDeltaY; }
-                    else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                    if (tMaxY < tMaxZ) { y += stepY; index += stepYIndex; tMaxY += tDeltaY; }
+                    else                { z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
                 }
             }
             return false;
@@ -389,11 +390,11 @@ public final class ExplosionHelper {
             }
 
             if (tMaxX < tMaxY) {
-                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; index += stepX; tMaxX += tDeltaX; }
-                else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                if (tMaxX < tMaxZ) { x += stepX; index += stepX; tMaxX += tDeltaX; }
+                else                { z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
             } else {
-                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; index += stepYIndex; tMaxY += tDeltaY; }
-                else                { if (stepZ == 0) break; z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
+                if (tMaxY < tMaxZ) { y += stepY; index += stepYIndex; tMaxY += tDeltaY; }
+                else                { z += stepZ; index += stepZIndex; tMaxZ += tDeltaZ; }
             }
         }
         return false;
