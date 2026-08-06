@@ -84,7 +84,6 @@ public abstract class ServerExplosionMixin {
     // safe and avoid allocating three arrays (block states, shapes, box
     // table) per explosion — ~30k arrays/tick under sustained TNT chains.
     @Unique private static final java.util.concurrent.atomic.AtomicReference<BlockState[]> FLAT_BLOCKS_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
-    @Unique private static final java.util.concurrent.atomic.AtomicReference<VoxelShape[]> FLAT_SHAPES_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
     @Unique private static final java.util.concurrent.atomic.AtomicReference<double[][]> SHAPE_BOXES_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
     @Unique private static final java.util.concurrent.atomic.AtomicReference<float[]> RAY_POWERS_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
     // One mutable pos per worker thread (traceRay is called ~1352× per
@@ -205,19 +204,13 @@ public abstract class ServerExplosionMixin {
         ExplosionFlatViewBuilder.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid);
 
-        // Precompute collision shapes so workers never call getCollisionShape
-        // in the DDA inner loop. Same call as the live path
-        // (getCollisionShape(null, null)), so results are identical.
-        VoxelShape[] flatShapes = FLAT_SHAPES_CACHE.getAndSet(null);
-        if (flatShapes == null || flatShapes.length < gridSize) flatShapes = new VoxelShape[gridSize];
-        for (int i = 0; i < gridSize; i++) {
-            BlockState s = flatBlocks[i];
-            flatShapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
-        }
-
+        // Collision boxes are resolved from the per-BlockState cache — the same
+        // getCollisionShape(null, null) call the previous per-cell loop made,
+        // but one map hit per distinct block state instead of per cell. Workers
+        // never touch BlockState objects; the box table alone drives the DDA.
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, flatShapes,
-                ExplosionHelper.flattenShapeBoxesReused(flatBlocks, flatShapes, gridSize, SHAPE_BOXES_CACHE),
+                flatBlocks, null,
+                ExplosionHelper.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
                 minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
         this.cachedWorldView = worldView;
 
@@ -286,7 +279,6 @@ public abstract class ServerExplosionMixin {
 
         // Workers have joined; hand the buffers back for reuse.
         FLAT_BLOCKS_CACHE.set(flatBlocks);
-        FLAT_SHAPES_CACHE.set(flatShapes);
         SHAPE_BOXES_CACHE.set(((WorldReadViewImpl) worldView).shapeBoxes());
         RAY_POWERS_CACHE.set(rayPowers);
 

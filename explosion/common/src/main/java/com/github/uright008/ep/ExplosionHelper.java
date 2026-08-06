@@ -20,6 +20,23 @@ public final class ExplosionHelper {
 
     private ExplosionHelper() {}
 
+    // ── Per-BlockState static caches ─────────────────────────────────────────
+    // getCollisionShape(null, null), toAabbs() and the context-sensitivity
+    // check are pure functions of the BlockState, and BlockState instances are
+    // global singletons (IdentityHashMap is semantically correct and avoids the
+    // ~800k equals()/hashCode() probes the state data uses). Keyed lookups fold
+    // the per-cell 30k-element loops of every explosion into a handful of map
+    // hits. Thread safety: the cache is only ever read on the main thread, and
+    // writes happen-before the matching reads (same-thread program order).
+    private static final java.util.IdentityHashMap<BlockState, double[]> BLOCK_BOX_CACHE = new java.util.IdentityHashMap<>(2048);
+    /** Full-block cells all share this box table (one allocation per JVM). */
+    private static final double[] FULL_CELL_BOX = new double[] {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
+
+    private static boolean isEntityContextBlock(Block block) {
+        return block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock
+                || block instanceof net.minecraft.world.level.block.LiquidBlock;
+    }
+
     public record RayParam(double xd, double yd, double zd,
                            double stepX, double stepY, double stepZ) {}
     public record EntityDamageSnapshot(
@@ -119,9 +136,7 @@ public final class ExplosionHelper {
         if (!(worldView instanceof WorldReadViewImpl impl)) return false;
         BlockState[] states = impl.states();
         for (BlockState state : states) {
-            Block block = state.getBlock();
-            if (block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock
-                    || block instanceof net.minecraft.world.level.block.LiquidBlock) return true;
+            if (state != null && isEntityContextBlock(state.getBlock())) return true;
         }
         return false;
     }
@@ -142,44 +157,78 @@ public final class ExplosionHelper {
      *  via {@code cache}; per-box {@code double[]} payloads are fresh because
      *  shape sets vary. Cells that were non-null last time but are air now
      *  must be explicitly cleared — a stale box table would be read by the
-     *  entity-exposure DDA. */
+     *  entity-exposure DDA.
+     *  <p>When {@code shapes} is null the per-cell boxes are resolved from
+     *  {@link #BLOCK_BOX_CACHE} (keyed by BlockState identity, the exact
+     *  {@code getCollisionShape(null, null)} result), so the caller can skip
+     *  materialising a {@code VoxelShape[]} entirely. */
     public static double[][] flattenShapeBoxesReused(
             BlockState[] states, VoxelShape[] shapes, int gridSize,
             java.util.concurrent.atomic.AtomicReference<double[][]> cache) {
         double[][] boxes = cache != null ? cache.getAndSet(null) : null;
         if (boxes == null || boxes.length < gridSize) boxes = new double[gridSize][];
-        double[] fullBox = new double[] {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
         for (int i = 0; i < gridSize; i++) {
-            VoxelShape shape = shapes != null ? shapes[i] : null;
-            if (shape == null) {
-                boxes[i] = null;
-                continue;
-            }
-            if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
-                boxes[i] = fullBox;
-                continue;
-            }
-            java.util.List<net.minecraft.world.phys.AABB> aabbs = shape.toAabbs();
-            if (aabbs.size() == 1) {
-                net.minecraft.world.phys.AABB bb = aabbs.get(0);
-                boxes[i] = new double[] {
-                        bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ};
-            } else {
-                double[] packed = new double[aabbs.size() * 6];
-                for (int b = 0; b < aabbs.size(); b++) {
-                    net.minecraft.world.phys.AABB bb = aabbs.get(b);
-                    int o = b * 6;
-                    packed[o] = bb.minX;
-                    packed[o + 1] = bb.minY;
-                    packed[o + 2] = bb.minZ;
-                    packed[o + 3] = bb.maxX;
-                    packed[o + 4] = bb.maxY;
-                    packed[o + 5] = bb.maxZ;
+            if (shapes == null) {
+                BlockState state = states[i];
+                if (state == null || state.isAir()) {
+                    boxes[i] = null;
+                    continue;
                 }
-                boxes[i] = packed;
+                double[] cached = BLOCK_BOX_CACHE.get(state);
+                if (cached != null) {
+                    boxes[i] = cached;
+                    continue;
+                }
+                boxes[i] = buildBoxes(state, true);
+            } else {
+                VoxelShape shape = shapes[i];
+                if (shape == null) {
+                    boxes[i] = null;
+                    continue;
+                }
+                if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+                    boxes[i] = FULL_CELL_BOX;
+                    continue;
+                }
+                boxes[i] = buildBoxesFromShape(shape);
             }
         }
         return boxes;
+    }
+
+    private static double[] buildBoxes(BlockState state, boolean cache) {
+        VoxelShape shape = state.getCollisionShape(null, null);
+        double[] result;
+        if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
+            result = FULL_CELL_BOX;
+        } else if (shape.isEmpty()) {
+            result = null;
+        } else {
+            result = buildBoxesFromShape(shape);
+        }
+        if (cache && result != null) BLOCK_BOX_CACHE.put(state, result);
+        return result;
+    }
+
+    private static double[] buildBoxesFromShape(VoxelShape shape) {
+        java.util.List<net.minecraft.world.phys.AABB> aabbs = shape.toAabbs();
+        if (aabbs.size() == 1) {
+            net.minecraft.world.phys.AABB bb = aabbs.get(0);
+            return new double[] {
+                    bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ};
+        }
+        double[] packed = new double[aabbs.size() * 6];
+        for (int b = 0; b < aabbs.size(); b++) {
+            net.minecraft.world.phys.AABB bb = aabbs.get(b);
+            int o = b * 6;
+            packed[o] = bb.minX;
+            packed[o + 1] = bb.minY;
+            packed[o + 2] = bb.minZ;
+            packed[o + 3] = bb.maxX;
+            packed[o + 4] = bb.maxY;
+            packed[o + 5] = bb.maxZ;
+        }
+        return packed;
     }
 
     /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
