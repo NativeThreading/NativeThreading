@@ -390,12 +390,7 @@ public abstract class ServerExplosionMixin {
     @Unique
     private CapturedDamage captureEntityDamageSnapshots(
             int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
-        // Spatial query on the main thread — the same box vanilla
-        // hurtEntities scans, returning only entities inside the blast AABB.
-        List<Entity> candidates = this.level.getEntities(
-                this.source, new AABB(x0, y0, z0, x1, y1, z1));
-        if (candidates.isEmpty()) return new CapturedDamage(List.of(), List.of());
-
+        AABB box = new AABB(x0, y0, z0, x1, y1, z1);
         double radiusSquare = (double) doubleRadius * doubleRadius;
         ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
@@ -406,13 +401,20 @@ public abstract class ServerExplosionMixin {
         // computed with the real entity context (vanilla-exact) per hit entity.
         final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(this.cachedWorldView);
 
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(candidates.size());
-        List<Entity> refs = new ArrayList<>(candidates.size());
-        for (Entity entity : candidates) {
-            if (entity.ignoreExplosion(self)) continue;
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>();
+        List<Entity> refs = new ArrayList<>();
+        // Single pass over the entity sections: the predicate runs in place of
+        // vanilla's NO_SPECTATORS selector, so the spatial query and the
+        // snapshot capture share one traversal (vanilla's getEntities box →
+        // spectator → hurtEntities ignoreExplosion → distance order is
+        // preserved, all on the same entities). The predicate always returns
+        // false, so no intermediate candidate list is materialised.
+        this.level.getEntities(this.source, box, entity -> {
+            if (entity.isSpectator()) return false;
+            if (entity.ignoreExplosion(self)) return false;
             int entityId = entity.getId();
             double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
-            if (entity.distanceToSqr(this.center) > radiusSquare) continue;
+            if (entity.distanceToSqr(this.center) > radiusSquare) return false;
 
             refs.add(entity);
             AABB bb = entity.getBoundingBox();
@@ -451,7 +453,8 @@ public abstract class ServerExplosionMixin {
                     bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
                     shouldDamage, knockbackMultiplier, exposure, exposurePreset,
                     kbRes));
-        }
+            return false;
+        });
         return new CapturedDamage(snapshots, refs);
     }
 
