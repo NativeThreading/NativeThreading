@@ -91,10 +91,11 @@ public final class ExplosionHelper {
         double knockbackLength = Math.sqrt(knockbackX * knockbackX
                 + knockbackY * knockbackY + knockbackZ * knockbackZ);
         if (knockbackLength >= 1.0E-5F) {
-            double scale = power / knockbackLength;
-            knockbackX *= scale;
-            knockbackY *= scale;
-            knockbackZ *= scale;
+            // Vanilla: direction.normalize().scale(power) = (component/len)*power.
+            // Divide first, then multiply — matches vanilla's double rounding.
+            knockbackX = (knockbackX / knockbackLength) * power;
+            knockbackY = (knockbackY / knockbackLength) * power;
+            knockbackZ = (knockbackZ / knockbackLength) * power;
         } else {
             knockbackX = 0.0;
             knockbackY = 0.0;
@@ -107,16 +108,20 @@ public final class ExplosionHelper {
                 damage, knockbackX, knockbackY, knockbackZ);
     }
 
-    /** True if the flat view contains scaffolding or powder snow — blocks whose
-     *  collision shape depends on the querying entity. When present, exposure
-     *  must be computed with the real entity context (vanilla-exact) instead of
-     *  the context-free flat shapes. */
+    /** True if the flat view contains scaffolding, powder snow, or a liquid —
+     *  blocks whose collision shape depends on the querying entity context.
+     *  Scaffolding/powder-snow vary their solid shape; LiquidBlock returns a
+     *  non-empty fluid-collision shape for a living entity context but empty
+     *  for {@code (null, null)}, so a liquid would let exposure rays pass that
+     *  vanilla clip would stop. When any is present, exposure must be computed
+     *  with the real entity context (vanilla-exact). */
     public static boolean hasEntityContextBlocks(WorldReadView<net.minecraft.world.level.block.state.BlockState> worldView) {
         if (!(worldView instanceof WorldReadViewImpl impl)) return false;
         BlockState[] states = impl.states();
         for (BlockState state : states) {
             Block block = state.getBlock();
-            if (block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock) return true;
+            if (block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock
+                    || block instanceof net.minecraft.world.level.block.LiquidBlock) return true;
         }
         return false;
     }

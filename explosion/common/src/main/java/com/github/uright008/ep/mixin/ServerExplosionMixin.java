@@ -345,9 +345,12 @@ public abstract class ServerExplosionMixin {
         final double centerY = this.center.y;
         final double centerZ = this.center.z;
         List<ExplosionHelper.EntityDamageSnapshot> snapshots;
+        List<Entity> refs;
         List<ExplosionHelper.EntityDamageResult> results;
         try {
-            snapshots = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
+            CapturedDamage captured = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
+            snapshots = captured.snapshots();
+            refs = captured.refs();
             if (snapshots.isEmpty()) return true;
             ENTITY_WORKER_BATCHES.incrementAndGet();
             results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
@@ -360,8 +363,9 @@ public abstract class ServerExplosionMixin {
             return false;
         }
 
-        for (ExplosionHelper.EntityDamageResult r : results) {
-            if (r != null) applyEntityDamage(r);
+        for (int i = 0; i < results.size(); i++) {
+            ExplosionHelper.EntityDamageResult r = results.get(i);
+            if (r != null) applyEntityDamage(r, refs.get(i));
         }
 
         logEntityPathCounters();
@@ -369,13 +373,13 @@ public abstract class ServerExplosionMixin {
     }
 
     @Unique
-    private List<ExplosionHelper.EntityDamageSnapshot> captureEntityDamageSnapshots(
+    private CapturedDamage captureEntityDamageSnapshots(
             int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
         // Spatial query on the main thread — the same box vanilla
         // hurtEntities scans, returning only entities inside the blast AABB.
         List<Entity> candidates = this.level.getEntities(
                 this.source, new AABB(x0, y0, z0, x1, y1, z1));
-        if (candidates.isEmpty()) return List.of();
+        if (candidates.isEmpty()) return new CapturedDamage(List.of(), List.of());
 
         double radiusSquare = (double) doubleRadius * doubleRadius;
         ServerExplosion self = (ServerExplosion) (Object) this;
@@ -388,12 +392,14 @@ public abstract class ServerExplosionMixin {
         final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(this.cachedWorldView);
 
         List<ExplosionHelper.EntityDamageSnapshot> snapshots = new ArrayList<>(candidates.size());
+        List<Entity> refs = new ArrayList<>(candidates.size());
         for (Entity entity : candidates) {
             if (entity.ignoreExplosion(self)) continue;
             int entityId = entity.getId();
             double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
             if (entity.distanceToSqr(this.center) > radiusSquare) continue;
 
+            refs.add(entity);
             AABB bb = entity.getBoundingBox();
             boolean shouldDamage;
             float knockbackMultiplier;
@@ -431,8 +437,16 @@ public abstract class ServerExplosionMixin {
                     shouldDamage, knockbackMultiplier, exposure, exposurePreset,
                     kbRes));
         }
-        return snapshots;
+        return new CapturedDamage(snapshots, refs);
     }
+
+    /** Snapshots plus the capture-time entity references, parallel lists.
+     *  Applying by reference (not by ID re-lookup) matches vanilla
+     *  hurtEntities, which iterates its collected list and still damages an
+     *  entity that an earlier hit in the same blast removed. */
+    private record CapturedDamage(
+            List<ExplosionHelper.EntityDamageSnapshot> snapshots,
+            List<Entity> refs) {}
 
     @Unique
     private void logEntityPathCounters() {
@@ -447,9 +461,10 @@ public abstract class ServerExplosionMixin {
     //  Compute entity damage (worker-thread safe)
     // ──────────────────────────────────────────────
     @Unique
-    private void applyEntityDamage(ExplosionHelper.EntityDamageResult result) {
-        Entity entity = this.level.getEntity(result.entityId());
-        if (entity == null) return;
+    private void applyEntityDamage(ExplosionHelper.EntityDamageResult result, Entity entity) {
+        // Uses the capture-time reference, not a by-ID re-lookup — vanilla
+        // iterates its collected entity list and applies to every member even
+        // if an earlier hit removed it.
         ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
             @Override
             public void hurt(float damage) {

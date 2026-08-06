@@ -30,7 +30,14 @@ public final class ChunkGrid {
     public ChunkGrid(ServerLevel level, double centerX, double centerZ, float radius) {
         int scx = SectionPos.blockToSectionCoord((int) Math.floor(centerX));
         int scz = SectionPos.blockToSectionCoord((int) Math.floor(centerZ));
-        int range = (int) Math.ceil(radius / 16.0) + 1;
+        // Must cover the explosion flat view, which spans max(ray reach, entity
+        // box 2r+1) around the center — otherwise cells at the view edge read
+        // AIR and rays/exposure DDA march through unloaded blocks. Same bound
+        // formula as ExplosionRayBounds.forExplosion (float math).
+        int reach = (int) Math.ceil(Math.ceil(radius * 1.3F / 0.22500001F) * 0.3F);
+        int entityReach = (int) Math.ceil(radius * 2.0F + 1.0F);
+        int bound = Math.max(reach, entityReach);
+        int range = (int) Math.ceil(bound / 16.0) + 1;
         this.sizeX = range * 2 + 1;
         this.sizeZ = range * 2 + 1;
         this.minSectionX = scx - range;
