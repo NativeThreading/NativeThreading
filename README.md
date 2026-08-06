@@ -35,6 +35,8 @@ Configure modules in `config/nt.json`.
 
 > 早期实现曾用 `ThreadLocalRandom`,导致序列不可复现(且当时误以为 worker 需要各自取随机数);后来发现 1352 次随机全部在主线程串行生成、worker 零 RNG 访问,遂改回 `level.random`。`core` 曾有一个 `LevelRandomMixin`,把每个 `Level` 的 `random` 替换为 `ThreadSafeRandomSource`(为已删除的并行实体 tick 准备的线程安全包装),这会让序列经一次 `nextLong()` 派生、不再是纯原版逐位——该 mixin 已随并行实体 tick 一并移除,`level.random` 保持原版实例。原版爆炸本身也是随机的(每次结果都不同),但 NT 与原版共享同一随机序列。
 
+**掉落/火焰的随机映射(已知差异,接受)**:射线功率与 RNG 序列逐位一致、**被炸掉的方块集合与原版完全一致**;但 vanilla 的方块按单线程插入顺序进入 HashSet,NT 是 16 线程并行算出后再汇总,插入顺序不同 → 方块集合交给 vanilla 的 `Util.shuffle` 后,每个方块分到的 `level.random` 段不同,因此**掉落物和火焰落在哪个方块上与原版不同**。掉落物本身每爆炸都随机(同分布),破坏集合一致才是可观察的结果;为复刻插入顺序需让 worker 从紧凑 BitSet 改为 per-ray 列表,成本大于收益,故接受并记录。
+
 **Vectorial(已移除)**:早期爆炸实体捕获走 SoA 实体数据以换取紧凑内存布局,但实测表明:2MB+ 的 SoA 字段数组只为捕获路径约 10 个字段服务、其余 55 个字段无消费方,且每 tick 全量同步开销与 vanilla 空间查询(`level.getEntities`)相当。捕获已改回主线程空间查询构建 snapshot,worker 阶段不变,SoA 模块(含 mixin+javaagent)随之移除。
 
 ## Build
