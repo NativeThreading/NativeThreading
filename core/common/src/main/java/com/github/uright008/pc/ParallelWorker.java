@@ -14,8 +14,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /**
- * Generic parallel dispatch: partitioning, latch, timeout, error collection,
- * deferred-write publication — all handled by core.
+ * Generic parallel dispatch: partitioning, latch, timeout, error collection —
+ * all handled by core.
  *
  * <p>Subsystems provide only the task lambda; core manages everything else.</p>
  */
@@ -70,7 +70,6 @@ public final class ParallelWorker {
         if (batches == 1) {
             List<R> results = new ArrayList<>(n);
             for (T item : items) results.add(mapper.apply(item));
-            SafeOps.drainWrites();
             return results;
         }
 
@@ -114,14 +113,13 @@ public final class ParallelWorker {
     }
 
     private static void executePhase(ExecutorService executor, List<Runnable> work, int timeoutSeconds) {
-        ConcurrentWriteQueue.Phase phase = ConcurrentWriteQueue.beginPhase();
         CountDownLatch completion = new CountDownLatch(work.size());
         AtomicReference<Throwable> firstError = new AtomicReference<>();
         List<Future<?>> submitted = new ArrayList<>(work.size());
 
         for (Runnable task : work) {
             try {
-                submitted.add(executor.submit(() -> runWorker(task, phase, completion, firstError)));
+                submitted.add(executor.submit(() -> runWorker(task, completion, firstError)));
             } catch (Throwable submissionFailure) {
                 recordFailure(firstError, submissionFailure);
                 completion.countDown();
@@ -142,7 +140,6 @@ public final class ParallelWorker {
 
         Throwable failure = firstError.get();
         if (!completed || interrupted || failure != null) {
-            phase.discard();
             cancel(submitted);
             boolean quiescent = awaitQuiescence(completion);
             if (interrupted) {
@@ -156,32 +153,16 @@ public final class ParallelWorker {
             }
             throwAsRuntime(failure);
         }
-
-        phase.drain();
-        SafeOps.drainWrites();
     }
 
-    private static void runWorker(Runnable task, ConcurrentWriteQueue.Phase phase,
+    private static void runWorker(Runnable task,
                                   CountDownLatch completion, AtomicReference<Throwable> firstError) {
-        boolean succeeded = false;
         try {
             SafeLevelAccess.runSafe(task);
-            succeeded = true;
         } catch (Throwable workerFailure) {
             recordFailure(firstError, workerFailure);
         } finally {
-            try {
-                if (succeeded) {
-                    ConcurrentWriteQueue.publishCurrent(phase);
-                } else {
-                    ConcurrentWriteQueue.discardCurrent();
-                }
-            } catch (Throwable publicationFailure) {
-                recordFailure(firstError, publicationFailure);
-                ConcurrentWriteQueue.discardCurrent();
-            } finally {
-                completion.countDown();
-            }
+            completion.countDown();
         }
     }
 

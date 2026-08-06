@@ -9,7 +9,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,28 +28,6 @@ class ParallelWorkerSchedulerRegressionTest {
     void cleanup() throws InterruptedException {
         executor.releaseTasks();
         executor.shutdownNow();
-        SafeOps.resetForTesting();
-    }
-
-    @Test
-    void workerDeferredWriteIsPublishedToThePhaseDrain() throws Exception {
-        AtomicInteger appliedWrites = new AtomicInteger();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread phase = startPhase(failure, () -> ParallelWorker.mapEach(
-                executor,
-                List.of(1),
-                ignored -> {
-                    WriteQueue.getDefault().addDeferred(appliedWrites::incrementAndGet);
-                    return null;
-                },
-                1));
-
-        await(executor.taskSubmitted);
-        executor.releaseTasks();
-        awaitPhase(phase);
-
-        assertNull(failure.get());
-        assertEquals(1, appliedWrites.get());
     }
 
     @Test
@@ -72,10 +49,9 @@ class ParallelWorkerSchedulerRegressionTest {
     }
 
     @Test
-    void timedOutWorkIsCancelledBeforeItCanPublishDeferredWrites() throws Exception {
-        AtomicInteger appliedWrites = new AtomicInteger();
+    void timedOutWorkIsCancelledBeforeItCanFinish() throws Exception {
         CountDownLatch actionStarted = new CountDownLatch(1);
-        CountDownLatch lateWritePermit = new CountDownLatch(1);
+        CountDownLatch lateFinishPermit = new CountDownLatch(1);
         CountDownLatch workerInterrupted = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread phase = startPhase(failure, () -> ParallelWorker.mapEach(
@@ -84,12 +60,11 @@ class ParallelWorkerSchedulerRegressionTest {
                 ignored -> {
                     actionStarted.countDown();
                     try {
-                        lateWritePermit.await();
+                        lateFinishPermit.await();
                     } catch (InterruptedException expected) {
                         workerInterrupted.countDown();
                         return null;
                     }
-                    WriteQueue.getDefault().addDeferred(appliedWrites::incrementAndGet);
                     return null;
                 },
                 0));
@@ -103,10 +78,8 @@ class ParallelWorkerSchedulerRegressionTest {
             assertInstanceOf(RuntimeException.class, failure.get());
             assertTrue(workerInterrupted.await(DEADLOCK_GUARD_SECONDS, TimeUnit.SECONDS),
                     "timed-out worker was not cancelled");
-            SafeOps.drainWrites();
-            assertEquals(0, appliedWrites.get());
         } finally {
-            lateWritePermit.countDown();
+            lateFinishPermit.countDown();
         }
     }
 
