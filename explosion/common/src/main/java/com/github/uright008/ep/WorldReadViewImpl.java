@@ -88,7 +88,7 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
         return shapes;
     }
 
-    double[][] shapeBoxes() {
+    public double[][] shapeBoxes() {
         return shapeBoxes;
     }
 

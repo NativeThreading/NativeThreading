@@ -134,11 +134,25 @@ public final class ExplosionHelper {
      *  null vs non-null test IS the air test. Precomputed on the main thread. */
     public static double[][] flattenShapeBoxes(
             BlockState[] states, VoxelShape[] shapes, int gridSize) {
-        double[][] boxes = new double[gridSize][];
+        return flattenShapeBoxesReused(states, shapes, gridSize, null);
+    }
+
+    /** {@link #flattenShapeBoxes} with a reusable outer array. The outer
+     *  {@code double[][]} (one slot per cell) is recycled across explosions
+     *  via {@code cache}; per-box {@code double[]} payloads are fresh because
+     *  shape sets vary. Cells that were non-null last time but are air now
+     *  must be explicitly cleared — a stale box table would be read by the
+     *  entity-exposure DDA. */
+    public static double[][] flattenShapeBoxesReused(
+            BlockState[] states, VoxelShape[] shapes, int gridSize,
+            java.util.concurrent.atomic.AtomicReference<double[][]> cache) {
+        double[][] boxes = cache != null ? cache.getAndSet(null) : null;
+        if (boxes == null || boxes.length < gridSize) boxes = new double[gridSize][];
         double[] fullBox = new double[] {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
         for (int i = 0; i < gridSize; i++) {
             VoxelShape shape = shapes != null ? shapes[i] : null;
             if (shape == null) {
+                boxes[i] = null;
                 continue;
             }
             if (shape == net.minecraft.world.phys.shapes.Shapes.block()) {
