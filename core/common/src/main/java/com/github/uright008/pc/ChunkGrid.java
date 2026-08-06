@@ -51,7 +51,16 @@ public final class ChunkGrid {
         for (int dx = 0; dx < sizeX; dx++) {
             for (int dz = 0; dz < sizeZ; dz++) {
                 int idx = dx * sizeZ + dz;
-                ChunkAccess chunk = scs.parallelCore$getChunkSafe(minSectionX + dx, minSectionZ + dz);
+                int cx = minSectionX + dx;
+                int cz = minSectionZ + dz;
+                ChunkAccess chunk = scs.parallelCore$getChunkSafe(cx, cz);
+                if (chunk == null) {
+                    // Constructed on the main thread. Vanilla's getBlockState
+                    // force-loads/generates any chunk the ray reaches; load the
+                    // missing chunk here so the flat view matches what vanilla
+                    // would read instead of silently treating it as AIR.
+                    chunk = level.getChunk(cx, cz, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true);
+                }
                 this.chunks[idx] = chunk;
                 if (chunk != null) {
                     int sectionCount = chunk.getSectionsCount();
