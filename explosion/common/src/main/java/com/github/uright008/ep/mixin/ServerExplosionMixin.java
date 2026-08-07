@@ -156,7 +156,42 @@ public abstract class ServerExplosionMixin {
     @Unique
     private void ensureChunksLoaded() {
         if (this.cachedChunkGrid != null) return;
-        this.cachedChunkGrid = new ChunkGrid(this.level, this.center.x, this.center.z, this.radius);
+        this.cachedChunkGrid = buildOrReuseChunkGrid();
+    }
+
+    /** A built {@link ChunkGrid} plus the section range it covers. Static so
+     *  chained blasts in the same region (the TNT benchmark's forceloaded
+     *  room) reuse one grid instead of rebuilding it per explosion — every
+     *  blast constructs a fresh ServerExplosion, so an instance field would
+     *  rebuild every time (same trap as the capture lists). Chunks are
+     *  referenced, not copied, so block edits between blasts are still read
+     *  live; a blast whose coverage leaves the cached range rebuilds. */
+    @Unique private record CachedGrid(ChunkGrid grid, int minSectionX, int minSectionZ, int sizeX, int sizeZ) {}
+
+    @Unique private static final java.util.concurrent.atomic.AtomicReference<CachedGrid> CHUNK_GRID_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
+
+    @Unique
+    private ChunkGrid buildOrReuseChunkGrid() {
+        // Same coverage bound as ChunkGrid's constructor (float math), so the
+        // needed section range matches the grid's actual coverage.
+        int reach = (int) Math.ceil(Math.ceil(this.radius * 1.3F / 0.22500001F) * 0.3F);
+        int entityReach = (int) Math.ceil(this.radius * 2.0F + 1.0F);
+        int bound = Math.max(reach, entityReach);
+        int range = (int) Math.ceil(bound / 16.0) + 1;
+        int scx = net.minecraft.core.SectionPos.blockToSectionCoord((int) Math.floor(this.center.x));
+        int scz = net.minecraft.core.SectionPos.blockToSectionCoord((int) Math.floor(this.center.z));
+        int needMinX = scx - range, needMaxX = scx + range;
+        int needMinZ = scz - range, needMaxZ = scz + range;
+
+        CachedGrid cached = CHUNK_GRID_CACHE.get();
+        if (cached != null
+                && needMinX >= cached.minSectionX && needMaxX <= cached.minSectionX + cached.sizeX - 1
+                && needMinZ >= cached.minSectionZ && needMaxZ <= cached.minSectionZ + cached.sizeZ - 1) {
+            return cached.grid;
+        }
+        ChunkGrid grid = new ChunkGrid(this.level, this.center.x, this.center.z, this.radius);
+        CHUNK_GRID_CACHE.set(new CachedGrid(grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
+        return grid;
     }
 
     @Unique
