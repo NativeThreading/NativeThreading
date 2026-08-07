@@ -83,8 +83,12 @@ public abstract class ServerExplosionMixin {
     // serial tick (capture → worker join → apply), so clearing and refilling
     // the same instances avoids allocating and repeatedly growing two
     // ArrayList per blast (~250k add + grow per profile under TNT chains).
-    @Unique private final List<ExplosionHelper.EntityDamageSnapshot> captureSnapshots = new ArrayList<>(512);
-    @Unique private final List<Entity> captureRefs = new ArrayList<>(512);
+    // Static (not per-ServerExplosion) so the reuse survives across blasts —
+    // each explosion allocates a fresh ServerExplosion, so an instance field
+    // would re-initialise the lists and negate the reuse. 4096 pre-sizes the
+    // 2272-entity benchmark, so the lists never grow.
+    @Unique private static final List<ExplosionHelper.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(4096);
+    @Unique private static final List<Entity> CAPTURE_REFS = new ArrayList<>(4096);
 
     // Reusable flat-view buffers. Explosions run serially on the main thread
     // and the worker phase is joined before any reuse, so static caches are
@@ -408,8 +412,8 @@ public abstract class ServerExplosionMixin {
         // computed with the real entity context (vanilla-exact) per hit entity.
         final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(this.cachedWorldView);
 
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots = this.captureSnapshots;
-        List<Entity> refs = this.captureRefs;
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
+        List<Entity> refs = CAPTURE_REFS;
         snapshots.clear();
         refs.clear();
         // Single pass over the entity sections: the predicate runs in place of
