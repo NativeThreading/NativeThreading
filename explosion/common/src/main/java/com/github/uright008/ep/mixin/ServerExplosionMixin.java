@@ -75,6 +75,7 @@ public abstract class ServerExplosionMixin {
     @Shadow private ExplosionDamageCalculator damageCalculator;
     @Shadow private Map<Player, Vec3> hitPlayers;
     @Shadow private native boolean interactsWithBlocks();
+    @Shadow private boolean fire;
 
     @Unique private ChunkGrid cachedChunkGrid;
     @Unique private WorldReadViewImpl cachedWorldView;
@@ -124,6 +125,19 @@ public abstract class ServerExplosionMixin {
         if (!ExplosionParallelConfig.isEnabled()) return;
         ExplosionParallelEligibility.Tier tier = resolveTier();
         if (!tier.allowsParallel()) return;
+        if (blockStageIsSkipped()) {
+            // KEEP block interaction with fire off: vanilla's explode() still
+            // runs the 1352-ray trace + flat view, but neither the block
+            // drops nor the fire pass consume the result. The shortest
+            // vanilla-identical path is to align the world RNG (one LCG step
+            // per consumeCount — exactly the state advance of 1352
+            // nextFloat) and let hurtEntities run vanilla-exact afterwards.
+            // Entity damage is unaffected; the empty list only zeroes the
+            // client blockCount, which weights explosion particles.
+            this.level.getRandom().consumeCount(ExplosionHelper.RAY_PARAMS.size());
+            cir.setReturnValue(java.util.Collections.emptyList());
+            return;
+        }
         ensureChunksLoaded();
         List<BlockPos> result = calculateExplodedPositionsParallel();
         if (result != null) {
@@ -135,12 +149,28 @@ public abstract class ServerExplosionMixin {
         }
     }
 
+    /** True when vanilla's block stage (interactWithBlocks / createFire)
+     *  consumes nothing: KEEP block interaction and no fire. In that case the
+     *  exploded-position list has no consumer and the whole ray/flat-view
+     *  pipeline can be short-circuited. */
+    @Unique
+    private boolean blockStageIsSkipped() {
+        return !this.interactsWithBlocks() && !this.fire;
+    }
+
     // ──────────────────────────────────────────────
     @Inject(method = "hurtEntities", at = @At("HEAD"), cancellable = true)
     private void onHurtEntities(CallbackInfo ci) {
         if (!ExplosionParallelConfig.isEnabled()) return;
         ExplosionParallelEligibility.Tier tier = resolveTier();
         if (!tier.allowsParallel()) return;
+        if (blockStageIsSkipped()) {
+            // Short-circuited explosion: no flat view was built, so the
+            // parallel entity path (flat-view exposure DDA) has nothing to
+            // read — run vanilla hurtEntities, whose real-time getSeenPercent
+            // is exactly the original behaviour.
+            return;
+        }
 
         ensureChunksLoaded();
         ProfilerFiller profiler = Profiler.get();
