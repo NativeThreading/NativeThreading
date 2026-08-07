@@ -129,7 +129,9 @@ public abstract class ServerExplosionMixin {
         if (result != null) {
             cir.setReturnValue(result);
         } else {
-            LOGGER.warn("Explosion parallel block-position calculation failed; falling back to vanilla");
+            // Unreachable today: the parallel path serial-retraces on worker
+            // failure instead of returning null. Kept as a defensive exit.
+            LOGGER.error("Explosion parallel block-position calculation returned no result");
         }
     }
 
@@ -300,6 +302,7 @@ public abstract class ServerExplosionMixin {
         }
 
         final float[] pow = rayPowers;
+        BitSet grid = new BitSet(gridSize);
         try {
             workerGrids = ParallelWorker.mapEach(ParallelThreadPool.getPool("Explosion"),
                     ranges, range -> {
@@ -309,13 +312,21 @@ public abstract class ServerExplosionMixin {
                                     resistanceCalc, explodeDecider);
                         return range.grid;
                     }, 5);
+            for (BitSet wg : workerGrids) grid.or(wg);
         } catch (RuntimeException e) {
-            LOGGER.error("Explosion ray workers failed; falling back to vanilla", e);
-            return null;
+            // Workers failed — recompute serially with the already-drawn ray
+            // powers instead of falling back to vanilla. A vanilla fallback
+            // would draw the 1352 nextFloat values AGAIN, advancing level
+            // random twice (2724 steps vs vanilla's 1352) and shifting every
+            // later RNG consumer (block drops, fire placement, shuffle).
+            // Serial retrace costs the same as vanilla's own main-thread
+            // pass and never re-draws the RNG.
+            LOGGER.error("Explosion ray workers failed; tracing rays serially", e);
+            for (int i = 0; i < rayCount; i++)
+                traceRay(rays.get(i), i, grid, minX, minY, minZ, maxX, maxY, maxZ,
+                        worldView, strideY, strideZ, pow[i],
+                        resistanceCalc, explodeDecider);
         }
-
-        BitSet grid = new BitSet(gridSize);
-        for (BitSet wg : workerGrids) grid.or(wg);
 
         List<BlockPos> result = new ArrayList<>(gridSize);
         for (int z = minZ; z <= maxZ; z++) {
@@ -410,28 +421,41 @@ public abstract class ServerExplosionMixin {
         final double centerX = this.center.x;
         final double centerY = this.center.y;
         final double centerZ = this.center.z;
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots;
-        List<Entity> refs;
-        List<ExplosionHelper.EntityDamageResult> results;
+        CapturedDamage captured;
         try {
-            CapturedDamage captured = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
-            snapshots = captured.snapshots();
-            refs = captured.refs();
-            if (snapshots.isEmpty()) return true;
-            ENTITY_WORKER_BATCHES.incrementAndGet();
-            results = ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
-                    snapshot -> ExplosionHelper.computeEntityDamage(
-                            snapshot, centerX, centerY, centerZ, dr, this.cachedWorldView),
-                    ParallelWorker.autoBatchSize(snapshots.size()), 5);
+            captured = captureEntityDamageSnapshots(x0, y0, z0, x1, y1, z1, dr);
         } catch (RuntimeException e) {
+            // Capture is main-thread vanilla calls; a failure here has no
+            // usable snapshots, so vanilla hurtEntities must run.
             ENTITY_FALLBACKS.incrementAndGet();
-            LOGGER.error("Explosion entity workers failed; falling back to vanilla", e);
+            LOGGER.error("Explosion entity capture failed; falling back to vanilla", e);
             return false;
         }
-
-        for (int i = 0; i < results.size(); i++) {
-            ExplosionHelper.EntityDamageResult r = results.get(i);
-            if (r != null) applyEntityDamage(r, refs.get(i));
+        List<ExplosionHelper.EntityDamageSnapshot> snapshots = captured.snapshots();
+        List<Entity> refs = captured.refs();
+        if (snapshots.isEmpty()) return true;
+        try {
+            ENTITY_WORKER_BATCHES.incrementAndGet();
+            List<ExplosionHelper.EntityDamageResult> results =
+                    ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
+                            snapshot -> ExplosionHelper.computeEntityDamage(
+                                    snapshot, centerX, centerY, centerZ, dr, this.cachedWorldView),
+                            ParallelWorker.autoBatchSize(snapshots.size()), 5);
+            for (int i = 0; i < results.size(); i++) {
+                ExplosionHelper.EntityDamageResult r = results.get(i);
+                if (r != null) applyEntityDamage(r, refs.get(i));
+            }
+        } catch (RuntimeException e) {
+            // Workers failed — the snapshots captured on the main thread are
+            // still valid, so compute them serially instead of re-running
+            // vanilla hurtEntities (which would re-scan the entity sections).
+            ENTITY_FALLBACKS.incrementAndGet();
+            LOGGER.error("Explosion entity workers failed; computing damage serially", e);
+            for (int i = 0; i < snapshots.size(); i++) {
+                ExplosionHelper.EntityDamageResult r = ExplosionHelper.computeEntityDamage(
+                        snapshots.get(i), centerX, centerY, centerZ, dr, this.cachedWorldView);
+                if (r != null) applyEntityDamage(r, refs.get(i));
+            }
         }
 
         logEntityPathCounters();
