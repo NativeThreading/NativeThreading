@@ -1,5 +1,6 @@
 package com.github.uright008.ep.mixin;
 
+import com.github.uright008.ep.AabbBatchFilter;
 import com.github.uright008.ep.ExplosionFlatViewBuilder;
 import com.github.uright008.ep.ExplosionHelper;
 import com.github.uright008.ep.ExplosionEntityApplication;
@@ -14,12 +15,15 @@ import com.github.uright008.pc.ParallelWorker;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EntityTypeTags;
+import net.minecraft.util.AbortableIterationConsumer;
+import net.minecraft.util.ClassInstanceMultiMap;
 import net.minecraft.util.profiling.Profiler;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragonPart;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -28,6 +32,8 @@ import net.minecraft.world.level.ServerExplosion;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.entity.EntitySectionStorage;
+import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.minecraft.world.level.material.FluidState;
@@ -401,7 +407,6 @@ public abstract class ServerExplosionMixin {
     @Unique
     private CapturedDamage captureEntityDamageSnapshots(
             int x0, int y0, int z0, int x1, int y1, int z1, float doubleRadius) {
-        AABB box = new AABB(x0, y0, z0, x1, y1, z1);
         double radiusSquare = (double) doubleRadius * doubleRadius;
         ServerExplosion self = (ServerExplosion) (Object) this;
         final boolean isDefaultCalc = this.damageCalculator.getClass() == ExplosionDamageCalculator.class;
@@ -416,59 +421,95 @@ public abstract class ServerExplosionMixin {
         List<Entity> refs = CAPTURE_REFS;
         snapshots.clear();
         refs.clear();
-        // Single pass over the entity sections: the predicate runs in place of
-        // vanilla's NO_SPECTATORS selector, so the spatial query and the
-        // snapshot capture share one traversal (vanilla's getEntities box →
-        // spectator → hurtEntities ignoreExplosion → distance order is
-        // preserved, all on the same entities). The predicate always returns
-        // false, so no intermediate candidate list is materialised.
-        this.level.getEntities(this.source, box, entity -> {
-            if (entity.isSpectator()) return false;
-            if (entity.ignoreExplosion(self)) return false;
-            int entityId = entity.getId();
-            double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
-            if (entity.distanceToSqr(this.center) > radiusSquare) return false;
+        // Vanilla's Level.getEntities(except, box, NO_SPECTATORS) would filter
+        // every entity's bounding box one at a time (a scattered AABB.intersects
+        // per entity that SuperWord cannot vectorize). Instead we enumerate the
+        // blast's sections via the vanilla section storage and batch-filter the
+        // boxes in a contiguous-double loop (see AabbBatchFilter). Each hit is
+        // then snapshotted with the exact vanilla order: spectator excluded by
+        // the selector, then hurtEntities' ignoreExplosion → distanceToSqr.
+        // EnderDragonPart reachability (a top-level section would only hold the
+        // parent EnderDragon) is covered by the vanilla list pre-pass below.
+        AabbBatchFilter.filter(
+                queryEntities(x0, y0, z0, x1, y1, z1),
+                x0, y0, z0, x1, y1, z1,
+                entity -> {
+                    if (entity == this.source) return;   // vanilla excludes the except entity
+                    if (entity.isSpectator()) return;    // vanilla's NO_SPECTATORS selector
+                    if (entity.ignoreExplosion(self)) return;
+                    int entityId = entity.getId();
+                    double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
+                    if (entity.distanceToSqr(this.center) > radiusSquare) return;
 
-            refs.add(entity);
-            AABB bb = entity.getBoundingBox();
-            boolean shouldDamage;
-            float knockbackMultiplier;
-            boolean isPrimedTnt;
-            float exposure = 0.0F;
-            boolean exposurePreset = false;
-            if (needsEntityContext) {
-                shouldDamage = isDefaultCalc
-                        ? true : this.damageCalculator.shouldDamageEntity(self, entity);
-                knockbackMultiplier = isDefaultCalc
-                        ? 1.0F : this.damageCalculator.getKnockbackMultiplier(entity);
-                isPrimedTnt = entity instanceof PrimedTnt;
-                exposure = ExplosionHelper.computeContextAwareExposure(
-                        entity, this.center.x, this.center.y, this.center.z);
-                exposurePreset = true;
-            } else if (isDefaultCalc) {
-                shouldDamage = true;
-                knockbackMultiplier = 1.0F;
-                isPrimedTnt = entity instanceof PrimedTnt;
-            } else {
-                shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
-                knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
-                isPrimedTnt = entity instanceof PrimedTnt;
-            }
-            double eyeY = isPrimedTnt ? feetY : feetY + entity.getEyeHeight();
-            // Captured on the main thread so the worker applies it in the exact
-            // vanilla product order (1-dist)*exposure*kbMult*(1-res).
-            double kbRes = entity instanceof LivingEntity living
-                    ? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
-                    : 0.0;
+                    refs.add(entity);
+                    AABB bb = entity.getBoundingBox();
+                    boolean shouldDamage;
+                    float knockbackMultiplier;
+                    boolean isPrimedTnt;
+                    float exposure = 0.0F;
+                    boolean exposurePreset = false;
+                    if (needsEntityContext) {
+                        shouldDamage = isDefaultCalc
+                                ? true : this.damageCalculator.shouldDamageEntity(self, entity);
+                        knockbackMultiplier = isDefaultCalc
+                                ? 1.0F : this.damageCalculator.getKnockbackMultiplier(entity);
+                        isPrimedTnt = entity instanceof PrimedTnt;
+                        exposure = ExplosionHelper.computeContextAwareExposure(
+                                entity, this.center.x, this.center.y, this.center.z);
+                        exposurePreset = true;
+                    } else if (isDefaultCalc) {
+                        shouldDamage = true;
+                        knockbackMultiplier = 1.0F;
+                        isPrimedTnt = entity instanceof PrimedTnt;
+                    } else {
+                        shouldDamage = this.damageCalculator.shouldDamageEntity(self, entity);
+                        knockbackMultiplier = this.damageCalculator.getKnockbackMultiplier(entity);
+                        isPrimedTnt = entity instanceof PrimedTnt;
+                    }
+                    double eyeY = isPrimedTnt ? feetY : feetY + entity.getEyeHeight();
+                    // Captured on the main thread so the worker applies it in the exact
+                    // vanilla product order (1-dist)*exposure*kbMult*(1-res).
+                    double kbRes = entity instanceof LivingEntity living
+                            ? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
+                            : 0.0;
 
-            snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
-                    feetX, feetY, feetZ, eyeY,
-                    bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
-                    shouldDamage, knockbackMultiplier, exposure, exposurePreset,
-                    kbRes));
-            return false;
-        });
+                    snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
+                            feetX, feetY, feetZ, eyeY,
+                            bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
+                            shouldDamage, knockbackMultiplier, exposure, exposurePreset,
+                            kbRes));
+                });
         return new CapturedDamage(snapshots, refs);
+    }
+
+    /** All live entities whose section intersects the query box (vanilla's
+     *  {@code forEachAccessibleNonEmptySection} + {@code EntitySection.storage}
+     *  reachable entities, plus EnderDragonParts attached to a hit parent —
+     *  the parts are separate entities not in any section, so they must be
+     *  appended by reachability like {@code Level.getEntities} does). */
+    @Unique
+    private java.util.Collection<Entity> queryEntities(
+            int x0, int y0, int z0, int x1, int y1, int z1) {
+        List<Entity> collected = new ArrayList<>(4096);
+        ServerLevelEntityAccessor levelAccessor = (ServerLevelEntityAccessor) this.level;
+        PersistentEntitySectionManager<Entity> manager = levelAccessor.nativeThreading$entityManager();
+        EntitySectionStorage<Entity> storage =
+                ((PersistentEntitySectionManagerAccessor<Entity>) manager).nativeThreading$sectionStorage();
+        storage.forEachAccessibleNonEmptySection(new AABB(x0, y0, z0, x1, y1, z1),
+                section -> {
+                    ClassInstanceMultiMap<Entity> entities =
+                            ((EntitySectionAccessor<Entity>) section).nativeThreading$storage();
+                    collected.addAll(entities);
+                    return AbortableIterationConsumer.Continuation.CONTINUE;
+                });
+        // EnderDragonParts are reachable only through their parent (vanilla
+        // Level.getEntities appends them after the section scan).
+        for (EnderDragonPart part : this.level.dragonParts()) {
+            if (part != this.source && part.parentMob != this.source) {
+                collected.add(part);
+            }
+        }
+        return collected;
     }
 
     /** Snapshots plus the capture-time entity references, parallel lists.

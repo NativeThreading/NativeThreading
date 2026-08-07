@@ -4,6 +4,9 @@
   "compatibilityLevel": "JAVA_25",
   "mixins": [
     "ServerExplosionMixin",
+    "ServerLevelEntityAccessor",
+    "PersistentEntitySectionManagerAccessor",
+    "EntitySectionAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
