@@ -159,14 +159,18 @@ public abstract class ServerExplosionMixin {
         this.cachedChunkGrid = buildOrReuseChunkGrid();
     }
 
-    /** A built {@link ChunkGrid} plus the section range it covers. Static so
-     *  chained blasts in the same region (the TNT benchmark's forceloaded
-     *  room) reuse one grid instead of rebuilding it per explosion — every
-     *  blast constructs a fresh ServerExplosion, so an instance field would
-     *  rebuild every time (same trap as the capture lists). Chunks are
-     *  referenced, not copied, so block edits between blasts are still read
-     *  live; a blast whose coverage leaves the cached range rebuilds. */
-    @Unique private record CachedGrid(ChunkGrid grid, int minSectionX, int minSectionZ, int sizeX, int sizeZ) {}
+    /** A built {@link ChunkGrid} plus the level it reads from and the section
+     *  range it covers. Static so chained blasts in the same region (the TNT
+     *  benchmark's forceloaded room) reuse one grid instead of rebuilding it
+     *  per explosion — every blast constructs a fresh ServerExplosion, so an
+     *  instance field would rebuild every time (same trap as the capture
+     *  lists). The level is part of the key: a grid's chunks are bound to one
+     *  ServerLevel, so a blast in a different dimension must never reuse it.
+     *  Chunks are referenced, not copied, so block edits between blasts are
+     *  still read live; a blast whose coverage leaves the cached range or
+     *  whose dimension differs rebuilds. */
+    @Unique private record CachedGrid(ServerLevel level, ChunkGrid grid,
+                                      int minSectionX, int minSectionZ, int sizeX, int sizeZ) {}
 
     @Unique private static final java.util.concurrent.atomic.AtomicReference<CachedGrid> CHUNK_GRID_CACHE = new java.util.concurrent.atomic.AtomicReference<>();
 
@@ -185,12 +189,13 @@ public abstract class ServerExplosionMixin {
 
         CachedGrid cached = CHUNK_GRID_CACHE.get();
         if (cached != null
+                && cached.level == this.level
                 && needMinX >= cached.minSectionX && needMaxX <= cached.minSectionX + cached.sizeX - 1
                 && needMinZ >= cached.minSectionZ && needMaxZ <= cached.minSectionZ + cached.sizeZ - 1) {
             return cached.grid;
         }
         ChunkGrid grid = new ChunkGrid(this.level, this.center.x, this.center.z, this.radius);
-        CHUNK_GRID_CACHE.set(new CachedGrid(grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
+        CHUNK_GRID_CACHE.set(new CachedGrid(this.level, grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
         return grid;
     }
 
