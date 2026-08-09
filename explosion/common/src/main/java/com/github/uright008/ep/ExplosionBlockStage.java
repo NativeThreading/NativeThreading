@@ -108,7 +108,7 @@ public final class ExplosionBlockStage {
 
         BlockState[] flatBlocks = FLAT_BLOCKS_CACHE.getAndSet(null);
         if (flatBlocks == null || flatBlocks.length < gridSize) flatBlocks = new BlockState[gridSize];
-        ExplosionFlatViewBuilder.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+        ExplosionFlatViewHelper.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid);
 
         // Collision boxes are resolved from the per-BlockState cache — the same
@@ -116,7 +116,7 @@ public final class ExplosionBlockStage {
         // but one map hit per distinct block state instead of per cell. Workers
         // never touch BlockState objects; the box table alone drives the DDA.
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
-                flatBlocks, null,
+                flatBlocks,
                 ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
                 minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
 

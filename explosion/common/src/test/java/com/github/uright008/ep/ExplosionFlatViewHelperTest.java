@@ -5,16 +5,16 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Differential test for {@link ExplosionFlatViewBuilder#fill} against a naive
+ * Differential test for {@link ExplosionFlatViewHelper#fill} against a naive
  * triple loop. Uses a generic {@code String} payload and a deterministic
- * {@link ExplosionFlatViewBuilder.BlockLookup} formula so the two fillers can be
+ * {@link ExplosionFlatViewHelper.BlockLookup} formula so the two fillers can be
  * compared cell-by-cell without a Minecraft runtime.
  *
  * <p>The naive loop mirrors the original {@code ServerExplosionMixin} capture:
  * {@code (z-minZ)*strideZ + (y-minY)*strideY + (x-minX)} with floor-division
  * section coords ({@code x >> 4}) and masked locals ({@code x & 15}).</p>
  */
-class ExplosionFlatViewBuilderTest {
+class ExplosionFlatViewHelperTest {
 
     // ── Deterministic lookup: world coordinate -> unique key string ──
 
@@ -29,8 +29,8 @@ class ExplosionFlatViewBuilderTest {
         return "b:" + (sectionX << 4 | localX) + "," + blockY + "," + (sectionZ << 4 | localZ);
     }
 
-    private static ExplosionFlatViewBuilder.BlockLookup<String> lookup() {
-        return ExplosionFlatViewBuilderTest::blockKey;
+    private static ExplosionFlatViewHelper.BlockLookup<String> lookup() {
+        return ExplosionFlatViewHelperTest::blockKey;
     }
 
     // ── Reference implementation: the original naive triple loop ──
@@ -54,7 +54,7 @@ class ExplosionFlatViewBuilderTest {
                                      int maxX, int maxY, int maxZ,
                                      int strideY, int strideZ) {
         String[] fast = new String[strideZ * (maxZ - minZ + 1)];
-        return ExplosionFlatViewBuilder.fill(fast, minX, minY, minZ, maxX, maxY, maxZ,
+        return ExplosionFlatViewHelper.fill(fast, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, lookup());
     }
 
@@ -115,7 +115,7 @@ class ExplosionFlatViewBuilderTest {
         // Given: a pre-allocated destination array
         String[] dst = new String[1];
         // When: filling it
-        String[] result = ExplosionFlatViewBuilder.fill(dst, 5, 60, 5, 5, 60, 5, 1, 1, lookup());
+        String[] result = ExplosionFlatViewHelper.fill(dst, 5, 60, 5, 5, 60, 5, 1, 1, lookup());
         // Then: the caller's array is returned and populated
         assertThat(result).isSameAs(dst);
         assertThat(dst[0]).isEqualTo(blockKey(0, 0, 60, 5, 12, 5));

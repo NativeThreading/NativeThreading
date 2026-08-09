@@ -69,18 +69,6 @@ class ExplosionRayFlatDifferentialTest {
         return new WorldReadViewImpl(states, MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
     }
 
-    /** Like {@link #buildView()} but with the production precomputed shapes array. */
-    private static WorldReadViewImpl buildViewWithShapes() {
-        WorldReadViewImpl view = buildView();
-        BlockState[] states = view.states();
-        net.minecraft.world.phys.shapes.VoxelShape[] shapes = new net.minecraft.world.phys.shapes.VoxelShape[states.length];
-        for (int i = 0; i < states.length; i++) {
-            BlockState s = states[i];
-            shapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
-        }
-        return new WorldReadViewImpl(states, shapes, MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
-    }
-
     // ── Per-ray differential: fast == slow == dispatcher ──
 
     @Test
@@ -142,7 +130,7 @@ class ExplosionRayFlatDifferentialTest {
 
     @Test
     void rayDifferential_precomputedShapes_matchLivePath() {
-        WorldReadViewImpl view = buildViewWithShapes();
+        WorldReadViewImpl view = buildView();
         double cx = 25.0, cy = 60.0, cz = 40.0;
 
         double[][] starts = {
@@ -315,7 +303,7 @@ class ExplosionRayFlatDifferentialTest {
             shapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
         }
         double[][] boxes = ExplosionShapeBoxes.flattenShapeBoxes(states, shapes, states.length);
-        return new WorldReadViewImpl(states, shapes, boxes,
+        return new WorldReadViewImpl(states, boxes,
                 MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
     }
 
@@ -339,8 +327,10 @@ class ExplosionRayFlatDifferentialTest {
         // Vanilla clip semantics: does the ray hit the fence's exact shape?
         net.minecraft.world.phys.Vec3 from = new net.minecraft.world.phys.Vec3(fx, gapY, fz);
         net.minecraft.world.phys.Vec3 to = new net.minecraft.world.phys.Vec3(tx, gapY, tz);
+        net.minecraft.world.phys.shapes.VoxelShape fenceShape =
+                view.getBlockState(20, 60, 30).getCollisionShape(null, null);
         net.minecraft.world.phys.BlockHitResult vanillaHit =
-                view.shapes()[index(20, 60, 30)].clip(from, to, new BlockPos(20, 60, 30));
+                fenceShape.clip(from, to, new BlockPos(20, 60, 30));
 
         // NT fast path with precomputed per-box shapes.
         boolean flatHit = ExplosionRayCast.rayIntersectsBlockFlatFast(

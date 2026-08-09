@@ -30,11 +30,11 @@ public final class ExplosionFlatViewParityGameTest {
         int size = strideZ * (maxZ - minZ + 1);
 
         BlockState[] slow = new BlockState[size];
-        ExplosionFlatViewBuilder.fill(slow, minX, minY, minZ, maxX, maxY, maxZ,
+        ExplosionFlatViewHelper.fill(slow, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, grid::getBlockState);
 
         BlockState[] fast = new BlockState[size];
-        ExplosionFlatViewBuilder.fillSectioned(fast, minX, minY, minZ, maxX, maxY, maxZ,
+        ExplosionFlatViewHelper.fillSectioned(fast, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, grid);
 
         for (int i = 0; i < size; i++) {
@@ -65,11 +65,11 @@ public final class ExplosionFlatViewParityGameTest {
         int size = strideZ * (maxZ - minZ + 1);
 
         BlockState[] slow = new BlockState[size];
-        ExplosionFlatViewBuilder.fill(slow, minX, minY, minZ, maxX, maxY, maxZ,
+        ExplosionFlatViewHelper.fill(slow, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, grid::getBlockState);
 
         BlockState[] fast = new BlockState[size];
-        ExplosionFlatViewBuilder.fillSectioned(fast, minX, minY, minZ, maxX, maxY, maxZ,
+        ExplosionFlatViewHelper.fillSectioned(fast, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, grid);
 
         for (int i = 0; i < size; i++) {

@@ -3,9 +3,7 @@
   "package": "com.github.uright008.pc.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "BlockGetterMixin",
-    "ServerChunkCacheMixin",
-    "TickBlockEntitiesNullGuardMixin"
+    "ServerChunkCacheMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -11,7 +11,10 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 
 /**
- * Thread-safe chunk access for worker threads.
+ * Exposes visible chunks without a force-load, so {@link ChunkGrid} can grab a
+ * chunk and return null when absent (the caller then force-loads explicitly).
+ * Runs on the main thread — chunk access stays within the threading boundary;
+ * workers only ever read the captured flat view.
  */
 @Mixin(ServerChunkCache.class)
 public abstract class ServerChunkCacheMixin implements ChunkSafeAccessor {

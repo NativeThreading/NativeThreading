@@ -4,8 +4,8 @@ import com.github.uright008.pc.ChunkGrid;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 
-public final class ExplosionFlatViewBuilder {
-    private ExplosionFlatViewBuilder() {}
+public final class ExplosionFlatViewHelper {
+    private ExplosionFlatViewHelper() {}
 
     @FunctionalInterface
     public interface BlockLookup<B> {

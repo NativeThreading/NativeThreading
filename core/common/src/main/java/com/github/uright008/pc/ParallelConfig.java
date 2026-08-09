@@ -131,29 +131,8 @@ public abstract class ParallelConfig {
         }
     }
 
-    public Path getPath() {
-        if (storage instanceof FileConfigStorage) {
-            return Path.of("config", "nt.json");
-        }
-        return Path.of("config", "nt.json");
-    }
-
     protected Logger logger() {
         return logger;
     }
 
-    private static final Set<String> KNOWN_SECTIONS = Set.of(
-            "parallel-core", "explosion"
-    );
-
-    public static void validateConfigSections() {
-        JsonObject root = ConfigStorage.fileBased().loadRoot();
-        if (root == null) return;
-        Logger log = LoggerFactory.getLogger("parallel-config");
-        for (String key : root.keySet()) {
-            if (!KNOWN_SECTIONS.contains(key)) {
-                log.warn("Unrecognized config section '{}' in nt.json — this section will be ignored", key);
-            }
-        }
-    }
 }
