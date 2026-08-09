@@ -28,6 +28,8 @@ Hard rules in `docs/architecture-discipline.md` apply to every change; violate o
 - **D1/D2**: no data without a consumer; no optimization without a profile basis and a test.
 - **B1/B2**: benchmarks use fixed warmup and same-commit comparisons; judge by profile self-time, not allocation bytes.
 
+**Code organization** (`docs/code-organization.md`, binding for any new feature): files split by thread domain + state ownership (Context / Stage / Cache / Helper / Mixin shell, template in §2.4); modules are core (primitives only) → workload (one pipeline each, zero cross-workload deps) → loader shells (§3); thread-safety layer is capture → worker-pure (immutable values / read-only views only) → apply, static caches answer the four questions (§4); §5 is the new-feature landing checklist. Agent-facing copy: `.agents/skills/native-threading-architecture/`.
+
 ## Worker Phase Discipline
 
 Parallelize one subsystem operation at a time. Its worker pool may run only one

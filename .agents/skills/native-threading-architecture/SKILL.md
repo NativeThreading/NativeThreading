@@ -1,6 +1,6 @@
 ---
 name: native-threading-architecture
-description: "Hard architecture rules for the NativeThreading Minecraft mod codebase. Use whenever working on this repo — writing or reviewing mixins, touching cache/reuse code, designing threaded work, consuming RNG, adding config, deciding what to delete, or running benchmarks. Triggers: 'mixin', 'threading boundary', 'worker', 'capture', 'static cache', 'RNG', 'fallback', 'short-circuit', 'profile', '架构纪律', '重构爆炸', '优化'. Each rule came from a real incident or a measured rejection — violating one means the change does not land."
+description: "Hard architecture rules for the NativeThreading Minecraft mod codebase. Use whenever working on this repo — writing or reviewing mixins, touching cache/reuse code, designing threaded work, consuming RNG, adding config, deciding what to delete, running benchmarks, or INTRODUCING A NEW FEATURE / NEW MODULE / NEW PARALLELIZED SUBSYSTEM (file-splitting, module layout, thread-safety design). Triggers: 'mixin', 'threading boundary', 'worker', 'capture', 'static cache', 'RNG', 'fallback', 'short-circuit', 'profile', '架构纪律', '重构爆炸', '优化', '新功能', '新模块', '代码组织', '线程安全'. Each rule came from a real incident or a measured rejection — violating one means the change does not land."
 ---
 
 # NativeThreading 架构纪律
@@ -8,6 +8,18 @@ description: "Hard architecture rules for the NativeThreading Minecraft mod code
 > 硬性规则,不是建议。每条来自一次真实事故或一次实测否决。违反 = 评审不通过。
 > 人类可读权威文本:`docs/architecture-discipline.md`(仓库内,与此保持同步)。
 > 构建期自动校验:`./gradlew validateMixinDiscipline`(挂在 check,改 mixin 配置/类后跑)。
+
+## 0. 代码组织(引入新功能先读这个)
+
+引入新功能/新模块/新并行化子系统时,按 **`references/code-organization.md`** 落地:
+- 文件按**线程域 + 状态所有权**拆:Context(不可变输入快照)/ Stage(单一管线段)/
+  Cache(静态复用持有者)/ Helper(纯函数)/ Mixin(注入点薄壳),模板见文档 2.4
+- 模块三层:core(执行原语,不拥有特性)/ workload(一个特性一条管线)/ loader(壳);
+  归属过判断表,依赖单向(workload→core, workload 之间零依赖)
+- **线程安全层**:主线程捕获 → worker 纯算(只收不可变值/只读视图)→ 主线程应用;
+  worker 禁收活容器/实体/RNG/回调;Context 允许放主线程段要用的活引用但注明用途;
+  静态缓存过"四问"(谁写/谁读/何时 join/为何无竞争)
+- 新功能落地检查清单:文档第 5 节
 
 ## 1. Mixin 纪律
 
