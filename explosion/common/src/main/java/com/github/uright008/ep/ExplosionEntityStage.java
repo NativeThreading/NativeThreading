@@ -36,7 +36,7 @@ public final class ExplosionEntityStage {
     // each explosion allocates a fresh ServerExplosion, so an instance field
     // would re-initialise the lists and negate the reuse. 4096 pre-sizes the
     // 2272-entity benchmark, so the lists never grow.
-    private static final List<ExplosionHelper.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(4096);
+    private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(4096);
     private static final List<Entity> CAPTURE_REFS = new ArrayList<>(4096);
 
     private static final Logger LOGGER = LoggerFactory.getLogger("native-threading:explosion:entity");
@@ -74,18 +74,18 @@ public final class ExplosionEntityStage {
             LOGGER.error("Explosion entity capture failed; falling back to vanilla", e);
             return false;
         }
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots = captured.snapshots();
+        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = captured.snapshots();
         List<Entity> refs = captured.refs();
         if (snapshots.isEmpty()) return true;
         try {
             ENTITY_WORKER_BATCHES.incrementAndGet();
-            List<ExplosionHelper.EntityDamageResult> results =
+            List<ExplosionEntityDamageComputer.EntityDamageResult> results =
                     ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
-                            snapshot -> ExplosionHelper.computeEntityDamage(
+                            snapshot -> ExplosionEntityDamageComputer.computeEntityDamage(
                                     snapshot, centerX, centerY, centerZ, dr, worldView),
                             ParallelWorker.autoBatchSize(snapshots.size()), 5);
             for (int i = 0; i < results.size(); i++) {
-                ExplosionHelper.EntityDamageResult r = results.get(i);
+                ExplosionEntityDamageComputer.EntityDamageResult r = results.get(i);
                 if (r != null) applyEntityDamage(r, refs.get(i), ctx);
             }
         } catch (RuntimeException e) {
@@ -95,7 +95,7 @@ public final class ExplosionEntityStage {
             ENTITY_FALLBACKS.incrementAndGet();
             LOGGER.error("Explosion entity workers failed; computing damage serially", e);
             for (int i = 0; i < snapshots.size(); i++) {
-                ExplosionHelper.EntityDamageResult r = ExplosionHelper.computeEntityDamage(
+                ExplosionEntityDamageComputer.EntityDamageResult r = ExplosionEntityDamageComputer.computeEntityDamage(
                         snapshots.get(i), centerX, centerY, centerZ, dr, worldView);
                 if (r != null) applyEntityDamage(r, refs.get(i), ctx);
             }
@@ -110,7 +110,7 @@ public final class ExplosionEntityStage {
      *  hurtEntities, which iterates its collected list and still damages an
      *  entity that an earlier hit in the same blast removed. */
     private record CapturedDamage(
-            List<ExplosionHelper.EntityDamageSnapshot> snapshots,
+            List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots,
             List<Entity> refs) {}
 
     private static CapturedDamage captureEntityDamageSnapshots(
@@ -125,9 +125,9 @@ public final class ExplosionEntityStage {
         // scaffolding and powder snow vary their collision shape by the querying
         // entity; when either is present in the blast box, exposure must be
         // computed with the real entity context (vanilla-exact) per hit entity.
-        final boolean needsEntityContext = ExplosionHelper.hasEntityContextBlocks(worldView);
+        final boolean needsEntityContext = hasEntityContextBlocks(worldView);
 
-        List<ExplosionHelper.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
+        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
         List<Entity> refs = CAPTURE_REFS;
         snapshots.clear();
         refs.clear();
@@ -157,7 +157,7 @@ public final class ExplosionEntityStage {
                 knockbackMultiplier = isDefaultCalc
                         ? 1.0F : ctx.damageCalculator().getKnockbackMultiplier(entity);
                 isPrimedTnt = entity instanceof PrimedTnt;
-                exposure = ExplosionHelper.computeContextAwareExposure(
+                exposure = computeContextAwareExposure(
                         entity, ctx.center().x, ctx.center().y, ctx.center().z);
                 exposurePreset = true;
             } else if (isDefaultCalc) {
@@ -176,7 +176,7 @@ public final class ExplosionEntityStage {
                     ? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
                     : 0.0;
 
-            snapshots.add(new ExplosionHelper.EntityDamageSnapshot(entityId,
+            snapshots.add(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
                     feetX, feetY, feetZ, eyeY,
                     bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
                     shouldDamage, knockbackMultiplier, exposure, exposurePreset,
@@ -228,7 +228,7 @@ public final class ExplosionEntityStage {
         }
     };
 
-    private static void applyEntityDamage(ExplosionHelper.EntityDamageResult result, Entity entity,
+    private static void applyEntityDamage(ExplosionEntityDamageComputer.EntityDamageResult result, Entity entity,
                                           ExplosionContext ctx) {
         // Uses the capture-time reference, not a by-ID re-lookup — vanilla
         // iterates its collected entity list and applies to every member even
@@ -236,5 +236,38 @@ public final class ExplosionEntityStage {
         applyCtx = ctx;
         applyEntity = entity;
         ExplosionEntityApplication.apply(result, APPLY_TARGET);
+    }
+
+    // ── Main-thread entity helpers ───────────────────────────────────────────
+
+    private static boolean isEntityContextBlock(net.minecraft.world.level.block.Block block) {
+        return block instanceof net.minecraft.world.level.block.ScaffoldingBlock
+                || block instanceof net.minecraft.world.level.block.PowderSnowBlock
+                || block instanceof net.minecraft.world.level.block.LiquidBlock;
+    }
+
+    /** True if the flat view contains scaffolding, powder snow, or a liquid —
+     *  blocks whose collision shape depends on the querying entity context.
+     *  Scaffolding/powder-snow vary their solid shape; LiquidBlock returns a
+     *  non-empty fluid-collision shape for a living entity context but empty
+     *  for {@code (null, null)}, so a liquid would let exposure rays pass that
+     *  vanilla clip would stop. When any is present, exposure must be computed
+     *  with the real entity context (vanilla-exact). */
+    private static boolean hasEntityContextBlocks(WorldReadViewImpl worldView) {
+        net.minecraft.world.level.block.state.BlockState[] states = worldView.states();
+        for (net.minecraft.world.level.block.state.BlockState state : states) {
+            if (state != null && isEntityContextBlock(state.getBlock())) return true;
+        }
+        return false;
+    }
+
+    /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
+     *  with the real entity context (scaffolding isAbove/isDescending, powder-snow
+     *  fallDistance/boots are all resolved from the entity). Main-thread only —
+     *  touches the entity, never run on workers. */
+    private static float computeContextAwareExposure(
+            Entity entity, double centerX, double centerY, double centerZ) {
+        return net.minecraft.world.level.ServerExplosion.getSeenPercent(
+                new Vec3(centerX, centerY, centerZ), entity);
     }
 }

@@ -12,7 +12,7 @@ class ExplosionEntityApplicationTest {
     @Test
     void appliesDamageThenPushThenBookkeepingThenHit() {
         List<String> calls = new ArrayList<>();
-        ExplosionHelper.EntityDamageResult result = new ExplosionHelper.EntityDamageResult(1, 4.0F, 2.0, 0.0, 0.0);
+        ExplosionEntityDamageComputer.EntityDamageResult result = new ExplosionEntityDamageComputer.EntityDamageResult(1, 4.0F, 2.0, 0.0, 0.0);
 
         ExplosionEntityApplication.apply(result, new ExplosionEntityApplication.Target() {
             @Override

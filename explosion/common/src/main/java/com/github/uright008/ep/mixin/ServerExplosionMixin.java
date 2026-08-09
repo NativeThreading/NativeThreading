@@ -4,7 +4,7 @@ import com.github.uright008.ep.ExplosionBlockStage;
 import com.github.uright008.ep.ExplosionChunkGridCache;
 import com.github.uright008.ep.ExplosionContext;
 import com.github.uright008.ep.ExplosionEntityStage;
-import com.github.uright008.ep.ExplosionHelper;
+import com.github.uright008.ep.ExplosionRayParams;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.WorldReadViewImpl;
@@ -75,7 +75,7 @@ public abstract class ServerExplosionMixin {
             // nextFloat) and let hurtEntities run vanilla-exact afterwards.
             // Entity damage is unaffected; the empty list only zeroes the
             // client blockCount, which weights explosion particles.
-            this.level.getRandom().consumeCount(ExplosionHelper.RAY_PARAMS.size());
+            this.level.getRandom().consumeCount(ExplosionRayParams.RAY_PARAMS.size());
             cir.setReturnValue(java.util.Collections.emptyList());
             return;
         }

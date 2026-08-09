@@ -11,9 +11,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Differential test for the explosion flat-view ray paths in
- * {@link ExplosionHelper}.
+ * {@link ExplosionRayCast}.
  *
- * <p>{@link ExplosionHelper#rayIntersectsBlockFlatFast} walks the raw
+ * <p>{@link ExplosionRayCast#rayIntersectsBlockFlatFast} walks the raw
  * {@code states[]} array with incremental index updates and must return
  * bit-identical booleans to the reference DDA
  * ({@code rayIntersectsBlockFlatSlow}) and to the dispatcher
@@ -35,9 +35,9 @@ class ExplosionRayFlatDifferentialTest {
                     double tx, double ty, double tz, WorldReadViewImpl view);
     }
 
-    private static final RayTracer SLOW = ExplosionHelper::rayIntersectsBlockFlatSlow;
-    private static final RayTracer FAST = ExplosionHelper::rayIntersectsBlockFlatFast;
-    private static final RayTracer DISPATCHER = ExplosionHelper::rayIntersectsBlockFlat;
+    private static final RayTracer SLOW = ExplosionRayCast::rayIntersectsBlockFlatSlow;
+    private static final RayTracer FAST = ExplosionRayCast::rayIntersectsBlockFlatFast;
+    private static final RayTracer DISPATCHER = ExplosionRayCast::rayIntersectsBlockFlat;
 
     // ── Fixture: deterministic 31×41×41 grid with obstacles ──
 
@@ -168,7 +168,7 @@ class ExplosionRayFlatDifferentialTest {
         assertThat(dispatcher).as(ray + " dispatcher").isEqualTo(slow);
         // The raw fast path is only defined inside the view bounds; the
         // dispatcher routes to it exactly when rayWithinBounds holds.
-        if (ExplosionHelper.rayWithinBounds(view, fx, fy, fz, tx, ty, tz)) {
+        if (ExplosionRayCast.rayWithinBounds(view, fx, fy, fz, tx, ty, tz)) {
             boolean fast = FAST.hit(fx, fy, fz, tx, ty, tz, view);
             assertThat(fast).as(ray + " fast path").isEqualTo(slow);
         }
@@ -205,7 +205,7 @@ class ExplosionRayFlatDifferentialTest {
         double cx = 20.0, cy = 60.0, cz = 55.0; // center on the wall plane
 
         // Entity box entirely inside the view, on the near side of the wall.
-        ExplosionHelper.EntityDamageSnapshot inBounds =
+        ExplosionEntityDamageComputer.EntityDamageSnapshot inBounds =
                 snapshot(16.0, 55.0, 48.0, 24.0, 63.0, 54.0);
 
         float slow = seenPercent(inBounds, cx, cy, cz, view, SLOW);
@@ -216,19 +216,19 @@ class ExplosionRayFlatDifferentialTest {
 
         // Production getSeenPercentFromFlatView goes through the dispatcher; the
         // resulting damage/knockback must equal a slow-only exposure end to end.
-        ExplosionHelper.EntityDamageSnapshot damageSnapshot = new ExplosionHelper.EntityDamageSnapshot(
+        ExplosionEntityDamageComputer.EntityDamageSnapshot damageSnapshot = new ExplosionEntityDamageComputer.EntityDamageSnapshot(
                 42,
                 19.0, 55.5, 49.5, 60.0,
                 16.0, 55.0, 48.0, 24.0, 63.0, 54.0,
                 true, 1.0F, 0.0F, false, 0.0);
-        ExplosionHelper.EntityDamageResult viaView = ExplosionHelper.computeEntityDamage(
+        ExplosionEntityDamageComputer.EntityDamageResult viaView = ExplosionEntityDamageComputer.computeEntityDamage(
                 damageSnapshot, cx, cy, cz, 32.0F, view);
-        ExplosionHelper.EntityDamageSnapshot withSlowExposure = new ExplosionHelper.EntityDamageSnapshot(
+        ExplosionEntityDamageComputer.EntityDamageSnapshot withSlowExposure = new ExplosionEntityDamageComputer.EntityDamageSnapshot(
                 42,
                 19.0, 55.5, 49.5, 60.0,
                 16.0, 55.0, 48.0, 24.0, 63.0, 54.0,
                 true, 1.0F, slow, true, 0.0);
-        ExplosionHelper.EntityDamageResult viaSlowExposure = ExplosionHelper.computeEntityDamage(
+        ExplosionEntityDamageComputer.EntityDamageResult viaSlowExposure = ExplosionEntityDamageComputer.computeEntityDamage(
                 withSlowExposure, cx, cy, cz, 32.0F, view);
         assertThat(viaView.damage()).isEqualTo(viaSlowExposure.damage());
         assertThat(viaView.kbX()).isEqualTo(viaSlowExposure.kbX());
@@ -244,7 +244,7 @@ class ExplosionRayFlatDifferentialTest {
         // Box straddles the view's minZ=20 plane: near-side samples fall back to
         // slow, far-side samples take the fast path. The mixed fraction must
         // equal the all-slow fraction.
-        ExplosionHelper.EntityDamageSnapshot straddling =
+        ExplosionEntityDamageComputer.EntityDamageSnapshot straddling =
                 snapshot(18.0, 50.0, 15.0, 26.0, 58.0, 21.0);
 
         float slow = seenPercent(straddling, cx, cy, cz, view, SLOW);
@@ -253,11 +253,11 @@ class ExplosionRayFlatDifferentialTest {
     }
 
     /**
-     * Verbatim replica of {@code ExplosionHelper.getSeenPercentFromFlatView}'s
+     * Verbatim replica of {@code ExplosionExposureComputer.getSeenPercentFromFlatView}'s
      * sampling loop, parameterized by the ray function, so the production
      * exposure can be compared across the fast, slow, and dispatcher paths.
      */
-    private static float seenPercent(ExplosionHelper.EntityDamageSnapshot snapshot,
+    private static float seenPercent(ExplosionEntityDamageComputer.EntityDamageSnapshot snapshot,
                                      double centerX, double centerY, double centerZ,
                                      WorldReadViewImpl view, RayTracer ray) {
         double minX = snapshot.minX(), maxX = snapshot.maxX();
@@ -283,7 +283,7 @@ class ExplosionRayFlatDifferentialTest {
                     // here so SLOW/FAST (which receive backoffed coords) and
                     // the dispatcher (which re-applies it harmlessly at 1e-14
                     // scale) all compare on the same cell sequence.
-                    double[] b = ExplosionHelper.backoffEndpoints(
+                    double[] b = ExplosionRayCast.backoffEndpoints(
                             sx, sy, sz, centerX, centerY, centerZ);
                     if (!ray.hit(b[0], b[1], b[2], b[3], b[4], b[5], view)) hits++;
                     count++;
@@ -293,9 +293,9 @@ class ExplosionRayFlatDifferentialTest {
         return (float) hits / count;
     }
 
-    private static ExplosionHelper.EntityDamageSnapshot snapshot(
+    private static ExplosionEntityDamageComputer.EntityDamageSnapshot snapshot(
             double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
-        return new ExplosionHelper.EntityDamageSnapshot(
+        return new ExplosionEntityDamageComputer.EntityDamageSnapshot(
                 42, 0.0, 0.0, 0.0, 0.0,
                 minX, minY, minZ, maxX, maxY, maxZ,
                 false, 0.0F, 0.0F, false, 0.0);
@@ -314,7 +314,7 @@ class ExplosionRayFlatDifferentialTest {
             BlockState s = states[i];
             shapes[i] = s.isAir() ? null : s.getCollisionShape(null, null);
         }
-        double[][] boxes = ExplosionHelper.flattenShapeBoxes(states, shapes, states.length);
+        double[][] boxes = ExplosionShapeBoxes.flattenShapeBoxes(states, shapes, states.length);
         return new WorldReadViewImpl(states, shapes, boxes,
                 MIN_X, MIN_Y, MIN_Z, MAX_X, MAX_Y, MAX_Z, STRIDE_Y, STRIDE_Z);
     }
@@ -343,7 +343,7 @@ class ExplosionRayFlatDifferentialTest {
                 view.shapes()[index(20, 60, 30)].clip(from, to, new BlockPos(20, 60, 30));
 
         // NT fast path with precomputed per-box shapes.
-        boolean flatHit = ExplosionHelper.rayIntersectsBlockFlatFast(
+        boolean flatHit = ExplosionRayCast.rayIntersectsBlockFlatFast(
                 fx, gapY, fz, tx, gapY, tz, view);
 
         assertThat(flatHit).as("flat per-box path must agree with vanilla clip").isEqualTo(vanillaHit != null);

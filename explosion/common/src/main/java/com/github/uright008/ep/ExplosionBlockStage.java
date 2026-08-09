@@ -67,7 +67,7 @@ public final class ExplosionBlockStage {
     private ExplosionBlockStage() {}
 
     public static Result compute(ExplosionContext ctx, ChunkGrid chunkGrid) {
-        List<ExplosionHelper.RayParam> rays = ExplosionHelper.RAY_PARAMS;
+        List<ExplosionRayParams.RayParam> rays = ExplosionRayParams.RAY_PARAMS;
         int rayCount = rays.size();
         int cpuCores = Runtime.getRuntime().availableProcessors();
         int numThreads = Math.min(ParallelThreadPool.getParallelism(), Math.min(cpuCores, Math.max(2, rayCount / 64)));
@@ -117,7 +117,7 @@ public final class ExplosionBlockStage {
         // never touch BlockState objects; the box table alone drives the DDA.
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
                 flatBlocks, null,
-                ExplosionHelper.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
+                ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
                 minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
 
         final ServerExplosion self = ctx.self();
@@ -209,7 +209,7 @@ public final class ExplosionBlockStage {
      *  flooring each step — identical to ServerExplosion.calculateExplodedPositions.
      *  Step uses the precomputed direction*0.3F (vanilla's 0.3F, not the
      *  double literal 0.3) so accumulation matches bit for bit. */
-    private static void traceRay(ExplosionHelper.RayParam ray, int rayIndex,
+    private static void traceRay(ExplosionRayParams.RayParam ray, int rayIndex,
                                  BitSet grid, int minX, int minY, int minZ,
                                  int maxX, int maxY, int maxZ, WorldReadViewImpl worldView,
                                  int strideY, int strideZ,
@@ -221,7 +221,7 @@ public final class ExplosionBlockStage {
         float remainingPower = initialPower;
         final int gMinX = minX, gMinY = minY, gMinZ = minZ;
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
-        final int MAX = ExplosionHelper.rayMaxSteps(radius);
+        final int MAX = ExplosionRayCast.rayMaxSteps(radius);
         final int strideY_ = strideY, strideZ_ = strideZ;
         final BlockPos.MutableBlockPos pos = WORKER_POS.get();
 

@@ -6,7 +6,7 @@ public final class ExplosionEntityApplication {
     private ExplosionEntityApplication() {
     }
 
-    public static void apply(ExplosionHelper.EntityDamageResult result, Target target) {
+    public static void apply(ExplosionEntityDamageComputer.EntityDamageResult result, Target target) {
         if (result.damage() > 0.0F) {
             target.hurt(result.damage());
         }

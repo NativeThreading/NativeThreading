@@ -16,12 +16,12 @@ class ExplosionEntityDamageComputationTest {
         // exposurePreset=true: exposure comes from the snapshot, so the
         // worldView is never consulted — pass null to keep this a pure
         // primitive test (no Minecraft Blocks/registries bootstrap).
-        ExplosionHelper.EntityDamageSnapshot snapshot = new ExplosionHelper.EntityDamageSnapshot(
+        ExplosionEntityDamageComputer.EntityDamageSnapshot snapshot = new ExplosionEntityDamageComputer.EntityDamageSnapshot(
                 42, 2.0, 0.0, 0.0, 0.0,
                 1.5, -0.5, -0.5, 2.5, 0.5, 0.5,
                 true, 1.0F, 1.0F, true, 0.0);
 
-        ExplosionHelper.EntityDamageResult result = ExplosionHelper.computeEntityDamage(
+        ExplosionEntityDamageComputer.EntityDamageResult result = ExplosionEntityDamageComputer.computeEntityDamage(
                 snapshot, 0.0, 0.0, 0.0, 4.0F, null);
 
         assertThat(result.entityId()).isEqualTo(42);
@@ -33,13 +33,13 @@ class ExplosionEntityDamageComputationTest {
 
     @Test
     void workerRecordsContainNoLiveEntities() {
-        assertThat(Arrays.stream(ExplosionHelper.EntityDamageSnapshot.class.getRecordComponents())
+        assertThat(Arrays.stream(ExplosionEntityDamageComputer.EntityDamageSnapshot.class.getRecordComponents())
                 .map(component -> component.getType()))
                 .allMatch(type -> type != Entity.class
                         && type != Level.class
                         && type != BlockState.class
                         && type != VoxelShape.class);
-        assertThat(Arrays.stream(ExplosionHelper.EntityDamageResult.class.getRecordComponents())
+        assertThat(Arrays.stream(ExplosionEntityDamageComputer.EntityDamageResult.class.getRecordComponents())
                 .map(component -> component.getType()))
                 .allMatch(type -> type != Entity.class
                         && type != Level.class
