@@ -27,12 +27,7 @@ public final class ExplosionChunkGridCache {
     /** Returns a grid covering the blast's section range, reusing the cached
      *  one when the blast is in the same level and inside the covered range. */
     public static ChunkGrid forExplosion(ExplosionContext ctx) {
-        // Same coverage bound as ChunkGrid's constructor (float math), so the
-        // needed section range matches the grid's actual coverage.
-        int reach = (int) Math.ceil(Math.ceil(ctx.radius() * 1.3F / 0.22500001F) * 0.3F);
-        int entityReach = (int) Math.ceil(ctx.radius() * 2.0F + 1.0F);
-        int bound = Math.max(reach, entityReach);
-        int range = (int) Math.ceil(bound / 16.0) + 1;
+        int range = ExplosionRayBounds.sectionRange(ctx.radius());
         int scx = SectionPos.blockToSectionCoord((int) Math.floor(ctx.center().x));
         int scz = SectionPos.blockToSectionCoord((int) Math.floor(ctx.center().z));
         int needMinX = scx - range, needMaxX = scx + range;
@@ -45,7 +40,7 @@ public final class ExplosionChunkGridCache {
                 && needMinZ >= cached.minSectionZ && needMaxZ <= cached.minSectionZ + cached.sizeZ - 1) {
             return cached.grid;
         }
-        ChunkGrid grid = new ChunkGrid(ctx.level(), ctx.center().x, ctx.center().z, ctx.radius());
+        ChunkGrid grid = new ChunkGrid(ctx.level(), scx, scz, range);
         CACHE.set(new CachedGrid(ctx.level(), grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
         return grid;
     }

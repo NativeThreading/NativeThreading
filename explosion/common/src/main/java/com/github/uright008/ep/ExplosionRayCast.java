@@ -13,7 +13,7 @@ public final class ExplosionRayCast {
      *  needed to walk the region reach, plus one so the ray terminates on or
      *  past the boundary exactly as vanilla's power-decay loop would. */
     public static int rayMaxSteps(float radius) {
-        int reach = (int) Math.ceil(Math.ceil(radius * 1.3F / 0.22500001F) * 0.3);
+        int reach = ExplosionRayBounds.blockReach(radius);
         return (int) Math.ceil(reach / 0.3) + 1;
     }
 

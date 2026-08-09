@@ -2,13 +2,10 @@ package com.github.uright008.pc;
 
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
 public final class ChunkGrid {
@@ -27,21 +24,15 @@ public final class ChunkGrid {
     private final int sizeZ;
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
-    public ChunkGrid(ServerLevel level, double centerX, double centerZ, float radius) {
-        int scx = SectionPos.blockToSectionCoord((int) Math.floor(centerX));
-        int scz = SectionPos.blockToSectionCoord((int) Math.floor(centerZ));
-        // Must cover the explosion flat view, which spans max(ray reach, entity
-        // box 2r+1) around the center — otherwise cells at the view edge read
-        // AIR and rays/exposure DDA march through unloaded blocks. Same bound
-        // formula as ExplosionRayBounds.forExplosion (float math).
-        int reach = (int) Math.ceil(Math.ceil(radius * 1.3F / 0.22500001F) * 0.3F);
-        int entityReach = (int) Math.ceil(radius * 2.0F + 1.0F);
-        int bound = Math.max(reach, entityReach);
-        int range = (int) Math.ceil(bound / 16.0) + 1;
+    /** Builds a grid of {@code (2*range+1)²} sections centered on the given
+     *  section coordinate. The caller decides the range (the explosion reach,
+     *  computed once in {@code ExplosionRayBounds.sectionRange}) so the
+     *  coverage physics lives in one place. */
+    public ChunkGrid(ServerLevel level, int centerSectionX, int centerSectionZ, int range) {
         this.sizeX = range * 2 + 1;
         this.sizeZ = range * 2 + 1;
-        this.minSectionX = scx - range;
-        this.minSectionZ = scz - range;
+        this.minSectionX = centerSectionX - range;
+        this.minSectionZ = centerSectionZ - range;
         int totalChunks = sizeX * sizeZ;
         this.chunks = new ChunkAccess[totalChunks];
         this.sections = new LevelChunkSection[totalChunks][];
@@ -75,14 +66,6 @@ public final class ChunkGrid {
         }
     }
 
-    @Nullable
-    public ChunkAccess getChunk(int sectionX, int sectionZ) {
-        int gx = sectionX - minSectionX;
-        int gz = sectionZ - minSectionZ;
-        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return null;
-        return chunks[gx * sizeZ + gz];
-    }
-
     public BlockState getBlockState(int sectionX, int sectionZ, int blockY, int localX, int localY, int localZ) {
         int gx = sectionX - minSectionX;
         int gz = sectionZ - minSectionZ;
@@ -104,30 +87,6 @@ public final class ChunkGrid {
             chunkSections[secIdx] = section;
         }
         return section != null ? section.getBlockState(localX, localY, localZ) : AIR;
-    }
-
-    @Nullable
-    public LevelChunkSection getSection(int sectionX, int sectionZ, int blockY) {
-        int gx = sectionX - minSectionX;
-        int gz = sectionZ - minSectionZ;
-        if (gx < 0 || gx >= sizeX || gz < 0 || gz >= sizeZ) return null;
-
-        int idx = gx * sizeZ + gz;
-        ChunkAccess chunk = chunks[idx];
-        if (chunk == null) return null;
-
-        int secIdx = SectionPos.blockToSectionCoord(blockY) - minSections[idx];
-        if (secIdx < 0) return null;
-
-        LevelChunkSection[] chunkSections = sections[idx];
-        if (chunkSections == null || secIdx >= chunkSections.length) return null;
-
-        LevelChunkSection section = chunkSections[secIdx];
-        if (section == null) {
-            section = chunk.getSection(secIdx);
-            chunkSections[secIdx] = section;
-        }
-        return section;
     }
 
     public void getSection(int sectionX, int sectionZ, int blockY, SectionRef out) {
@@ -169,108 +128,4 @@ public final class ChunkGrid {
         out.chunk = chunk;
         out.section = section;
     }
-
-    public boolean rayIntersectsBlock(double fx, double fy, double fz,
-                                       double tx, double ty, double tz) {
-        double dx = tx - fx, dy = ty - fy, dz = tz - fz;
-        double lenSq = dx * dx + dy * dy + dz * dz;
-        if (lenSq < 1.0E-7) return false;
-
-        int stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
-        int stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
-        int stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
-        double tDeltaX = stepX != 0 ? stepX / dx : Double.MAX_VALUE;
-        double tDeltaY = stepY != 0 ? stepY / dy : Double.MAX_VALUE;
-        double tDeltaZ = stepZ != 0 ? stepZ / dz : Double.MAX_VALUE;
-        double tMaxX = tDeltaX * (stepX > 0 ? 1.0 - Mth.frac(fx) : Mth.frac(fx));
-        double tMaxY = tDeltaY * (stepY > 0 ? 1.0 - Mth.frac(fy) : Mth.frac(fy));
-        double tMaxZ = tDeltaZ * (stepZ > 0 ? 1.0 - Mth.frac(fz) : Mth.frac(fz));
-        int x = Mth.floor(fx), y = Mth.floor(fy), z = Mth.floor(fz);
-        int endX = Mth.floor(tx), endY = Mth.floor(ty), endZ = Mth.floor(tz);
-        int cx = SectionPos.blockToSectionCoord(x);
-        int cz = SectionPos.blockToSectionCoord(z);
-
-        // Cache chunk index and section index across DDA steps
-        int gx = cx - minSectionX, gz = cz - minSectionZ;
-        int idx = gx * sizeZ + gz;
-        int prevCx = cx, prevCz = cz;
-        int secIdx = -1;
-        LevelChunkSection section = null;
-
-        while (true) {
-            if (stepX > 0 ? x > endX : (stepX < 0 ? x < endX : false)) break;
-            if (stepY > 0 ? y > endY : (stepY < 0 ? y < endY : false)) break;
-            if (stepZ > 0 ? z > endZ : (stepZ < 0 ? z < endZ : false)) break;
-
-            // Update chunk index when crossing chunk boundary
-            if (cx != prevCx || cz != prevCz) {
-                gx = cx - minSectionX; gz = cz - minSectionZ;
-                idx = gx * sizeZ + gz;
-                secIdx = -1; // invalidate section cache
-                prevCx = cx; prevCz = cz;
-            }
-
-            // Update section when y changes
-            int newSecIdx = SectionPos.blockToSectionCoord(y) - minSections[idx];
-            if (newSecIdx != secIdx) {
-                secIdx = newSecIdx;
-                LevelChunkSection[] chunkSections = sections[idx];
-                section = (chunkSections != null && secIdx >= 0 && secIdx < chunkSections.length)
-                        ? chunkSections[secIdx] : null;
-            }
-
-            BlockState state = section != null ? section.getBlockState(x & 15, y & 15, z & 15) : AIR;
-            if (!state.isAir()) {
-                VoxelShape shape = state.getCollisionShape(null, null);
-                if (shape == Shapes.block()) {
-                    if (rayAabbIntersects(fx, fy, fz, tx, ty, tz, x, y, z, x + 1.0, y + 1.0, z + 1.0))
-                        return true;
-                } else if (!shape.isEmpty()) {
-                    net.minecraft.world.phys.AABB bb = shape.bounds();
-                    if (rayAabbIntersects(fx, fy, fz, tx, ty, tz, bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ))
-                        return true;
-                }
-            }
-
-            if (tMaxX < tMaxY) {
-                if (tMaxX < tMaxZ) { if (stepX == 0) break; x += stepX; cx = SectionPos.blockToSectionCoord(x); tMaxX += tDeltaX; }
-                else                { if (stepZ == 0) break; z += stepZ; cz = SectionPos.blockToSectionCoord(z); tMaxZ += tDeltaZ; }
-            } else {
-                if (tMaxY < tMaxZ) { if (stepY == 0) break; y += stepY; tMaxY += tDeltaY; }
-                else                { if (stepZ == 0) break; z += stepZ; cz = SectionPos.blockToSectionCoord(z); tMaxZ += tDeltaZ; }
-            }
-        }
-        return false;
-    }
-
-    private static boolean rayAabbIntersects(double fx, double fy, double fz,
-                                              double tx, double ty, double tz,
-                                              double minX, double minY, double minZ,
-                                              double maxX, double maxY, double maxZ) {
-        double dirX = tx - fx, dirY = ty - fy, dirZ = tz - fz;
-        double min = 0.0, max = 1.0;
-        if (dirX == 0) { if (fx < minX || fx > maxX) return false; }
-        else {
-            double n = (minX - fx) / dirX, f = (maxX - fx) / dirX;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        if (dirY == 0) { if (fy < minY || fy > maxY) return false; }
-        else {
-            double n = (minY - fy) / dirY, f = (maxY - fy) / dirY;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        if (dirZ == 0) { if (fz < minZ || fz > maxZ) return false; }
-        else {
-            double n = (minZ - fz) / dirZ, f = (maxZ - fz) / dirZ;
-            if (n > f) { double t = n; n = f; f = t; }
-            if (n > min) min = n; if (f < max) max = f;
-            if (min > max) return false;
-        }
-        return true;
-    }
-
 }

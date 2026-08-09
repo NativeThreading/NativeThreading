@@ -1,6 +1,7 @@
 package com.github.uright008.ep;
 
 import com.github.uright008.pc.ChunkGrid;
+import net.minecraft.core.SectionPos;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -18,7 +19,9 @@ public final class ExplosionFlatViewParityGameTest {
         helper.setBlock(new BlockPos(12, 3, 12), Blocks.OBSIDIAN.defaultBlockState());
 
         var level = helper.getLevel();
-        ChunkGrid grid = new ChunkGrid(level, 8.0, 8.0, 8.0F);
+        ChunkGrid grid = new ChunkGrid(level,
+                SectionPos.blockToSectionCoord(8), SectionPos.blockToSectionCoord(8),
+                ExplosionRayBounds.sectionRange(8.0F));
 
         int minX = 5, minY = 0, minZ = 5;
         int maxX = 12, maxY = 5, maxZ = 12;
@@ -51,7 +54,9 @@ public final class ExplosionFlatViewParityGameTest {
         helper.setBlock(new BlockPos(40, 52, 40), Blocks.OBSIDIAN.defaultBlockState());
 
         var level = helper.getLevel();
-        ChunkGrid grid = new ChunkGrid(level, 32.0, 32.0, 16.0F);
+        ChunkGrid grid = new ChunkGrid(level,
+                SectionPos.blockToSectionCoord(32), SectionPos.blockToSectionCoord(32),
+                ExplosionRayBounds.sectionRange(16.0F));
 
         int minX = 20, minY = 40, minZ = 20;
         int maxX = 44, maxY = 60, maxZ = 44;
