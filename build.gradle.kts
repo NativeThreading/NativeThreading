@@ -21,8 +21,7 @@ val modName = providers.gradleProperty("archives_base_name").get()
 // ── Architecture discipline (docs/architecture-discipline.md M2/M4) ───────
 // M4: every *.mixins.json must be strict JSON (no trailing commas) and every
 // listed class must exist as a source file. M2: mixin classes over 250 lines
-// are reported (hard fail once the pipeline split lands and
-// ServerExplosionMixin is under budget).
+// are a hard failure (split into implementation classes).
 val mixinConfigFiles = fileTree(rootDir) {
     include("*/fabric/src/main/resources/**/*.mixins.json")
     include("*/neoforge/src/main/resources/**/*.mixins.json")
@@ -34,7 +33,6 @@ tasks.register("validateMixinDiscipline") {
     inputs.files(mixinConfigFiles)
     doLast {
         val errors = mutableListOf<String>()
-        val warnings = mutableListOf<String>()
         val slurper = groovy.json.JsonSlurper()
         for (json in mixinConfigFiles) {
             val text = json.readText()
@@ -57,12 +55,11 @@ tasks.register("validateMixinDiscipline") {
                 } else {
                     val lines = source.readLines().size
                     if (lines > 250) {
-                        warnings += "$relPath: $lines lines > 250 (M2: split into implementation classes)"
+                        errors += "$relPath: $lines lines > 250 (M2: mixin must be injection-only, split into implementation classes)"
                     }
                 }
             }
         }
-        warnings.forEach { logger.warn(it) }
         if (errors.isNotEmpty()) {
             throw GradleException("Architecture discipline violations:\n" + errors.joinToString("\n"))
         }
