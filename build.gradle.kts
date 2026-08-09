@@ -18,6 +18,60 @@ fun gitVersion(): String {
 val modVersion = gitVersion()
 val modName = providers.gradleProperty("archives_base_name").get()
 
+// ── Architecture discipline (docs/architecture-discipline.md M2/M4) ───────
+// M4: every *.mixins.json must be strict JSON (no trailing commas) and every
+// listed class must exist as a source file. M2: mixin classes over 250 lines
+// are reported (hard fail once the pipeline split lands and
+// ServerExplosionMixin is under budget).
+val mixinConfigFiles = fileTree(rootDir) {
+    include("*/fabric/src/main/resources/**/*.mixins.json")
+    include("*/neoforge/src/main/resources/**/*.mixins.json")
+}
+
+tasks.register("validateMixinDiscipline") {
+    group = "verification"
+    description = "Architecture discipline M2/M4: strict mixin JSON, classes exist, size budget"
+    inputs.files(mixinConfigFiles)
+    doLast {
+        val errors = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
+        val slurper = groovy.json.JsonSlurper()
+        for (json in mixinConfigFiles) {
+            val text = json.readText()
+            if (Regex(",\\s*[\\]}]").containsMatchIn(text)) {
+                errors += "${json.relativeTo(rootDir).path}: trailing comma before ] or }"
+            }
+            val root = try {
+                slurper.parseText(text) as Map<*, *>
+            } catch (e: Exception) {
+                errors += "${json.relativeTo(rootDir).path}: unparseable JSON: ${e.message}"
+                continue
+            }
+            val pkg = root["package"] as String
+            for (m in (root["mixins"] as List<*>)) {
+                val cls = m as String
+                val relPath = (pkg + "." + cls).replace('.', '/') + ".java"
+                val source = fileTree(rootDir) { include("**/" + relPath) }.files.firstOrNull()
+                if (source == null) {
+                    errors += "${json.relativeTo(rootDir).path}: listed class ${pkg}.$cls has no source file"
+                } else {
+                    val lines = source.readLines().size
+                    if (lines > 250) {
+                        warnings += "$relPath: $lines lines > 250 (M2: split into implementation classes)"
+                    }
+                }
+            }
+        }
+        warnings.forEach { logger.warn(it) }
+        if (errors.isNotEmpty()) {
+            throw GradleException("Architecture discipline violations:\n" + errors.joinToString("\n"))
+        }
+    }
+}
+tasks.named("check") {
+    dependsOn("validateMixinDiscipline")
+}
+
 tasks.register<Jar>("releaseJar") {
     dependsOn(":fabric:jar")
     archiveBaseName = modName
