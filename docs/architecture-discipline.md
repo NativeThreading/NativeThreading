@@ -2,6 +2,9 @@
 
 > 本文件是代码库必须遵守的硬性规则,不是建议。每条规则都来自一次真实事故或一次实测否决。
 > 违反 = 评审不通过。Agent 与维护者都以本文件为最高代码标准(仅次于 AGENTS.md 的线程边界)。
+>
+> **同步约定**:agent 侧版本在 `.agents/skills/native-threading-architecture/SKILL.md`。
+> 修改纪律时两处必须同步(或改一处后同步另一处),否则 agent 与评审者会看到不一致的规则。
 
 ## 1. Mixin 纪律
 
