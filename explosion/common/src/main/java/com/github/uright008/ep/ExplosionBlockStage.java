@@ -99,7 +99,8 @@ public final class ExplosionBlockStage {
         int perWorker = rayCount / numThreads;
         int extra = rayCount % numThreads;
         record RayRange(int start, int end, BitSet grid) {}
-        List<RayRange> ranges = new ArrayList<>(numThreads);
+        // numThreads entries exactly — +1 avoids the final full-capacity grow.
+        List<RayRange> ranges = new ArrayList<>(numThreads + 1);
         for (int t = 0; t < numThreads; t++) {
             int start = t * perWorker + Math.min(t, extra);
             int end = start + perWorker + (t < extra ? 1 : 0);
