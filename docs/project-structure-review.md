@@ -14,7 +14,7 @@ NativeThreading/
 │   └── neoforge/    # 平台壳
 ├── explosion/       # 爆炸 workload 管线
 │   ├── common/      # 管线实现 (ep.*: Helper/FlatView/Config/Command)
-│   │   └── mixin/   # 1 个 626 行大 mixin (ServerExplosionMixin)
+│   │   └── mixin/   # 薄 mixin (130 行, 只做注入点)
 │   ├── fabric/
 │   └── neoforge/
 ├── fabric/          # 聚合 loader
@@ -33,10 +33,10 @@ NativeThreading/
 
 | | 现状 | 参考实践 |
 |---|---|---|
-| ServerExplosionMixin | **626 行**,承载整条管线 | Lithium 的 mixin 只做"注入点",逻辑全在 `common/` 实现类 |
+| ServerExplosionMixin | **130 行薄壳**(拆前 626 行承载整条管线,已迁至 ExplosionBlockStage/EntityStage) | Lithium 的 mixin 只做"注入点",逻辑全在 `common/` 实现类 |
 | 逻辑位置 | 一半在 mixin 类里 | FerriteCore: mixin 薄 + `impl/` 静态类 + `ducks/` 接口三件套 |
 
-**问题**:mixin 类不可单测(需 MC 运行时)、不可复用;626 行里既有注入点又有管线逻辑,review 和测试都难。
+**状态**:已按此方向拆分——管线逻辑迁入 `ep` 包 stage 类,mixin 只留注入点(commit 90b47f2/b1c194a)。
 **方向**:把管线逻辑抽到 `ep` 包(如 `ExplosionPipeline`),mixin 只留注入 + 组装。
 
 ### 2.2 mixin 粒度
@@ -94,7 +94,7 @@ NativeThreading/
 ## 5. 结论
 
 NT 的**模块划分、common/壳分离、线程边界、测试纪律**已对齐参考项目的主流实践;
-最大差距是 **mixin 厚度**(626 行大 mixin 承载管线逻辑)——这是下一步重构的重点;
+最大差距曾是 **mixin 厚度**(626 行大 mixin 承载管线逻辑)——已拆分(90b47f2/b1c194a),M2 校验转 hard fail 兜底;
 配置粒度、平台抽象在**当前规模下不是瓶颈**,不必照搬参考项目的复杂度。
 
 (参考仓库: `/tmp/ref-mods/{lithium-fabric,C2ME-fabric,ferrite-core}`,本分析基于 shallow clone 源码勘察)
