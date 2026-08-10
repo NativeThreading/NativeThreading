@@ -27,16 +27,6 @@ chore(build): update Gradle
 - Register mixins in a module-level `*.mixins.json`.
 - Register fabric entrypoint in `fabric/src/main/resources/fabric.mod.json` under `"provides"`.
 
-## Testing
-
-Benchmark via spark profiler:
-
-```bash
-cd ~/fabric-server && python quick-test.py --combo native --duration 60
-```
-
-Results in `~/fabric-server/bench-results/`.
-
 ## License
 
 By contributing you agree your code is licensed under MIT.
