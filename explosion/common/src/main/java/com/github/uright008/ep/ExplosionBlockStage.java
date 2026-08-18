@@ -49,6 +49,16 @@ public final class ExplosionBlockStage {
     private static final AtomicReference<BlockState[]> FLAT_BLOCKS_CACHE = new AtomicReference<>();
     private static final AtomicReference<double[][]> SHAPE_BOXES_CACHE = new AtomicReference<>();
     private static final AtomicReference<float[]> RAY_POWERS_CACHE = new AtomicReference<>();
+    // Captured entity-callback tables for entity-caused (Tier B) blasts, where
+    // the source's getBlockExplosionResistance/shouldBlockExplode can read the
+    // live Level (MinecartTNT's rail check). Filled on the main thread from the
+    // captured flat view; workers read them read-only, so the live Level and the
+    // entity never cross the worker boundary. Same four-question contract as the
+    // buffers above: written on the main thread, read by workers + main-thread
+    // serial retrace, workers joined before set-back, blasts serial on the main
+    // thread make reuse race-free.
+    private static final AtomicReference<float[]> ENTITY_RESISTANCE_DELTAS_CACHE = new AtomicReference<>();
+    private static final AtomicReference<boolean[]> ENTITY_EXPLODE_DECISIONS_CACHE = new AtomicReference<>();
     // One mutable pos per worker thread (traceRay is called ~1352× per
     // explosion); avoids allocating 11k+ MutableBlockPos per tick.
     private static final ThreadLocal<BlockPos.MutableBlockPos> WORKER_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
@@ -123,28 +133,39 @@ public final class ExplosionBlockStage {
 
         final ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
+        // Non-null only for entity-caused (Tier B) blasts: the source's
+        // getBlockExplosionResistance/shouldBlockExplode decisions, captured on
+        // the main thread against the flat view so workers never touch the live
+        // Level or the entity (T2). null keeps the pure static Tier A path.
+        final float[] entityResistanceDeltas;
+        final boolean[] entityExplodeDecisions;
         final ResistanceCalculator resistanceCalc;
         final BlockExplodeDecider explodeDecider;
 
         if (isDefaultCalc) {
+            entityResistanceDeltas = null;
+            entityExplodeDecisions = null;
             resistanceCalc = DEFAULT_RESISTANCE_CALC;
             explodeDecider = DEFAULT_EXPLODE_DECIDER;
         } else if (ctx.damageCalculator() instanceof net.minecraft.world.level.EntityBasedExplosionDamageCalculator
                 && ctx.source() != null) {
-            final Entity entity = ctx.source();
-            final ServerLevel level = ctx.level();
-            resistanceCalc = (pos, block, fluid, baseRes) -> {
-                if (!block.isAir() || !fluid.isEmpty()) {
-                    float res = Math.max(block.getBlock().getExplosionResistance(),
-                            fluid.getExplosionResistance());
-                    res = entity.getBlockExplosionResistance(self, level, pos, block, fluid, res);
-                    return (res + 0.3F) * 0.3F;
-                }
-                return 0.0F;
-            };
-            explodeDecider = (pos, block, remainingPower) ->
-                    entity.shouldBlockExplode(self, level, pos, block, remainingPower);
+            // Tier B. The source entity's callbacks are arbitrary code that can
+            // read the live Level — MinecartTNT checks level.getBlockState(pos.above())
+            // for its rail exemption. Calling that on a worker deadlocks: an
+            // off-main-thread chunk fetch blocks on the server thread's mailbox
+            // while the main thread waits on the worker latch (5s timeout).
+            // Capture the decisions here on the main thread via a captured
+            // BlockGetter; workers then consume only these pure arrays.
+            entityResistanceDeltas = captureEntityResistanceDeltas(ctx, worldView, gridSize);
+            entityExplodeDecisions = captureEntityExplodeDecisions(ctx, worldView, gridSize);
+            resistanceCalc = null;
+            explodeDecider = null;
         } else {
+            // Unreachable through the mixin — Tier C (custom calculator) is
+            // excluded by ExplosionParallelEligibility. A custom calculator is
+            // an arbitrary mod callback and must never run on workers.
+            entityResistanceDeltas = null;
+            entityExplodeDecisions = null;
             final ExplosionDamageCalculator calc = ctx.damageCalculator();
             final ServerLevel level = ctx.level();
             resistanceCalc = (pos, block, fluid, baseRes) -> {
@@ -167,7 +188,8 @@ public final class ExplosionBlockStage {
                             traceRay(rays.get(i), i, range.grid, minX, minY, minZ, maxX, maxY, maxZ,
                                     worldView, strideY, strideZ, pow[i], radius,
                                     centerX, centerY, centerZ, worldMinY, worldMaxY,
-                                    resistanceCalc, explodeDecider);
+                                    resistanceCalc, explodeDecider,
+                                    entityResistanceDeltas, entityExplodeDecisions);
                         return range.grid;
                     }, 5);
             for (BitSet wg : workerGrids) grid.or(wg);
@@ -178,13 +200,15 @@ public final class ExplosionBlockStage {
             // random twice (2724 steps vs vanilla's 1352) and shifting every
             // later RNG consumer (block drops, fire placement, shuffle).
             // Serial retrace costs the same as vanilla's own main-thread
-            // pass and never re-draws the RNG.
+            // pass and never re-draws the RNG. The captured tables are just as
+            // valid serially — they never depended on the worker threads.
             LOGGER.error("Explosion ray workers failed; tracing rays serially", e);
             for (int i = 0; i < rayCount; i++)
                 traceRay(rays.get(i), i, grid, minX, minY, minZ, maxX, maxY, maxZ,
                         worldView, strideY, strideZ, pow[i], radius,
                         centerX, centerY, centerZ, worldMinY, worldMaxY,
-                        resistanceCalc, explodeDecider);
+                        resistanceCalc, explodeDecider,
+                        entityResistanceDeltas, entityExplodeDecisions);
         }
 
         List<BlockPos> result = new ArrayList<>(gridSize);
@@ -202,14 +226,77 @@ public final class ExplosionBlockStage {
         FLAT_BLOCKS_CACHE.set(flatBlocks);
         SHAPE_BOXES_CACHE.set(worldView.shapeBoxes());
         RAY_POWERS_CACHE.set(rayPowers);
+        if (entityResistanceDeltas != null) ENTITY_RESISTANCE_DELTAS_CACHE.set(entityResistanceDeltas);
+        if (entityExplodeDecisions != null) ENTITY_EXPLODE_DECISIONS_CACHE.set(entityExplodeDecisions);
 
         return new Result(result, worldView);
+    }
+
+    /** Per-cell resistance delta {@code (adjustedRes + 0.3F) * 0.3F} for an
+     *  entity-caused blast, evaluated on the MAIN thread against the captured
+     *  flat view. Air/empty cells keep 0 (the worker only reads non-air cells).
+     *  Vanilla subtracts this exact product at the same cells, and
+     *  {@code calculateExplodedPositions} does not mutate the world, so the
+     *  captured result is bit-identical to a live-level evaluation. */
+    private static float[] captureEntityResistanceDeltas(
+            ExplosionContext ctx, WorldReadViewImpl view, int gridSize) {
+        float[] deltas = ENTITY_RESISTANCE_DELTAS_CACHE.getAndSet(null);
+        if (deltas == null || deltas.length < gridSize) deltas = new float[gridSize];
+        Entity source = ctx.source();
+        ExplosionCapturedBlockGetter captured = new ExplosionCapturedBlockGetter(
+                view, ctx.level().getMinY(), ctx.level().getHeight());
+        BlockState[] states = view.states();
+        int i = 0;
+        for (int z = view.minZ(); z <= view.maxZ(); z++) {
+            for (int y = view.minY(); y <= view.maxY(); y++) {
+                for (int x = view.minX(); x <= view.maxX(); x++, i++) {
+                    BlockState block = states[i];
+                    FluidState fluid = block.getFluidState();
+                    if (block.isAir() && fluid.isEmpty()) continue;
+                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance());
+                    float adjusted = source.getBlockExplosionResistance(ctx.self(), captured,
+                            new BlockPos(x, y, z), block, fluid, baseRes);
+                    deltas[i] = (adjusted + 0.3F) * 0.3F;
+                }
+            }
+        }
+        return deltas;
+    }
+
+    /** Per-cell {@code shouldBlockExplode} decision for an entity-caused blast,
+     *  evaluated on the MAIN thread against the captured flat view. Filled for
+     *  every cell (air included — vanilla calls shouldBlockExplode on every ray
+     *  step with remainingPower > 0). No vanilla override depends on the power
+     *  argument, so the decision is captured once per cell with a representative
+     *  power of 1.0F. */
+    private static boolean[] captureEntityExplodeDecisions(
+            ExplosionContext ctx, WorldReadViewImpl view, int gridSize) {
+        boolean[] decisions = ENTITY_EXPLODE_DECISIONS_CACHE.getAndSet(null);
+        if (decisions == null || decisions.length < gridSize) decisions = new boolean[gridSize];
+        Entity source = ctx.source();
+        ExplosionCapturedBlockGetter captured = new ExplosionCapturedBlockGetter(
+                view, ctx.level().getMinY(), ctx.level().getHeight());
+        BlockState[] states = view.states();
+        int i = 0;
+        for (int z = view.minZ(); z <= view.maxZ(); z++) {
+            for (int y = view.minY(); y <= view.maxY(); y++) {
+                for (int x = view.minX(); x <= view.maxX(); x++, i++) {
+                    decisions[i] = source.shouldBlockExplode(ctx.self(), captured,
+                            new BlockPos(x, y, z), states[i], 1.0F);
+                }
+            }
+        }
+        return decisions;
     }
 
     /** Vanilla-exact march: float accumulation from the exact centre,
      *  flooring each step — identical to ServerExplosion.calculateExplodedPositions.
      *  Step uses the precomputed direction*0.3F (vanilla's 0.3F, not the
-     *  double literal 0.3) so accumulation matches bit for bit. */
+     *  double literal 0.3) so accumulation matches bit for bit. When the
+     *  captured entity tables are present (Tier B), the per-cell resistance
+     *  delta and explode decision come from those pure arrays; otherwise the
+     *  Tier A static callbacks are used. */
     private static void traceRay(ExplosionRayParams.RayParam ray, int rayIndex,
                                  BitSet grid, int minX, int minY, int minZ,
                                  int maxX, int maxY, int maxZ, WorldReadViewImpl worldView,
@@ -218,7 +305,8 @@ public final class ExplosionBlockStage {
                                  double centerX, double centerY, double centerZ,
                                  int worldMinY, int worldMaxY,
                                  ResistanceCalculator resistanceCalc,
-                                 BlockExplodeDecider explodeDecider) {
+                                 BlockExplodeDecider explodeDecider,
+                                 float[] resistanceDeltas, boolean[] explodeDecisions) {
         float remainingPower = initialPower;
         final int gMinX = minX, gMinY = minY, gMinZ = minZ;
         final int gMaxX = maxX, gMaxY = maxY, gMaxZ = maxZ;
@@ -241,17 +329,26 @@ public final class ExplosionBlockStage {
             // unbounded on servers, only y needs the check.
             if (by < worldMinY || by > worldMaxY) break;
             if (bx < gMinX || bx > gMaxX || by < gMinY || by > gMaxY || bz < gMinZ || bz > gMaxZ) break;
+            int index = (bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_;
 
             BlockState block = worldView.getBlockStateUnchecked(bx, by, bz);
             FluidState fluid = block.getFluidState();
             if (!block.isAir() || !fluid.isEmpty()) {
-                float baseRes = Math.max(block.getBlock().getExplosionResistance(),
-                        fluid.getExplosionResistance());
-                remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
+                if (resistanceDeltas != null) {
+                    remainingPower -= resistanceDeltas[index];
+                } else {
+                    float baseRes = Math.max(block.getBlock().getExplosionResistance(),
+                            fluid.getExplosionResistance());
+                    remainingPower -= resistanceCalc.apply(pos, block, fluid, baseRes);
+                }
             }
-            if (remainingPower > 0.0F && explodeDecider.shouldExplode(pos, block, remainingPower)) {
-                if (bx >= gMinX && bx <= gMaxX && by >= gMinY && by <= gMaxY && bz >= gMinZ && bz <= gMaxZ)
-                    grid.set((bx - gMinX) + (by - gMinY) * strideY_ + (bz - gMinZ) * strideZ_);
+            if (remainingPower > 0.0F) {
+                boolean explodes = explodeDecisions != null
+                        ? explodeDecisions[index]
+                        : explodeDecider.shouldExplode(pos, block, remainingPower);
+                if (explodes) {
+                    grid.set(index);
+                }
             }
             xp += sx; yp += sy; zp += sz;
         }

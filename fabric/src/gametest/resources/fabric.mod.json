@@ -7,6 +7,7 @@
   "entrypoints": {
     "fabric-gametest": [
       "com.github.uright008.ep.ExplosionFlatViewParityGameTest",
+      "com.github.uright008.ep.MinecartTntParityGameTest",
       "com.github.uright008.ep.TntChamberParityGameTest"
     ]
   }
