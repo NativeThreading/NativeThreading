@@ -131,20 +131,27 @@ public final class MinecartTntParityGameTest {
                 .thenIdle(SETTLE_TICKS)
                 .thenExecute(() -> {
                     if (detonationMs[0] > MAX_DETONATION_MS) {
+                        ExplosionParallelConfig.setEnabled(original);
                         helper.fail("parallel TNT minecart detonation stalled "
                                 + detonationMs[0] + "ms (worker/live-Level deadlock?)");
                         return;
                     }
                     parallelSurvivors[0] = survivors(helper, ORIGIN);
                     if (!vanillaSurvivors[0].isEmpty()) {
+                        ExplosionParallelConfig.setEnabled(original);
                         helper.fail("vanilla blast left rig blocks: " + vanillaSurvivors[0]);
+                        return;
                     }
                     if (!parallelSurvivors[0].isEmpty()) {
+                        ExplosionParallelConfig.setEnabled(original);
                         helper.fail("parallel blast left rig blocks: " + parallelSurvivors[0]);
+                        return;
                     }
                     if (!vanillaSurvivors[0].equals(parallelSurvivors[0])) {
+                        ExplosionParallelConfig.setEnabled(original);
                         helper.fail("TNT minecart destroyed blocks differ: vanilla='"
                                 + vanillaSurvivors[0] + "' parallel='" + parallelSurvivors[0] + "'");
+                        return;
                     }
                 })
                 .thenExecute(() -> {
