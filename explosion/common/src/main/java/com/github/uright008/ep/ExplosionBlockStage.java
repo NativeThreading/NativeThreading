@@ -6,6 +6,8 @@ import com.github.uright008.pc.ParallelWorker;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.ServerExplosion;
 import net.minecraft.world.level.block.state.BlockState;
@@ -14,6 +16,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -59,6 +62,24 @@ public final class ExplosionBlockStage {
     // thread make reuse race-free.
     private static final AtomicReference<float[]> ENTITY_RESISTANCE_DELTAS_CACHE = new AtomicReference<>();
     private static final AtomicReference<boolean[]> ENTITY_EXPLODE_DECISIONS_CACHE = new AtomicReference<>();
+    // True when the source entity's class overrides getBlockExplosionResistance
+    // or shouldBlockExplode. An entity inheriting the base Entity impls
+    // (identity resistance + always-true explode) needs no capture — its
+    // per-cell result equals the pure static Tier A path bit for bit, so the
+    // serial main-thread capture pass can be skipped and regular TNT, creepers,
+    // players etc. keep full parallel throughput. Keyed on the class (never a
+    // world or an entity), so a static ClassValue is the right cross-blast
+    // cache: the reflection runs once per entity type.
+    private static final ClassValue<Boolean> ENTITY_OVERRIDES_EXPLOSION_CALLBACKS = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return overridesCallback(type, "getBlockExplosionResistance",
+                    Explosion.class, BlockGetter.class, BlockPos.class, BlockState.class, FluidState.class,
+                    float.class)
+                    || overridesCallback(type, "shouldBlockExplode",
+                    Explosion.class, BlockGetter.class, BlockPos.class, BlockState.class, float.class);
+        }
+    };
     // One mutable pos per worker thread (traceRay is called ~1352× per
     // explosion); avoids allocating 11k+ MutableBlockPos per tick.
     private static final ThreadLocal<BlockPos.MutableBlockPos> WORKER_POS = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
@@ -75,6 +96,30 @@ public final class ExplosionBlockStage {
     private static final BlockExplodeDecider DEFAULT_EXPLODE_DECIDER = (pos, block, remainingPower) -> remainingPower > 0.0F;
 
     private ExplosionBlockStage() {}
+
+    /** True when {@code type} redeclares the named {@link Entity} callback
+     *  (i.e. it would override the base implementation at runtime). A miss is
+     *  treated as overridden — the safe direction, it only costs a capture. */
+    private static boolean overridesCallback(Class<?> type, String name, Class<?>... paramTypes) {
+        try {
+            return type.getMethod(name, paramTypes).getDeclaringClass() != Entity.class;
+        } catch (NoSuchMethodException e) {
+            return true;
+        }
+    }
+
+    /** True when the source entity's class overrides either explosion callback
+     *  (cached per class — see {@link #ENTITY_OVERRIDES_EXPLOSION_CALLBACKS}). */
+    static boolean overridesExplosionCallbacks(Class<?> type) {
+        return ENTITY_OVERRIDES_EXPLOSION_CALLBACKS.get(type);
+    }
+
+    /** True when the source entity inherits the base {@link Entity}
+     *  getBlockExplosionResistance / shouldBlockExplode implementations, whose
+     *  per-cell result is bit-identical to the pure static Tier A path. */
+    private static boolean usesBaseEntityCallbacks(Entity source) {
+        return !overridesExplosionCallbacks(source.getClass());
+    }
 
     public static Result compute(ExplosionContext ctx, ChunkGrid chunkGrid) {
         List<ExplosionRayParams.RayParam> rays = ExplosionRayParams.RAY_PARAMS;
@@ -156,10 +201,21 @@ public final class ExplosionBlockStage {
             // while the main thread waits on the worker latch (5s timeout).
             // Capture the decisions here on the main thread via a captured
             // BlockGetter; workers then consume only these pure arrays.
-            entityResistanceDeltas = captureEntityResistanceDeltas(ctx, worldView, gridSize);
-            entityExplodeDecisions = captureEntityExplodeDecisions(ctx, worldView, gridSize);
-            resistanceCalc = null;
-            explodeDecider = null;
+            // Entities that inherit the base Entity callbacks (regular TNT,
+            // creepers, players — identity resistance + always-true explode)
+            // produce a capture identical to the pure static Tier A path, so
+            // they skip the serial capture entirely and keep full parallelism.
+            if (usesBaseEntityCallbacks(ctx.source())) {
+                entityResistanceDeltas = null;
+                entityExplodeDecisions = null;
+                resistanceCalc = DEFAULT_RESISTANCE_CALC;
+                explodeDecider = DEFAULT_EXPLODE_DECIDER;
+            } else {
+                entityResistanceDeltas = captureEntityResistanceDeltas(ctx, worldView, gridSize);
+                entityExplodeDecisions = captureEntityExplodeDecisions(ctx, worldView, gridSize);
+                resistanceCalc = null;
+                explodeDecider = null;
+            }
         } else {
             // Unreachable through the mixin — Tier C (custom calculator) is
             // excluded by ExplosionParallelEligibility. A custom calculator is
