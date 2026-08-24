@@ -19,13 +19,14 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
     private final int maxZ;
     private final int strideY;
     private final int strideZ;
+    private final boolean hasEntityContextBlocks;
 
     public WorldReadViewImpl(
             BlockState[] states,
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
-        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, false);
     }
 
     public WorldReadViewImpl(
@@ -33,6 +34,14 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
+        this(states, shapeBoxes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, false);
+    }
+
+    public WorldReadViewImpl(
+            BlockState[] states, double[][] shapeBoxes,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ, boolean hasEntityContextBlocks) {
         this.states = states;
         this.shapeBoxes = shapeBoxes;
         this.minX = minX;
@@ -43,6 +52,7 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
         this.maxZ = maxZ;
         this.strideY = strideY;
         this.strideZ = strideZ;
+        this.hasEntityContextBlocks = hasEntityContextBlocks;
     }
 
     @Override
@@ -61,6 +71,10 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
      */
     public BlockState getBlockStateUnchecked(int x, int y, int z) {
         return states[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
+    }
+
+    public boolean hasEntityContextBlocks() {
+        return hasEntityContextBlocks;
     }
 
     // ── Package-private accessors for the fast ray path ──

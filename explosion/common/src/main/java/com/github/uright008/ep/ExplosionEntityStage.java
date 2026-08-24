@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 /** Main-thread entity damage pipeline: capture snapshots with a vanilla-ordered
  *  spatial query, compute damage on the worker pool (serial retrace on
@@ -34,15 +33,19 @@ public final class ExplosionEntityStage {
     // ArrayList per blast (~250k add + grow per profile under TNT chains).
     // Static (not per-ServerExplosion) so the reuse survives across blasts —
     // each explosion allocates a fresh ServerExplosion, so an instance field
-    // would re-initialise the lists and negate the reuse. 4096 pre-sizes the
-    // 2272-entity benchmark, so the lists never grow.
-    private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(4096);
-    private static final List<Entity> CAPTURE_REFS = new ArrayList<>(4096);
+    // would re-initialise the lists and negate the reuse. 8192 pre-sizes the
+    // 3670-entity sustained chamber, so the lists never grow (4.6% of tick
+    // was ArrayList.grow at 4096).
+    private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(8192);
+    private static final List<Entity> CAPTURE_REFS = new ArrayList<>(8192);
 
     private static final Logger LOGGER = LoggerFactory.getLogger("native-threading:explosion:entity");
-    private static final AtomicLong PARALLEL_ENTITY_PATHS = new AtomicLong();
-    private static final AtomicLong ENTITY_WORKER_BATCHES = new AtomicLong();
-    private static final AtomicLong ENTITY_FALLBACKS = new AtomicLong();
+    // Explosions are serial on the main thread, so plain longs are sufficient
+    // and avoid the 2.4% AtomicLong CAS seen in profiles. Only the server
+    // thread writes; readers (if any) see eventually-consistent values.
+    private static long PARALLEL_ENTITY_PATHS;
+    private static long ENTITY_WORKER_BATCHES;
+    private static long ENTITY_FALLBACKS;
 
     private ExplosionEntityStage() {}
 
@@ -70,7 +73,7 @@ public final class ExplosionEntityStage {
         } catch (RuntimeException e) {
             // Capture is main-thread vanilla calls; a failure here has no
             // usable snapshots, so vanilla hurtEntities must run.
-            ENTITY_FALLBACKS.incrementAndGet();
+            ++ENTITY_FALLBACKS;
             LOGGER.error("Explosion entity capture failed; falling back to vanilla", e);
             return false;
         }
@@ -78,7 +81,7 @@ public final class ExplosionEntityStage {
         List<Entity> refs = captured.refs();
         if (snapshots.isEmpty()) return true;
         try {
-            ENTITY_WORKER_BATCHES.incrementAndGet();
+            ++ENTITY_WORKER_BATCHES;
             List<ExplosionEntityDamageComputer.EntityDamageResult> results =
                     ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
                             snapshot -> ExplosionEntityDamageComputer.computeEntityDamage(
@@ -92,7 +95,7 @@ public final class ExplosionEntityStage {
             // Workers failed — the snapshots captured on the main thread are
             // still valid, so compute them serially instead of re-running
             // vanilla hurtEntities (which would re-scan the entity sections).
-            ENTITY_FALLBACKS.incrementAndGet();
+            ++ENTITY_FALLBACKS;
             LOGGER.error("Explosion entity workers failed; computing damage serially", e);
             for (int i = 0; i < snapshots.size(); i++) {
                 ExplosionEntityDamageComputer.EntityDamageResult r = ExplosionEntityDamageComputer.computeEntityDamage(
@@ -125,7 +128,9 @@ public final class ExplosionEntityStage {
         // scaffolding and powder snow vary their collision shape by the querying
         // entity; when either is present in the blast box, exposure must be
         // computed with the real entity context (vanilla-exact) per hit entity.
-        final boolean needsEntityContext = hasEntityContextBlocks(worldView);
+        // Flag is computed once during flat-view fill (O(1) here) instead of
+        // scanning the whole view per explosion (1.4% of tick at 348ms).
+        final boolean needsEntityContext = worldView.hasEntityContextBlocks();
 
         List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
         List<Entity> refs = CAPTURE_REFS;
@@ -187,10 +192,10 @@ public final class ExplosionEntityStage {
     }
 
     private static void logEntityPathCounters() {
-        long paths = PARALLEL_ENTITY_PATHS.incrementAndGet();
+        long paths = ++PARALLEL_ENTITY_PATHS;
         if ((paths & (paths - 1)) == 0) {
             LOGGER.info("Explosion entity paths: active={}, workerBatches={}, fallbacks={}",
-                    paths, ENTITY_WORKER_BATCHES.get(), ENTITY_FALLBACKS.get());
+                    paths, ENTITY_WORKER_BATCHES, ENTITY_FALLBACKS);
         }
     }
 
@@ -246,19 +251,10 @@ public final class ExplosionEntityStage {
                 || block instanceof net.minecraft.world.level.block.LiquidBlock;
     }
 
-    /** True if the flat view contains scaffolding, powder snow, or a liquid —
-     *  blocks whose collision shape depends on the querying entity context.
-     *  Scaffolding/powder-snow vary their solid shape; LiquidBlock returns a
-     *  non-empty fluid-collision shape for a living entity context but empty
-     *  for {@code (null, null)}, so a liquid would let exposure rays pass that
-     *  vanilla clip would stop. When any is present, exposure must be computed
-     *  with the real entity context (vanilla-exact). */
+    /** Delegates to the flag computed during flat-view fill (O(1)). The old
+     *  per-explosion scan of the whole view was 1.4% of tick. */
     private static boolean hasEntityContextBlocks(WorldReadViewImpl worldView) {
-        net.minecraft.world.level.block.state.BlockState[] states = worldView.states();
-        for (net.minecraft.world.level.block.state.BlockState state : states) {
-            if (state != null && isEntityContextBlock(state.getBlock())) return true;
-        }
-        return false;
+        return worldView.hasEntityContextBlocks();
     }
 
     /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}

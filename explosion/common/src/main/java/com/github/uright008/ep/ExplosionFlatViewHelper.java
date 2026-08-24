@@ -46,8 +46,23 @@ public final class ExplosionFlatViewHelper {
                                              int maxX, int maxY, int maxZ,
                                              int strideY, int strideZ,
                                              ChunkGrid chunkGrid) {
+        fillSectionedWithContext(dst, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, chunkGrid);
+        return dst;
+    }
+
+    /**
+     * Like {@link #fillSectioned} but also returns whether the filled view
+     * contains any entity-context block (scaffolding, powder snow, liquid).
+     * Computed inline during the fill so the caller avoids a second O(N) scan.
+     */
+    public static boolean fillSectionedWithContext(BlockState[] dst,
+                                                   int minX, int minY, int minZ,
+                                                   int maxX, int maxY, int maxZ,
+                                                   int strideY, int strideZ,
+                                                   ChunkGrid chunkGrid) {
         BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
         ChunkGrid.SectionRef ref = new ChunkGrid.SectionRef();
+        boolean hasEntityContext = false;
         for (int cz = minZ >> 4; cz <= maxZ >> 4; cz++) {
             int zMin = Math.max(minZ, cz << 4);
             int zMax = Math.min(maxZ, (cz << 4) + 15);
@@ -77,7 +92,11 @@ public final class ExplosionFlatViewHelper {
                                 int i = zOff + (y - minY) * strideY + (xMin - minX);
                                 int ly = y & 15;
                                 for (int x = xMin; x <= xMax; x++, i++) {
-                                    dst[i] = section.getBlockState(x & 15, ly, lz);
+                                    BlockState state = section.getBlockState(x & 15, ly, lz);
+                                    dst[i] = state;
+                                    if (!hasEntityContext && isEntityContextBlock(state.getBlock())) {
+                                        hasEntityContext = true;
+                                    }
                                 }
                             }
                         }
@@ -85,6 +104,12 @@ public final class ExplosionFlatViewHelper {
                 }
             }
         }
-        return dst;
+        return hasEntityContext;
+    }
+
+    private static boolean isEntityContextBlock(net.minecraft.world.level.block.Block block) {
+        return block instanceof net.minecraft.world.level.block.ScaffoldingBlock
+                || block instanceof net.minecraft.world.level.block.PowderSnowBlock
+                || block instanceof net.minecraft.world.level.block.LiquidBlock;
     }
 }

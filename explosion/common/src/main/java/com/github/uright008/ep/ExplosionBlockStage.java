@@ -164,7 +164,7 @@ public final class ExplosionBlockStage {
 
         BlockState[] flatBlocks = FLAT_BLOCKS_CACHE.getAndSet(null);
         if (flatBlocks == null || flatBlocks.length < gridSize) flatBlocks = new BlockState[gridSize];
-        ExplosionFlatViewHelper.fillSectioned(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+        boolean hasEntityContextBlocks = ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                 strideY, strideZ, chunkGrid);
 
         // Collision boxes are resolved from the per-BlockState cache — the same
@@ -174,7 +174,7 @@ public final class ExplosionBlockStage {
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
                 flatBlocks,
                 ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
-                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ);
+                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, hasEntityContextBlocks);
 
         final ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
