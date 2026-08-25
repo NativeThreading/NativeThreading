@@ -29,7 +29,9 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
                 .then(Commands.argument("enabled", BoolArgumentType.bool())
                         .executes(this::setEnabled))
                 .then(Commands.literal("reload")
-                        .executes(this::reloadConfig));
+                        .executes(this::reloadConfig))
+                .then(Commands.literal("stats")
+                        .executes(this::showStats));
     }
 
     @Override
@@ -44,11 +46,27 @@ public final class ExplosionParallelCommand implements ParallelSubCommand {
     private int showStatus(CommandContext<CommandSourceStack> ctx) {
         boolean on = ExplosionParallelConfig.isEnabled();
         int poolSize = ParallelThreadPool.getParallelism();
+        String cacheStats = ExplosionChunkGridCache.statsLine();
         Component msg = Component.literal(
                 "§e/parallel explosion\n" +
                 "§7  Status:       " + (on ? "§aON" : "§cOFF") + "\n" +
                 "§7  ThreadPool:   §a" + poolSize + " workers\n" +
-                "§7Usage: /parallel explosion [on|off|reload]"
+                "§7  " + cacheStats + "\n" +
+                "§7Usage: /parallel explosion [on|off|reload|stats]"
+        );
+        ctx.getSource().sendSuccess(() -> msg, false);
+        return 1;
+    }
+
+    private int showStats(CommandContext<CommandSourceStack> ctx) {
+        String line = ExplosionChunkGridCache.statsLine();
+        long hits = ExplosionChunkGridCache.hits();
+        long misses = ExplosionChunkGridCache.misses();
+        double missPct = ExplosionChunkGridCache.missRate() * 100.0;
+        Component msg = Component.literal(
+                "§e[Explosion Cache Stats]\n" +
+                "§7  " + line + "\n" +
+                "§7  hits=" + hits + " misses=" + misses + String.format(" miss=%.2f%%", missPct)
         );
         ctx.getSource().sendSuccess(() -> msg, false);
         return 1;

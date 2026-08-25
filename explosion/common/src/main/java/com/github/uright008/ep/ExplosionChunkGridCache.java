@@ -21,8 +21,25 @@ public final class ExplosionChunkGridCache {
                               int minSectionX, int minSectionZ, int sizeX, int sizeZ) {}
 
     private static final AtomicReference<CachedGrid> CACHE = new AtomicReference<>();
+    private static final java.util.concurrent.atomic.AtomicLong HITS = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong MISSES = new java.util.concurrent.atomic.AtomicLong();
 
     private ExplosionChunkGridCache() {}
+
+    /** Hit = cached grid covers the blast, miss = rebuilt. */
+    public static long hits() { return HITS.get(); }
+    public static long misses() { return MISSES.get(); }
+    public static double missRate() {
+        long h = HITS.get(), m = MISSES.get();
+        long total = h + m;
+        return total == 0 ? 0.0 : (double) m / total;
+    }
+    public static String statsLine() {
+        long h = HITS.get(), m = MISSES.get();
+        long total = h + m;
+        double missPct = total == 0 ? 0.0 : (double) m / total * 100.0;
+        return String.format("ChunkGrid cache: hits=%d misses=%d total=%d miss=%.1f%%", h, m, total, missPct);
+    }
 
     /** Returns a grid covering the blast's section range, reusing the cached
      *  one when the blast is in the same level and inside the covered range. */
@@ -38,8 +55,16 @@ public final class ExplosionChunkGridCache {
                 && cached.level == ctx.level()
                 && needMinX >= cached.minSectionX && needMaxX <= cached.minSectionX + cached.sizeX - 1
                 && needMinZ >= cached.minSectionZ && needMaxZ <= cached.minSectionZ + cached.sizeZ - 1) {
+            HITS.incrementAndGet();
+            // Log every 8192 hits (power of two) to avoid spam, like entity paths.
+            long h = HITS.get();
+            if ((h & (h - 1)) == 0) {
+                org.slf4j.LoggerFactory.getLogger("native-threading:explosion:cache")
+                        .info(statsLine());
+            }
             return cached.grid;
         }
+        MISSES.incrementAndGet();
         ChunkGrid grid = new ChunkGrid(ctx.level(), scx, scz, range);
         CACHE.set(new CachedGrid(ctx.level(), grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
         return grid;
