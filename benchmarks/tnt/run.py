@@ -456,7 +456,8 @@ def run(args, folder, mods, origin=None, reference=None):
         try:
             if process is not None:
                 manifest["commands"].append({"at": base.stamp(), "transport": "stdin", "command": "stop"})
-                # Large TNT worlds need time to save. Do not use the helper's 30-second grace period.
+                # Large TNT worlds need time to save. The shared helper now also allows 120 seconds;
+                # this driver keeps its own explicit graceful/TERM/KILL policy.
                 if process.poll() is None:
                     try:
                         process.stdin.write(b"stop\n")

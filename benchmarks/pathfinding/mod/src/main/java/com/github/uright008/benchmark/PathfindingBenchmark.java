@@ -16,6 +16,7 @@ public final class PathfindingBenchmark implements ModInitializer {
     private BenchmarkScene scene;
     private BenchmarkRunStage run;
     private AllayScene allay;
+    private BlockUpdateScene updates;
 
     @Override
     public void onInitialize() {
@@ -29,7 +30,7 @@ public final class PathfindingBenchmark implements ModInitializer {
                     .then(Commands.argument("scene", StringArgumentType.word())
                         .then(Commands.argument("requests", IntegerArgumentType.integer(1, 256))
                             .executes(context -> {
-                                if (run != null || allay != null) throw error("Benchmark busy; use a fresh server to change mode");
+                                if (run != null || allay != null || updates != null) throw error("Benchmark busy; use a fresh server to change mode");
                                 String name = StringArgumentType.getString(context, "scene");
                                 if (!name.equals("open") && !name.equals("maze") && !name.equals("blocked")) {
                                     throw error("Expected open, maze, or blocked");
@@ -48,7 +49,7 @@ public final class PathfindingBenchmark implements ModInitializer {
                     .then(Commands.argument("entities", IntegerArgumentType.integer(64))
                         .then(Commands.argument("seed", LongArgumentType.longArg())
                             .executes(context -> {
-                                if (scene != null || allay != null) throw error("Use a fresh server for each fixture");
+                                if (scene != null || allay != null || updates != null) throw error("Use a fresh server for each fixture");
                                 try {
                                     allay = new AllayScene(context.getSource().getServer().overworld(),
                                         IntegerArgumentType.getInteger(context, "entities"), LongArgumentType.getLong(context, "seed"));
@@ -59,27 +60,49 @@ public final class PathfindingBenchmark implements ModInitializer {
                                 context.getSource().sendSuccess(() -> Component.literal("PATHBENCH READY"), false);
                                 return 1;
                             }))))
+                .then(Commands.literal("updates")
+                    .then(Commands.argument("entities", IntegerArgumentType.integer(64))
+                        .then(Commands.argument("seed", LongArgumentType.longArg())
+                            .then(Commands.argument("interval", IntegerArgumentType.integer(1, 1200))
+                                .then(Commands.argument("change", StringArgumentType.word())
+                                    .executes(context -> {
+                                        if (scene != null || allay != null || updates != null) throw error("Use a fresh server for each fixture");
+                                        try {
+                                            updates = new BlockUpdateScene(context.getSource().getServer().overworld(),
+                                                IntegerArgumentType.getInteger(context, "entities"), LongArgumentType.getLong(context, "seed"),
+                                                IntegerArgumentType.getInteger(context, "interval"), StringArgumentType.getString(context, "change"));
+                                        } catch (RuntimeException exception) {
+                                            org.slf4j.LoggerFactory.getLogger("pathbench").error("Block update setup failed", exception);
+                                            throw error(exception.getMessage());
+                                        }
+                                        context.getSource().sendSuccess(() -> Component.literal("PATHBENCH READY"), false);
+                                        return 1;
+                                    }))))))
                 .then(Commands.literal("run")
                     .then(Commands.argument("phase", StringArgumentType.word())
                         .then(Commands.argument("ticks", IntegerArgumentType.integer(1, 12000))
                             .executes(context -> {
-                                if ((scene == null && allay == null) || run != null || (allay != null && allay.run != null)) {
+                                if ((scene == null && allay == null && updates == null) || run != null
+                                        || (allay != null && allay.run != null) || (updates != null && updates.run != null)) {
                                     throw error("Setup required, or benchmark busy");
                                 }
                                 String phase = StringArgumentType.getString(context, "phase");
                                 if (!phase.equals("warmup") && !phase.equals("measure")) {
                                     throw error("Expected warmup or measure");
                                 }
-                                if (allay != null) allay.run = new AllayRunStage(allay, phase, IntegerArgumentType.getInteger(context, "ticks"));
+                                if (updates != null) updates.run = new BlockUpdateRunStage(updates, phase, IntegerArgumentType.getInteger(context, "ticks"));
+                                else if (allay != null) allay.run = new AllayRunStage(allay, phase, IntegerArgumentType.getInteger(context, "ticks"));
                                 else run = new BenchmarkRunStage(scene, phase, IntegerArgumentType.getInteger(context, "ticks"));
                                 context.getSource().sendSuccess(() -> Component.literal("PATHBENCH STARTED"), false);
                                 return 1;
                             }))))));
         ServerTickEvents.START_SERVER_TICK.register(server -> {
+            if (updates != null) updates.startTick();
             if (allay != null) allay.startTick();
             if (run != null) run.startTick();
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            if (updates != null) updates.endTick();
             if (allay != null) allay.endTick();
             if (run != null && run.endTick()) run = null;
         });
@@ -87,7 +110,9 @@ public final class PathfindingBenchmark implements ModInitializer {
             run = null;
             scene = null;
             allay = null;
+            updates = null;
             AllayScene.clear();
+            BlockUpdateScene.clear();
         });
     }
 

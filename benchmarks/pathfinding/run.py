@@ -30,6 +30,15 @@ ALLAY_COUNTERS = ("spawned", "picked_up", "remaining", "lost", "carried_pickups"
                   "path_searches", "path_reached", "path_partial", "path_null")
 ALLAY_DISTRIBUTIONS = ("query_ms", "tick_ms", "maintenance_ms",
                        "pickup_latency_ticks", "pickup_latency_ms")
+UPDATE_COUNTS = ("path_searches", "patrol_searches", "recompute_searches", "immediate_searches",
+                 "delayed_searches", "should_checks", "should_positive", "recompute_calls",
+                 "update_recompute_calls", "delayed_attempts")
+UPDATE_COUNTERS = (*UPDATE_COUNTS, "path_reached", "path_partial", "path_null", "update_events",
+                   "block_changes", "entity_ticks", "gap_entity_ticks", "alive_end", "dead",
+                   "escaped", "pending_end", "completed_legs")
+UPDATE_DISTRIBUTIONS = ("query_ms", "tick_ms", "block_update_ms", "update_tick_ms",
+                        "non_update_tick_ms", "recompute_tick_ms", "quiet_tick_ms",
+                        "recompute_latency_ticks")
 
 
 def stamp():
@@ -295,6 +304,150 @@ def validate_allay(result, ticks, entities, seed):
     return result
 
 
+def validate_updates(result, ticks, entities, seed, update_interval, block_change):
+    """Check the vanilla notification/recompute contract, including every timed tick."""
+    if not isinstance(result, dict):
+        raise ValueError("Block-updates result must be an object")
+    events = (ticks - 21) // update_interval
+    expected = {"schema": 3, "ticks": ticks, "entities": entities, "seed": seed,
+                "update_interval": update_interval, "blocks_per_event": 9, "update_events": events,
+                "block_changes": 0 if block_change == "none" else events * 9,
+                "entity_ticks": entities * ticks, "gap_entity_ticks": 0,
+                "alive_end": entities, "dead": 0, "escaped": 0, "pending_end": 0}
+    for key, value in expected.items():
+        if type(result.get(key)) is not int or result[key] != value:
+            raise ValueError(f"Invalid {key}: expected {value}, got {result.get(key)!r}")
+    if result.get("scene") != "block-updates" or result.get("block_change") != block_change:
+        raise ValueError("Block-updates scene/block_change mismatch")
+    if not isinstance(result.get("schedule_hash"), str) or not result["schedule_hash"].strip():
+        raise ValueError("Missing schedule_hash")
+
+    def number(value):
+        return type(value) in (int, float) and 0 <= value < math.inf
+
+    def counters(row, keys, label):
+        if not isinstance(row, dict) or any(type(row.get(k)) is not int or row[k] < 0 for k in keys):
+            raise ValueError(f"Invalid {label} counters")
+
+    def conservation(row):
+        for total, parts in (("path_searches", ("patrol_searches", "recompute_searches")),
+                             ("recompute_searches", ("immediate_searches", "delayed_searches")),
+                             ("recompute_calls", ("update_recompute_calls", "delayed_attempts"))):
+            if row[total] != sum(row[k] for k in parts):
+                raise ValueError(f"Block-updates {total} conservation failed")
+        if row["should_positive"] != row["update_recompute_calls"]:
+            raise ValueError("should_positive must equal update_recompute_calls")
+        if (row["should_positive"] > row["should_checks"]
+                or row["immediate_searches"] > row["update_recompute_calls"]
+                or row["delayed_searches"] > row["delayed_attempts"]):
+            raise ValueError("Inconsistent notification/recompute counters")
+
+    counters(result, UPDATE_COUNTERS, "block-updates")
+    conservation(result)
+    if result["path_searches"] != sum(result[k] for k in ("path_reached", "path_partial", "path_null")):
+        raise ValueError("Block-updates path outcomes do not sum to path_searches")
+    if result["path_searches"] == 0:
+        raise ValueError("Block-updates phase requires path_searches > 0")
+    for key, bound in (("search_ms", math.inf), ("navigation_active_fraction", 1),
+                       ("event_active_mean", entities), ("moving_fraction", 1), ("distance_moved", math.inf)):
+        if not number(result.get(key)) or result[key] > bound:
+            raise ValueError(f"Invalid {key}")
+    counters(result, ("event_active_min",), "event activity")
+    if result["event_active_min"] > entities:
+        raise ValueError("Invalid event_active_min")
+    if result["event_active_mean"] < entities * 0.5:
+        raise ValueError("Block-updates phase requires event_active_mean >= entities * 0.5")
+    if result["moving_fraction"] < 0.25:
+        raise ValueError("Block-updates phase requires moving_fraction >= 0.25")
+    activity = ("should_checks", "should_positive", "update_recompute_calls", "recompute_searches")
+    if block_change == "collision":
+        if any(result[k] == 0 for k in activity):
+            raise ValueError("Collision phase requires actual notification/recompute activity")
+    elif any(result[k] != 0 for k in activity):
+        raise ValueError("Control phase must not trigger notification/recompute activity")
+
+    for key in UPDATE_DISTRIBUTIONS:
+        values = result.get(key)
+        if not isinstance(values, dict) or any(not number(values.get(k)) for k in
+                                               ("mean", "p50", "p95", "p99", "max")):
+            raise ValueError(f"Invalid {key}")
+        if not (values["p50"] <= values["p95"] <= values["p99"] <= values["max"]
+                and values["mean"] <= values["max"]):
+            raise ValueError(f"Inconsistent {key}")
+    if result["recompute_latency_ticks"]["max"] > 21:
+        raise ValueError("Invalid recompute_latency_ticks: max exceeds 21")
+    if not result["recompute_searches"] and any(result["recompute_latency_ticks"][k] for k in
+                                                ("mean", "p50", "p95", "p99", "max")):
+        raise ValueError("Empty recompute_latency_ticks must be zero")
+
+    samples = result.get("tick_samples")
+    if not isinstance(samples, list) or len(samples) != ticks:
+        raise ValueError("Invalid tick_samples: expected exactly ticks rows")
+    cohorts = {k: [] for k in ("tick_ms", "block_update_ms", "update_tick_ms", "non_update_tick_ms",
+                               "recompute_tick_ms", "quiet_tick_ms")}
+    active = []
+    pending = 0
+    for tick, row in enumerate(samples, 1):
+        counters(row, (*UPDATE_COUNTS, "tick", "block_changes", "active_before", "navigating", "pending",
+                       "moving", "completed_legs"),
+                 f"tick_samples[{tick}]")
+        conservation(row)
+        event = tick % update_interval == 0 and tick <= ticks - 21
+        changes = 9 if event and block_change != "none" else 0
+        if (row["tick"] != tick or type(row.get("update_event")) is not bool
+                or row["update_event"] != event or row["block_changes"] != changes
+                or any(row[k] > entities for k in ("active_before", "navigating", "pending", "moving"))):
+            raise ValueError(f"Invalid tick_samples[{tick}] schedule/population")
+        pending += row["update_recompute_calls"] - row["recompute_searches"]
+        if not 0 <= pending <= entities or row["pending"] != pending:
+            raise ValueError(f"Invalid tick_samples[{tick}] pending request ledger")
+        if not number(row.get("distance_moved")):
+            raise ValueError(f"Invalid tick_samples[{tick}] distance_moved")
+        if any(not number(row.get(k)) for k in ("mspt", "search_ms", "block_update_ms")):
+            raise ValueError(f"Invalid tick_samples[{tick}] timings")
+        if not event and any(row[k] for k in ("block_update_ms", "should_checks", "should_positive",
+                                              "update_recompute_calls")):
+            raise ValueError("Notification work outside update event")
+        if not row["path_searches"] and row["search_ms"]:
+            raise ValueError("Search time without actual path searches")
+        cohorts["tick_ms"].append(row["mspt"])
+        cohorts["update_tick_ms" if event else "non_update_tick_ms"].append(row["mspt"])
+        cohorts["recompute_tick_ms" if row["recompute_searches"] else "quiet_tick_ms"].append(row["mspt"])
+        if event:
+            cohorts["block_update_ms"].append(row["block_update_ms"])
+            active.append(row["active_before"])
+    for key in (*UPDATE_COUNTS, "block_changes", "completed_legs"):
+        if sum(row[key] for row in samples) != result[key]:
+            raise ValueError(f"tick_samples {key} total mismatch")
+    if samples[-1]["pending"] != result["pending_end"]:
+        raise ValueError("Final pending population mismatch")
+
+    def close(actual, expected, label):
+        # Java converts nanosecond totals to doubles; allow normal summation roundoff.
+        if not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9):
+            raise ValueError(f"Raw ticks disagree with {label}")
+
+    close(result["search_ms"], sum(row["search_ms"] for row in samples), "search_ms")
+    close(result["query_ms"]["mean"], result["search_ms"] / result["path_searches"], "query_ms.mean")
+    close(result["navigation_active_fraction"], statistics.mean(row["navigating"] for row in samples) / entities,
+          "navigation_active_fraction")
+    close(result["moving_fraction"], sum(row["moving"] for row in samples) / (entities * ticks), "moving_fraction")
+    close(result["distance_moved"], sum(row["distance_moved"] for row in samples), "distance_moved")
+    if result["event_active_min"] != (min(active) if active else 0):
+        raise ValueError("Raw ticks disagree with event_active_min")
+    close(result["event_active_mean"], statistics.mean(active) if active else 0, "event_active_mean")
+    for key, values in cohorts.items():
+        if not values and any(result[key][stat] != 0 for stat in ("mean", "p50", "p95", "p99", "max")):
+            raise ValueError(f"Empty {key} must be zero")
+        ordered = sorted(values)
+        expected_stats = {"mean": statistics.mean(values) if values else 0, "max": max(values, default=0),
+                          **{f"p{q}": ordered[math.ceil(len(ordered) * q / 100) - 1] if ordered else 0
+                             for q in (50, 95, 99)}}
+        for stat, value in expected_stats.items():
+            close(result[key][stat], value, f"{key}.{stat}")
+    return result
+
+
 def provenance():
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=ROOT).decode(errors="replace")
@@ -331,9 +484,11 @@ def stop(process):
         try:
             process.stdin.write(b"stop\n")
             process.stdin.flush()
-            process.wait(timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
+            process.wait(timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as error:
             if process.poll() is None:
+                print(f"Graceful shutdown failed ({type(error).__name__}); escalating to TERM/KILL for pid {process.pid}",
+                      flush=True)
                 process.terminate()
                 try:
                     process.wait(timeout=10)
@@ -448,6 +603,8 @@ def run_one(args, folder, scene, mods, origin, env, reference):
             wait_for(process, ready, args.timeout, "startup log and authenticated RCON")
             manifest["affinity_actual"] = sorted(os.sched_getaffinity(process.pid))
             setup = (f"pathbench allay {args.entities} {args.seed}" if scene == "allay"
+                     else f"pathbench updates {args.entities} {args.seed} {args.update_interval} {args.block_change}"
+                     if scene == "block-updates"
                      else f"pathbench setup {scene} {args.requests}")
             if command_once(setup).strip() != "PATHBENCH READY":
                 raise ValueError("Setup did not return PATHBENCH READY")
@@ -502,7 +659,15 @@ def run_one(args, folder, scene, mods, origin, env, reference):
                     manifest["spark"] = {"file": archive.name, "sha256": sha(archive),
                                          "started_ns": profile_start}
                 result = json.loads(output.read_text())
-                if scene == "allay":
+                if scene == "block-updates":
+                    validate_updates(result, ticks, args.entities, args.seed, args.update_interval, args.block_change)
+                    if reference and any(result[key] != reference[phase][key] for key in
+                                         ("schema", "scene", "ticks", "entities", "seed", "update_interval",
+                                          "block_change", "blocks_per_event")):
+                        raise ValueError(f"{phase} block-updates identity differs between repetitions")
+                    if reference and result["schedule_hash"] != reference[phase]["schedule_hash"]:
+                        raise ValueError(f"{phase} schedule_hash differs between repetitions")
+                elif scene == "allay":
                     validate_allay(result, ticks, args.entities, args.seed)
                     if reference and any(result[key] != reference[phase][key] for key in
                                          ("schema", "scene", "ticks", "entities", "seed", "layers", "drop_interval_ticks")):
@@ -550,17 +715,30 @@ def run_one(args, folder, scene, mods, origin, env, reference):
 
 def summarize(runs):
     groups = {}
-    for scene in (*SCENES, "allay"):
+    for scene in (*SCENES, "allay", "block-updates"):
         valid = [run for run in runs if run["valid"] and run["scene"] == scene]
         if not valid:
             continue
         metrics = {"search_ms": [r["measure"]["search_ms"] for r in valid]}
-        distributions = ALLAY_DISTRIBUTIONS if scene == "allay" else ("query_ms", "batch_ms", "tick_ms")
+        distributions = (UPDATE_DISTRIBUTIONS if scene == "block-updates" else ALLAY_DISTRIBUTIONS
+                         if scene == "allay" else ("query_ms", "batch_ms", "tick_ms"))
         for kind in distributions:
             for stat in ("mean", "p50", "p95", "p99", "max"):
                 metrics[f"{kind}.{stat}"] = [r["measure"][kind][stat] for r in valid]
         groups[scene] = {"repetitions": len(valid), "timings": {}}
-        if scene == "allay":
+        if scene == "block-updates":
+            for key in ("schedule_hash", "seed", "entities", "ticks", "update_interval", "block_change", "blocks_per_event"):
+                groups[scene][key] = valid[0]["measure"][key]
+            for key in (*UPDATE_COUNTERS, "navigation_active_fraction", "event_active_min", "event_active_mean",
+                        "moving_fraction", "distance_moved"):
+                metrics[key] = [r["measure"][key] for r in valid]
+            ratios = [r["measure"]["recompute_tick_ms"]["mean"] / r["measure"]["quiet_tick_ms"]["mean"]
+                      for r in valid if r["measure"]["recompute_searches"] and r["measure"]["quiet_tick_ms"]["mean"]]
+            if len(ratios) == len(valid):
+                metrics["recompute_spike_ratio"] = ratios
+            else:
+                groups[scene]["timings"]["recompute_spike_ratio"] = {"mean": None, "cv_percent": None}
+        elif scene == "allay":
             groups[scene]["schedule_hash"] = valid[0]["measure"]["schedule_hash"]
             for key in (*ALLAY_COUNTERS, "navigation_active_fraction"):
                 metrics[key] = [r["measure"][key] for r in valid]
@@ -583,9 +761,10 @@ def parser():
     p = argparse.ArgumentParser(description=__doc__)
     for name, default in (("warmup-ticks", 400), ("measure-ticks", 600), ("requests", 32), ("repeat", 3),
                           ("game-port", 25585), ("rcon-port", 25595), ("timeout", 300),
-                          ("entities", 64), ("seed", 8675309)):
+                          ("entities", 64), ("seed", 8675309), ("update-interval", 40)):
         p.add_argument("--" + name, type=int, default=default)
-    p.add_argument("--scene", action="append", choices=(*SCENES, "allay"))
+    p.add_argument("--scene", action="append", choices=(*SCENES, "allay", "block-updates"))
+    p.add_argument("--block-change", choices=("collision", "same-shape", "none"), default="collision")
     p.add_argument("--label", default="baseline")
     p.add_argument("--mod", action="append", default=[], help="Explicit additional Fabric JAR; repeatable")
     p.add_argument("--nt-config")
@@ -605,6 +784,16 @@ def main(argv=None):
     p.set_defaults(requests=None)
     args = p.parse_args(argv)
     args.scene = args.scene or list(SCENES)
+    if not 1 <= args.update_interval <= 1200:
+        p.error("--update-interval must be 1..1200")
+    if "block-updates" in args.scene:
+        if any(scene != "block-updates" for scene in args.scene):
+            p.error("Cannot mix block-updates with other scenes")
+        if args.requests is not None:
+            p.error("--requests is search only; use --entities for block-updates")
+        minimum = max(100, args.update_interval + 21)
+        if args.warmup_ticks < minimum or args.measure_ticks < minimum:
+            p.error(f"Block-updates warmup and measure ticks must be at least {minimum}")
     if "allay" in args.scene:
         if any(scene != "allay" for scene in args.scene):
             p.error("Cannot mix allay and search scenes")
@@ -612,8 +801,8 @@ def main(argv=None):
             p.error("--requests is search only; use --entities for allay")
         if args.warmup_ticks < 100 or args.measure_ticks < 100:
             p.error("Allay warmup and measure ticks must be at least 100")
-    if args.entities < 64 or args.entities % 8:
-        p.error("--entities must be at least 64 and divisible by 8")
+    if args.entities < 64 or ("block-updates" not in args.scene and args.entities % 8):
+        p.error("--entities must be at least 64 (and divisible by 8 outside block-updates)")
     if not -(2 ** 63) <= args.seed < 2 ** 63:
         p.error("--seed must be a signed 64-bit integer")
     if args.requests is None:

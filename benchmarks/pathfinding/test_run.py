@@ -5,9 +5,11 @@ from contextlib import ExitStack
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
 import struct
+import statistics
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -74,6 +76,54 @@ def allay_result(ticks=100, entities=64, seed=8675309):
                         for t in [*range(20, ticks, 20), ticks]]}
     for key in run.ALLAY_DISTRIBUTIONS:
         data[key] = dict(mean=1, p50=0.5, p95=2, p99=3, max=4)
+    return data
+
+
+def update_result(ticks=100, entities=64, seed=8675309, interval=40, change="collision"):
+    def distribution(values):
+        ordered = sorted(values)
+        return dict(mean=statistics.mean(values) if values else 0, max=max(values, default=0),
+                    **{f"p{q}": ordered[math.ceil(len(values) * q / 100) - 1] if values else 0
+                       for q in (50, 95, 99)})
+
+    samples = []
+    events = set(range(interval, ticks - 20, interval))
+    for tick in range(1, ticks + 1):
+        event = tick in events
+        immediate = int(event and change == "collision")
+        delayed = int(tick - 1 in events and change == "collision")
+        patrol = int(tick == 1)
+        searches = patrol + immediate + delayed
+        samples.append(dict(tick=tick, update_event=event, block_changes=9 if event and change != "none" else 0,
+                            active_before=entities, navigating=entities, pending=immediate,
+                            moving=entities // 2, distance_moved=(entities // 2) * 0.125,
+                            completed_legs=entities if tick % 300 == 0 else 0,
+                            should_checks=entities * 9 * immediate, should_positive=2 * immediate,
+                            recompute_calls=2 * immediate + delayed, update_recompute_calls=2 * immediate,
+                            delayed_attempts=delayed, path_searches=searches, patrol_searches=patrol,
+                            recompute_searches=immediate + delayed, immediate_searches=immediate,
+                            delayed_searches=delayed, mspt=10 if immediate + delayed else 1,
+                            search_ms=searches * 0.25, block_update_ms=0.1 if event and change != "none" else 0))
+    data = dict(schema=3, scene="block-updates", ticks=ticks, entities=entities, seed=seed,
+                update_interval=interval, block_change=change, blocks_per_event=9, update_events=len(events),
+                entity_ticks=entities * ticks, gap_entity_ticks=0, alive_end=entities, dead=0, escaped=0,
+                pending_end=0, schedule_hash=f"{seed}:{ticks}:{interval}:{change}", tick_samples=samples,
+                navigation_active_fraction=1, event_active_min=entities, event_active_mean=float(entities))
+    for key in (*run.UPDATE_COUNTS, "block_changes", "search_ms", "distance_moved", "completed_legs"):
+        data[key] = sum(row[key] for row in samples)
+    data["moving_fraction"] = sum(row["moving"] for row in samples) / (entities * ticks)
+    data.update(path_reached=data["path_searches"], path_partial=0, path_null=0)
+    data["query_ms"] = distribution([0.25] * data["path_searches"])
+    for key, values in {
+        "tick_ms": [r["mspt"] for r in samples],
+        "block_update_ms": [r["block_update_ms"] for r in samples if r["update_event"]],
+        "update_tick_ms": [r["mspt"] for r in samples if r["update_event"]],
+        "non_update_tick_ms": [r["mspt"] for r in samples if not r["update_event"]],
+        "recompute_tick_ms": [r["mspt"] for r in samples if r["recompute_searches"]],
+        "quiet_tick_ms": [r["mspt"] for r in samples if not r["recompute_searches"]],
+        "recompute_latency_ticks": [0, 1] * len(events) if change == "collision" else [],
+    }.items():
+        data[key] = distribution(values)
     return data
 
 
@@ -336,6 +386,233 @@ class AllayValidationTests(unittest.TestCase):
         run.validate_allay(data, 100, 64, 8675309)  # Gauges need not be monotonic.
 
 
+class UpdateValidationTests(unittest.TestCase):
+    def validate(self, data):
+        return run.validate_updates(data, data["ticks"], data["entities"], data["seed"],
+                                    data["update_interval"], data["block_change"])
+
+    def test_modes_boundaries_non_multiple_population_and_extra_fields(self):
+        for ticks, interval in ((100, 1), (100, 40), (1221, 1200), (12000, 1200)):
+            for mode in ("collision", "same-shape", "none"):
+                with self.subTest(ticks=ticks, interval=interval, mode=mode):
+                    data = update_result(ticks, 65, -(2 ** 63), interval, mode)
+                    data.update(query_signatures=[], checksum="", per_layer=None)
+                    self.assertIs(self.validate(data), data)
+                    self.assertEqual(data["update_events"], (ticks - 21) // interval)
+
+    def test_required_fields_identity_and_malformed_objects(self):
+        original = update_result()
+        for key in original:
+            data = copy.deepcopy(original)
+            del data[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                run.validate_updates(data, 100, 64, 8675309, 40, "collision")
+        for key, value in dict(schema=2, scene="allay", ticks=101, entities=65, seed=0,
+                               update_interval=41, block_change="none", blocks_per_event=8,
+                               update_events=2, block_changes=8, entity_ticks=0, gap_entity_ticks=1,
+                               alive_end=63, dead=1, escaped=1, pending_end=1, schedule_hash=" ").items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                run.validate_updates(original | {key: value}, 100, 64, 8675309, 40, "collision")
+        for value in (None, [], "block-updates", 3):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                run.validate_updates(value, 100, 64, 8675309, 40, "collision")
+
+    def test_counters_are_nonnegative_integers(self):
+        for key in (*run.UPDATE_COUNTERS, "event_active_min"):
+            for value in (-1, True, 1.5, None, "1"):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.validate(update_result() | {key: value})
+        for key in (*run.UPDATE_COUNTS, "tick", "block_changes", "active_before", "navigating", "pending",
+                    "moving", "completed_legs"):
+            for value in (-1, True, 1.5):
+                data = update_result()
+                data["tick_samples"][0][key] = value
+                with self.subTest(row_key=key, value=value), self.assertRaises(ValueError):
+                    self.validate(data)
+
+    def test_no_search_and_false_collision_spike_are_rejected(self):
+        for mode in ("collision", "same-shape", "none"):
+            data = update_result(change=mode)
+            data.update(path_searches=0, path_reached=0, patrol_searches=0, recompute_searches=0,
+                        immediate_searches=0, delayed_searches=0)
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "path_searches > 0"):
+                self.validate(data)
+        data = update_result(change="same-shape")
+        data["block_change"] = "collision"
+        data["recompute_tick_ms"] = dict.fromkeys(("mean", "p50", "p95", "p99", "max"), 100)
+        with self.assertRaisesRegex(ValueError, "actual notification/recompute activity"):
+            self.validate(data)
+
+    def test_wrong_counter_matrix_outcomes_and_raw_totals(self):
+        for key in (*run.UPDATE_COUNTS, "path_reached", "path_partial", "path_null"):
+            data = update_result()
+            data[key] += 1
+            with self.subTest(total=key), self.assertRaises(ValueError):
+                self.validate(data)
+        for key in run.UPDATE_COUNTS:
+            data = update_result()
+            data["tick_samples"][39][key] += 1
+            with self.subTest(row=key), self.assertRaises(ValueError):
+                self.validate(data)
+        data = update_result()
+        for key in ("path_searches", "path_reached", "patrol_searches"):
+            data[key] += 1
+        with self.assertRaisesRegex(ValueError, "total mismatch"):
+            self.validate(data)
+
+    def test_controls_reject_notification_activity(self):
+        for mode in ("same-shape", "none"):
+            for key in ("should_checks", "should_positive", "update_recompute_calls", "recompute_searches"):
+                data = update_result(change=mode)
+                data[key] = 1
+                with self.subTest(mode=mode, key=key), self.assertRaises(ValueError):
+                    self.validate(data)
+
+    def test_positive_notifications_match_requests_in_totals_and_each_tick(self):
+        data = update_result()
+        data["should_positive"] += 1
+        with self.assertRaisesRegex(ValueError, "should_positive must equal update_recompute_calls"):
+            self.validate(data)
+        data = update_result(ticks=140)
+        data["tick_samples"][39]["should_positive"] -= 1
+        data["tick_samples"][79]["should_positive"] += 1
+        self.assertEqual(sum(row["should_positive"] for row in data["tick_samples"]), data["should_positive"])
+        with self.assertRaisesRegex(ValueError, "should_positive must equal update_recompute_calls"):
+            self.validate(data)
+
+    def test_pending_ledger_starts_empty_and_tracks_each_request_completion(self):
+        for index, pending in ((0, 1), (39, 0), (40, 1)):
+            data = update_result()
+            data["tick_samples"][index]["pending"] = pending
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, "pending request ledger"):
+                self.validate(data)
+        data = update_result()
+        # Keep all phase totals intact, but complete the delayed search before its request.
+        rows = data["tick_samples"]
+        rows[1], rows[40] = rows[40] | {"tick": 2}, rows[1] | {"tick": 41}
+        with self.assertRaisesRegex(ValueError, "pending request ledger"):
+            self.validate(data)
+        data = update_result()
+        for key in ("should_positive", "update_recompute_calls", "recompute_calls"):
+            data[key] += 64
+            data["tick_samples"][39][key] += 64
+        with self.assertRaisesRegex(ValueError, "pending request ledger"):
+            self.validate(data)
+
+    def test_all_modes_require_active_and_moving_patrols(self):
+        for mode in ("collision", "same-shape", "none"):
+            data = update_result(change=mode)
+            data.update(event_active_min=0, event_active_mean=0)
+            for row in data["tick_samples"]:
+                row["active_before"] = 0
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "event_active_mean >="):
+                self.validate(data)
+            for moving in (0, 15, 16):
+                data = update_result(change=mode)
+                for row in data["tick_samples"]:
+                    row.update(moving=moving, distance_moved=moving * 0.125, active_before=32)
+                data.update(moving_fraction=moving / 64, distance_moved=moving * 0.125 * 100,
+                            event_active_min=32, event_active_mean=32)
+                with self.subTest(mode=mode, moving=moving):
+                    if moving < 16:
+                        with self.assertRaisesRegex(ValueError, "moving_fraction >="):
+                            self.validate(data)
+                    else:
+                        self.validate(data)
+                        self.assertEqual(data["completed_legs"], 0)
+
+    def test_movement_fields_required_bounded_and_match_raw_totals(self):
+        for key in ("moving", "distance_moved", "completed_legs"):
+            data = update_result()
+            del data["tick_samples"][0][key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                self.validate(data)
+        for key, values in (("moving_fraction", (-1, True, float("nan"), float("inf"), None, 1.01, 0.6)),
+                            ("distance_moved", (-1, True, float("nan"), float("inf"), None, 401)),
+                            ("completed_legs", (1,))):
+            for value in values:
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.validate(update_result() | {key: value})
+        for key, values in (("moving", (65, 31)), ("completed_legs", (1,)),
+                            ("distance_moved", (-1, True, float("nan"), float("inf"), None, 5))):
+            for value in values:
+                data = update_result()
+                data["tick_samples"][0][key] = value
+                with self.subTest(row_key=key, value=value), self.assertRaises(ValueError):
+                    self.validate(data)
+        data = update_result(ticks=400)
+        self.assertGreater(data["completed_legs"], 0)
+        self.validate(data)
+        data["distance_moved"] += 1e-12
+        self.validate(data)
+
+    def test_exact_tick_sequence_event_markers_and_drain(self):
+        for rows in (None, {}, [], [None] * 100, [{}] * 100,
+                     update_result()["tick_samples"][:-1], update_result()["tick_samples"] * 2):
+            with self.subTest(rows_type=type(rows)), self.assertRaises(ValueError):
+                self.validate(update_result() | {"tick_samples": rows})
+        for index, changes in ((0, dict(tick=0)), (0, dict(update_event=1)),
+                               (39, dict(update_event=False)), (79, dict(update_event=True)),
+                               (39, dict(block_changes=0)), (0, dict(block_changes=9)),
+                               (0, dict(active_before=65)), (0, dict(navigating=65)),
+                               (0, dict(pending=65)), (-1, dict(pending=1)),
+                               (0, dict(should_checks=1)), (0, dict(block_update_ms=0.1))):
+            data = update_result()
+            data["tick_samples"][index].update(changes)
+            with self.subTest(index=index, changes=changes), self.assertRaises(ValueError):
+                self.validate(data)
+
+    def test_all_timings_finite_ordered_and_nonnegative(self):
+        for key in run.UPDATE_DISTRIBUTIONS:
+            for stat in ("mean", "p50", "p95", "p99", "max"):
+                for value in (-1, True, float("nan"), float("inf"), None):
+                    data = update_result()
+                    data[key][stat] = value
+                    with self.subTest(key=key, stat=stat, value=value), self.assertRaises(ValueError):
+                        self.validate(data)
+            data = update_result()
+            data[key].update(p50=3, p95=2)
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.validate(data)
+        for key in ("search_ms", "navigation_active_fraction", "event_active_mean"):
+            for value in (-1, True, float("nan"), float("inf")):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.validate(update_result() | {key: value})
+        for key in ("mspt", "search_ms", "block_update_ms"):
+            for value in (-1, True, float("nan"), float("inf")):
+                data = update_result()
+                data["tick_samples"][39][key] = value
+                with self.subTest(row=key, value=value), self.assertRaises(ValueError):
+                    self.validate(data)
+
+    def test_raw_timing_cohorts_activity_and_latency_bounds(self):
+        for key in ("tick_ms", "block_update_ms", "update_tick_ms", "non_update_tick_ms",
+                    "recompute_tick_ms", "quiet_tick_ms", "query_ms"):
+            data = update_result()
+            data[key] = {stat: value * 2 for stat, value in data[key].items()}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "Raw ticks disagree"):
+                self.validate(data)
+        for key, value in (("search_ms", 10), ("navigation_active_fraction", 0.9),
+                           ("navigation_active_fraction", 1.1), ("event_active_min", 63),
+                           ("event_active_min", 65), ("event_active_mean", 63), ("event_active_mean", 31)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.validate(update_result() | {key: value})
+        data = update_result()
+        data["recompute_latency_ticks"]["max"] = 21
+        self.validate(data)
+        data["recompute_latency_ticks"]["max"] = 21.01
+        with self.assertRaisesRegex(ValueError, "max exceeds 21"):
+            self.validate(data)
+        for key in ("recompute_tick_ms", "recompute_latency_ticks"):
+            data = update_result(change="none")
+            data[key]["max"] = 1e-12
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.validate(data)
+        data = update_result()
+        data["tick_ms"]["mean"] += 1e-12
+        self.validate(data)
+
+
 class InputTests(unittest.TestCase):
     def jar(self, path, ident):
         with zipfile.ZipFile(path, "w") as jar:
@@ -415,9 +692,68 @@ class InputTests(unittest.TestCase):
         self.assertEqual(parameters["scene"], ["open", "maze", "blocked"])
         self.assertEqual(parameters["requests"], 32)
 
+    def test_update_defaults_and_cli_bounds(self):
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(run.main(["--dry-run", "--scene", "block-updates"]), 0)
+        data = json.loads(out.getvalue())
+        self.assertEqual(data["fresh_jvms"], 3)
+        self.assertEqual([data["parameters"][key] for key in ("entities", "seed", "update_interval", "block_change")],
+                         [64, 8675309, 40, "collision"])
+        for extra in (["--entities", "63"], ["--entities", "64.5"], ["--requests", "32"], ["--requests=32"],
+                      ["--update-interval", "0"], ["--update-interval", "1201"], ["--update-interval", "1.5"],
+                      ["--block-change", "other"], ["--warmup-ticks", "99"], ["--measure-ticks", "99"],
+                      ["--warmup-ticks", "12001"], ["--measure-ticks", "12001"],
+                      ["--update-interval", "100", "--warmup-ticks", "120"],
+                      ["--update-interval", "100", "--measure-ticks", "120"],
+                      ["--seed", str(2 ** 63)], ["--seed", str(-(2 ** 63) - 1)],
+                      *[["--scene", scene] for scene in (*run.SCENES, "allay")]):
+            with self.subTest(extra=extra), patch("sys.stderr", new_callable=io.StringIO), \
+                    patch.object(run.subprocess, "Popen") as launch, self.assertRaises(SystemExit):
+                run.main(["--dry-run", "--scene", "block-updates", *extra])
+            launch.assert_not_called()
+        for mode in ("collision", "same-shape", "none"):
+            for interval, ticks in ((1, 100), (79, 100), (1200, 1221), (1200, 12000)):
+                with self.subTest(mode=mode, interval=interval), patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(run.main(["--dry-run", "--scene", "block-updates", "--entities", "65",
+                                               "--seed", str(-(2 ** 63)), "--block-change", mode,
+                                               "--update-interval", str(interval), "--warmup-ticks", str(ticks),
+                                               "--measure-ticks", str(ticks)]), 0)
+
     def test_cannot_write_into_source_server(self):
         with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
             run.main(["--dry-run", "--server-home", "/tmp/source", "--output", "/tmp/source/results"])
+
+    def test_updates_main_routes_parameters_references_and_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "source"
+            home.mkdir()
+            (home / "eula.txt").write_text("eula=true\n")
+            results = [dict(scene="block-updates", valid=True, rejection=None,
+                            measure=update_result(100, 65, -123, 79, "same-shape")) for _ in range(2)]
+            with patch.object(run, "select_mods", return_value=[]), \
+                    patch.object(run, "provenance", return_value={}), \
+                    patch.object(run, "run_one", side_effect=results) as one, \
+                    patch.object(run.subprocess, "run") as build, \
+                    patch.object(run.subprocess, "Popen") as launch, \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                code = run.main(["--scene", "block-updates", "--entities", "65", "--seed", "-123",
+                                 "--update-interval", "79", "--block-change", "same-shape",
+                                 "--server-home", str(home), "--output", str(root / "output"),
+                                 "--skip-build", "--warmup-ticks", "100", "--measure-ticks", "100", "--repeat", "2"])
+            self.assertEqual(code, 0)
+            build.assert_not_called()
+            launch.assert_not_called()
+            self.assertEqual(one.call_count, 2)
+            first, second = [call.args for call in one.call_args_list]
+            self.assertEqual(first[2], "block-updates")
+            self.assertEqual((first[0].entities, first[0].seed, first[0].update_interval, first[0].block_change),
+                             (65, -123, 79, "same-shape"))
+            self.assertIsNone(first[-1])
+            self.assertIs(second[-1], results[0])
+            summary = json.loads(next((root / "output").glob("*/summary.json")).read_text())
+            self.assertTrue(summary["valid"])
+            self.assertEqual(summary["scenes"]["block-updates"]["repetitions"], 2)
 
     def test_eula_must_be_unambiguously_accepted_before_any_build(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -487,6 +823,36 @@ class InputTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_updates_summary_counts_cohorts_cv_and_spike_ratio_without_samples(self):
+        first = dict(scene="block-updates", valid=True, rejection=None, link="m.json", measure=update_result())
+        second = copy.deepcopy(first)
+        second["measure"]["search_ms"] *= 2
+        rejected = dict(scene="block-updates", valid=False, rejection="no searches", link="bad.json")
+        with patch("sys.stderr", new_callable=io.StringIO):
+            summary = run.summarize([first, second, rejected])
+        self.assertFalse(summary["valid"])
+        scene = summary["scenes"]["block-updates"]
+        self.assertEqual(scene["repetitions"], 2)
+        for key in ("tick_samples", "query_signatures", "checksum", "per_layer"):
+            self.assertNotIn(key, json.dumps(scene))
+        self.assertEqual(scene["timings"]["recompute_spike_ratio"], dict(mean=10, cv_percent=0))
+        self.assertEqual(scene["timings"]["search_ms"]["mean"], first["measure"]["search_ms"] * 1.5)
+        self.assertGreater(scene["timings"]["search_ms"]["cv_percent"], 0)
+        for key in run.UPDATE_COUNTERS:
+            self.assertEqual(scene["timings"][key]["mean"], first["measure"][key])
+        for key in ("moving_fraction", "distance_moved", "completed_legs"):
+            self.assertEqual(scene["timings"][key], dict(mean=first["measure"][key], cv_percent=0))
+        for kind in run.UPDATE_DISTRIBUTIONS:
+            for stat, value in first["measure"][kind].items():
+                self.assertEqual(scene["timings"][f"{kind}.{stat}"], dict(mean=value, cv_percent=0))
+
+    def test_updates_control_spike_ratio_is_unavailable(self):
+        for mode in ("same-shape", "none"):
+            summary = run.summarize([dict(scene="block-updates", valid=True, rejection=None, link="m.json",
+                                         measure=update_result(change=mode))])
+            self.assertEqual(summary["scenes"]["block-updates"]["timings"]["recompute_spike_ratio"],
+                             dict(mean=None, cv_percent=None))
+
     def test_allay_summary_distributions_counts_and_fractions_without_arrays(self):
         first = dict(scene="allay", valid=True, rejection=None, link="m.json", measure=allay_result())
         second = copy.deepcopy(first)
@@ -536,7 +902,8 @@ class LifecycleTests(unittest.TestCase):
                  server_jar="server.jar", setup_response="PATHBENCH READY", malformed_measure=False,
                  nt_config=None, change_artifacts=None, expect_launch=True,
                  spark_response="", spark_confirmation=True, stale_spark_confirmation=False,
-                 scene="open", entities=64, seed=8675309, same_ticks=False):
+                  scene="open", entities=64, seed=8675309, same_ticks=False,
+                  update_interval=40, block_change="collision"):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root = Path(directory)
             home = root / "source"
@@ -550,9 +917,10 @@ class LifecycleTests(unittest.TestCase):
             with zipfile.ZipFile(bench, "w") as jar:
                 jar.writestr(zipfile.ZipInfo("fabric.mod.json"), '{"id":"pathfinding-benchmark"}')
             args = run.parser().parse_args(["--server-home", str(home), "--warmup-ticks", "3", "--measure-ticks", "4"])
-            if scene == "allay":
+            if scene in ("allay", "block-updates"):
                 args.warmup_ticks, args.measure_ticks = 100, 100 if same_ticks else 101
                 args.entities, args.seed = entities, seed
+            args.update_interval, args.block_change = update_interval, block_change
             if nt_config is not None:
                 config = home / "nt.json"
                 config.write_text(nt_config)
@@ -588,14 +956,17 @@ class LifecycleTests(unittest.TestCase):
                 if command is None:
                     return ""
                 commands.append(command)
-                if command.startswith(("pathbench setup", "pathbench allay")):
+                if command.startswith(("pathbench setup", "pathbench allay", "pathbench updates")):
                     return setup_response
                 if command.startswith("pathbench run"):
                     phase, ticks = command.split()[2:]
                     if phase == "measure":
                         before = json.loads((folder / "manifest.json").read_text())
                         self.assertIn("confirmed_by", before["spark_start"])
-                    if scene == "allay":
+                    if scene == "block-updates":
+                        data = update_result(int(ticks), args.entities, args.seed, update_interval, block_change)
+                        data["schedule_hash"] += f":{phase}"
+                    elif scene == "allay":
                         data = allay_result(int(ticks), args.entities, args.seed)
                         data["schedule_hash"] += f":{phase}"
                     else:
@@ -675,6 +1046,53 @@ class LifecycleTests(unittest.TestCase):
             self.assertNotEqual(manifest["warmup"]["schedule_hash"], manifest["measure"]["schedule_hash"])
             self.assertEqual(manifest["measure"]["schema"], 2)
             self.assertEqual(manifest["parameters"]["entities"], 72)
+
+    def test_update_routing_manifest_full_samples_and_phase_hash_independence(self):
+        for mode in ("collision", "same-shape", "none"):
+            manifest, commands = self.exercise(scene="block-updates", entities=65, seed=-42,
+                                               update_interval=1, block_change=mode, same_ticks=True)
+            self.assertTrue(manifest["valid"], manifest["rejection"])
+            self.assertEqual(commands, [f"pathbench updates 65 -42 1 {mode}", "pathbench run warmup 100",
+                                        "spark profiler start --thread *", "pathbench run measure 100",
+                                        "spark profiler stop --save-to-file"])
+            self.assertNotEqual(manifest["warmup"]["schedule_hash"], manifest["measure"]["schedule_hash"])
+            self.assertEqual(manifest["measure"]["schema"], 3)
+            self.assertEqual(len(manifest["measure"]["tick_samples"]), 100)
+            self.assertEqual(manifest["parameters"]["entities"], 65)
+
+    def test_update_repetition_compares_same_phase_schedule_not_paths(self):
+        reference, _ = self.exercise(scene="block-updates")
+        def mutate(phase, data):
+            data.update(query_signatures=[phase], checksum=phase, path_partial=1)
+            data["path_reached"] -= 1
+        manifest, _ = self.exercise(scene="block-updates", reference=reference, mutate=mutate)
+        self.assertTrue(manifest["valid"], manifest["rejection"])
+        for phase in ("warmup", "measure"):
+            changed = copy.deepcopy(reference)
+            changed[phase]["schedule_hash"] = "different"
+            manifest, _ = self.exercise(scene="block-updates", reference=changed)
+            self.assertFalse(manifest["valid"])
+            self.assertIn(f"{phase} schedule_hash differs between repetitions", manifest["rejection"])
+        for key in ("schema", "scene", "ticks", "entities", "seed", "update_interval", "block_change", "blocks_per_event"):
+            changed = copy.deepcopy(reference)
+            changed["measure"][key] = "different"
+            with self.subTest(key=key):
+                manifest, _ = self.exercise(scene="block-updates", reference=changed)
+                self.assertFalse(manifest["valid"])
+                self.assertIn("identity differs", manifest["rejection"])
+
+    def test_update_ack_malformed_output_and_lost_response_rejected(self):
+        manifest, commands = self.exercise(scene="block-updates", setup_response="ERROR: PATHBENCH READY")
+        self.assertFalse(manifest["valid"])
+        self.assertEqual(commands, ["pathbench updates 64 8675309 40 collision"])
+        manifest, _ = self.exercise(scene="block-updates", malformed_measure=True)
+        self.assertFalse(manifest["valid"])
+        self.assertIn("JSONDecodeError", manifest["rejection"])
+        self.assertIn("spark", manifest)
+        manifest, commands = self.exercise(scene="block-updates", lost_response=True)
+        self.assertFalse(manifest["valid"])
+        self.assertEqual(commands.count("pathbench run warmup 100"), 1)
+        self.assertNotIn("pathbench run measure 101", commands)
 
     def test_allay_repetition_compares_schedule_not_fingerprints(self):
         reference, _ = self.exercise(scene="allay")
@@ -864,9 +1282,11 @@ class LifecycleTests(unittest.TestCase):
 
     def test_cleanup_escalates_only_owned_process(self):
         process = Mock(poll=lambda: None)
-        process.wait.side_effect = [run.subprocess.TimeoutExpired("server", 30),
+        process.wait.side_effect = [run.subprocess.TimeoutExpired("server", 120),
                                     run.subprocess.TimeoutExpired("server", 10), 0]
         run.stop(process)
+        process.wait.assert_any_call(timeout=120)
+        process.wait.assert_any_call(timeout=10)
         process.terminate.assert_called_once()
         process.kill.assert_called_once()
         process.stdin.close.assert_called_once()

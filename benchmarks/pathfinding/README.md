@@ -9,6 +9,9 @@ For live AI, flight, and pickup measurements, see the separate
 [layered allay end-to-end mode](ALLAY.md). The defaults below describe the
 original synchronous ground-search corpus.
 
+For mass path invalidation after nearby block placement, see the separate
+[block-update spike scene](BLOCK-UPDATES.md), including same-shape and no-write controls.
+
 ## Run Locally
 
 From the NativeThreading repository root:
