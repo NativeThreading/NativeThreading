@@ -129,7 +129,7 @@ jobs:
           project: 2yAIA2XW
           version: ${{ inputs.version }}
           loaders: '["fabric", "neoforge"]'
-          game-versions: "26.2"
+          game-versions: "26.3"
           changelog: ${{ steps.changelog.outputs.changelog }}
           channel: ${{ inputs.channel }}
           files: build/libs/explosion-parallelization-${{ inputs.version }}.jar

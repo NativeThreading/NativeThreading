@@ -1,6 +1,6 @@
 # NativeThreading
 
-Multi-module Fabric mod for Minecraft 26.2, parallelizing selected server workloads via mixins.
+Multi-module Fabric mod for Minecraft 26.3, parallelizing selected server workloads via mixins.
 
 ## Modules
 
@@ -12,7 +12,7 @@ All share `core/` (thread pool, safe world access, deferred writes, config).
 
 ## Installation
 
-Drop `native-threading-1.0.0.jar` into your `mods/` folder. Requires Fabric Loader ≥ 0.19.3.
+Drop `native-threading-1.0.0.jar` into your `mods/` folder. Requires Fabric Loader ≥ 0.19.5.
 
 Configure modules in `config/nt.json`.
 

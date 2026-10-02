@@ -1,6 +1,6 @@
 # NativeThreading
 
-NativeThreading is a Minecraft 26.2 multi-module mod that parallelizes selected server workloads through mixins.
+NativeThreading is a Minecraft 26.3 multi-module mod that parallelizes selected server workloads through mixins.
 
 ## Modules
 

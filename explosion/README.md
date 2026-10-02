@@ -75,4 +75,4 @@ explode() 主线程
 
 产物位于 `build/libs/explosion-{version}.jar`。
 
-需求:JDK 25, Minecraft 26.2 (1.21.5), Fabric Loader >= 0.19.2。
+需求:JDK 25, Minecraft 26.3, Fabric Loader >= 0.19.5。

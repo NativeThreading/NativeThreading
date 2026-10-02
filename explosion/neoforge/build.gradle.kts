@@ -2,7 +2,7 @@ import org.gradle.api.file.DuplicatesStrategy
 
 plugins {
     id("java-library")
-    id("net.neoforged.moddev") version "2.0.141"
+    id("net.neoforged.moddev") version "2.0.148"
 }
 
 version = providers.gradleProperty("mod_version").get()

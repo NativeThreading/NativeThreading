@@ -77,6 +77,6 @@ jobs:
           version: ${{ steps.release.outputs.version }}
           version-type: ${{ steps.release.outputs.type }}
           changelog: ${{ steps.changelog.outputs.changelog }}
-          game-versions: 26.2
+          game-versions: 26.3
           loaders: fabric neoforge
           files: build/libs/native-threading-*.jar
