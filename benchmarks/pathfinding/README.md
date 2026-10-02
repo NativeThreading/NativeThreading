@@ -19,7 +19,7 @@ From the NativeThreading repository root:
 ```bash
 python -B -m unittest discover -s benchmarks/pathfinding -p 'test_*.py' -v
 python -B benchmarks/pathfinding/run.py --dry-run
-python -B benchmarks/pathfinding/run.py --label vanilla-navigation
+python -B benchmarks/pathfinding/run.py --no-lithium --label vanilla-navigation
 ```
 
 The last command builds the test mod and runs all three scenes, three fresh JVMs
@@ -59,8 +59,16 @@ files are copied, not hard-linked or symlinked into the source server. Shutdown
 only targets the process owned by this run. This is workload isolation, not a
 security sandbox for untrusted mods.
 
-Only Fabric API, Spark, and the fixture mod are loaded automatically. No Lithium,
-Carpet, NativeThreading, or NEP jars are inherited. Explicitly add a candidate:
+The default stack is **vanilla + Lithium**: Fabric API, Spark and the Lithium jar
+found in `--server-home/mods` are copied automatically, the fixture mod is
+added on top, and the copy of `config/lithium.properties` is archived in the
+manifest. Lithium is the default because it prunes collision, shape,
+explosion-raycast and node-evaluation work that would otherwise be charged to
+these workloads, so pure vanilla is the opt-in oracle stack: `--no-lithium`
+selects it for differential/equivalence checks. [../README.md](../README.md)
+carries the stack and pairing rules for the whole suite.
+
+Add a candidate explicitly:
 
 ```bash
 ./gradlew clean assemble
@@ -69,8 +77,11 @@ python -B benchmarks/pathfinding/run.py --label candidate \
   --nt-config /absolute/path/to/nt.json
 ```
 
-Supply the exact jar, not a wildcard picking an arbitrary build. The runner
-archives its bytes/hash and optional configuration. `--skip-build` only skips
+Supply the exact jar, not a wildcard picking an arbitrary build. `--mod`
+replaces the discovered jar with the same mod ID, so a specific Lithium or
+Fabric API build replaces the automatic one instead of colliding with it;
+combining `--no-lithium` with an explicit Lithium `--mod` is rejected. The
+runner archives its bytes/hash and optional configuration. `--skip-build` only skips
 building the fixture mod; it never builds candidate mods implicitly. Repeat with
 identical benchmark code, parameters, Java, affinity and profiler settings on
 both sides. Prefer module on/off on the same candidate commit when a future

@@ -8,7 +8,7 @@ navigations and either recomputes immediately or defers through its normal
 ## Run
 
 ```bash
-python -B benchmarks/pathfinding/run.py --scene block-updates --entities 512 \
+python -B benchmarks/pathfinding/run.py --no-lithium --scene block-updates --entities 512 \
   --update-interval 40 --block-change collision \
   --warmup-ticks 400 --measure-ticks 1200 --repeat 3 --label updates-collision
 ```
@@ -16,10 +16,10 @@ python -B benchmarks/pathfinding/run.py --scene block-updates --entities 512 \
 Run the two controls separately with identical arguments except for change/label:
 
 ```bash
-python -B benchmarks/pathfinding/run.py --skip-build --scene block-updates --entities 512 \
+python -B benchmarks/pathfinding/run.py --skip-build --no-lithium --scene block-updates --entities 512 \
   --update-interval 40 --block-change same-shape \
   --warmup-ticks 400 --measure-ticks 1200 --repeat 3 --label updates-same-shape
-python -B benchmarks/pathfinding/run.py --skip-build --scene block-updates --entities 512 \
+python -B benchmarks/pathfinding/run.py --skip-build --no-lithium --scene block-updates --entities 512 \
   --update-interval 40 --block-change none \
   --warmup-ticks 400 --measure-ticks 1200 --repeat 3 --label updates-none
 ```
@@ -164,9 +164,8 @@ The chart previews the first repeat's first 240 measured ticks per mode; the
 statistics and CSV use the complete dataset. Red markers indicate scheduled
 updates, so delayed bursts can be distinguished from the trigger itself.
 
-See [BLOCK-UPDATES-RESULTS.md](BLOCK-UPDATES-RESULTS.md) for the real-server
-verification. This is a specialized scripted-navigation fixture, not natural
-cow behavior or a replacement for the existing live-allay collection benchmark.
+This is a specialized scripted-navigation fixture, not natural cow behavior or a
+replacement for the existing live-allay collection benchmark.
 Future asynchronous navigation will need instrumentation at actual completion;
 the current probes require main-thread callbacks and do not authorize worker
 access to these live entities/worlds.

@@ -10,7 +10,7 @@ replaces, the existing synchronous ground-search corpus.
 From the repository root:
 
 ```bash
-python -B benchmarks/pathfinding/run.py --scene allay --entities 64 --label allay-64
+python -B benchmarks/pathfinding/run.py --no-lithium --scene allay --entities 64 --label allay-64
 ```
 
 `--entities` must be at least 64 and divisible by 8. `--seed` defaults to 8675309
@@ -22,13 +22,14 @@ in fresh JVMs/worlds. Both allay phases must contain at least 100 ticks.
 Short feasibility check:
 
 ```bash
-python -B benchmarks/pathfinding/run.py --scene allay --entities 64 \
+python -B benchmarks/pathfinding/run.py --no-lithium --scene allay --entities 64 \
   --warmup-ticks 100 --measure-ticks 200 --repeat 1 --label allay-smoke
 ```
 
 Run 64, 128, 256, and 512 entities sequentially, not simultaneously on the same
 machine. Use the existing `--mod` / `--nt-config` options for an explicitly chosen
-candidate. Baseline automatically loads only Fabric API, Spark and the fixture.
+candidate. `--no-lithium` keeps the archived baseline stack of Fabric API, Spark
+and the fixture; the harness default also loads Lithium.
 Original `~/fabric-server` files are never modified.
 
 ## Geometry And Load
@@ -154,7 +155,7 @@ python -B -m unittest discover -s benchmarks/pathfinding -p 'test_*.py'
 ./gradlew -p benchmarks/pathfinding/mod check
 ```
 
-See [ALLAY-RESULTS.md](ALLAY-RESULTS.md) for measured feasibility results. The
-original ground-search report remains historical: adding observation mixins
-changes the fixture jar, so rerun both comparison sides rather than treating the
-old jar's timings as a same-harness optimization baseline.
+Adding observation mixins changes the fixture jar, so compare only runs that
+share a fixture hash: rerun both comparison sides rather than treating an older
+jar's timings as a same-harness baseline. Sessions stay under `results/` as
+local artifacts; no result is committed.

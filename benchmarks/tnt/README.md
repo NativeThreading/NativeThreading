@@ -9,7 +9,7 @@ completed TNT explosions while the original world/datapack runs normally.
 From the repository root:
 
 ```bash
-python -B benchmarks/tnt/run.py --activate-classic --mode ticks \
+python -B benchmarks/tnt/run.py --no-lithium --activate-classic --mode ticks \
   --warmup-ticks 200 --measure-ticks 3000 --window-ticks 200 --repeat 3
 ```
 
@@ -38,8 +38,12 @@ is preferred here: under this heavy load, a 30-second window only has about
   `./gradlew -p benchmarks/tnt/mod clean assemble check`.
 - The runner reuses tested RCON/provenance utilities from the neighboring
   pathfinding harness, but does not load its fixture mod.
-- Automatically loaded mods: Fabric API, Spark, and `tnt-observer`. No NT, NEP,
-  Lithium or Carpet are implicitly selected. Extra mods require `--mod`; an
+- Automatically loaded mods: Fabric API, Spark, the Lithium jar found in
+  `--server-home/mods`, and `tnt-observer`; the manifest records the `stack`
+  label, the Lithium hash and the copied `config/lithium.properties`. Vanilla
+  only is opt-in with `--no-lithium`. Carpet and NEP are never selected
+  implicitly. Extra mods
+  require `--mod`, which replaces the discovered jar with the same mod ID; an
   explicit NT configuration can be supplied with `--nt-config`.
 - Source world, server jar, libraries and mods are copied, not hard-linked or
   symlinked into the original server. The existing server/world is never replaced.
@@ -121,8 +125,8 @@ python -B benchmarks/tnt/analyze.py benchmarks/tnt/results/20260926T105430-12766
 ```
 
 This writes derived `analysis.json`, `windows.csv`, and `timeline.svg` without
-modifying raw telemetry or manifests. See [RESULTS.md](RESULTS.md) for the
-completed three-run experiment and interpretation.
+modifying raw telemetry or manifests. Sessions stay under `results/` as local
+artifacts; no result is committed.
 
 ## Source Context And Tests
 
