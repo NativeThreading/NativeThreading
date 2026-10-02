@@ -184,10 +184,17 @@ class IsolationTests(unittest.TestCase):
             self.assertEqual(data["build"], ["./gradlew", "-p", "benchmarks/tnt/mod", "clean", "assemble", "check"])
             self.assertEqual(data["observer_command"], "tntobserve start 120 900 30")
             self.assertFalse(data["parameters"]["activate_classic"])
-            self.assertEqual(data["automatic_mod_ids"], ["fabric-api", "spark"])
+            self.assertEqual(data["automatic_mod_ids"], ["fabric-api", "spark", "lithium"])
+            self.assertEqual(data["stack"], "base")
             self.assertFalse(output.exists())
             launch.assert_not_called()
             build.assert_not_called()
+            out.seek(0)
+            out.truncate(0)
+            self.assertEqual(run.main(["--dry-run", "--no-lithium", "--output", str(output)]), 0)
+            data = json.loads(out.getvalue())
+            self.assertEqual(data["automatic_mod_ids"], ["fabric-api", "spark"])
+            self.assertEqual(data["stack"], "vanilla")
 
     def test_invalid_arguments(self):
         for args in (("--window-seconds", "0"), ("--warmup-seconds", "-30"),
@@ -207,10 +214,14 @@ class IsolationTests(unittest.TestCase):
                     for ident in ("fabric-api", "spark", "lithium", "carpet", "native-threading")}
             observer = jar(home / "observer.jar", "tnt-observer")
             selected = run.base.select_mods(home, [], observer)
-            self.assertEqual(selected, [jars["fabric-api"], jars["spark"], observer])
+            self.assertEqual(selected, [jars["fabric-api"], jars["spark"], jars["lithium"], observer])
+            self.assertEqual(run.base.select_mods(home, [], observer, lithium=False),
+                             [jars["fabric-api"], jars["spark"], observer])
             self.assertIn(jars["native-threading"], run.base.select_mods(home, [jars["native-threading"]], observer))
             with self.assertRaises(ValueError):
-                run.base.select_mods(home, [jars["spark"]], observer)
+                run.base.select_mods(home, [jars["lithium"]], observer, lithium=False)
+            with self.assertRaises(ValueError):
+                run.base.select_mods(home, [jars["spark"], jars["spark"]], observer)
 
     def test_copy_materializes_world_and_runtime_without_source_writes(self):
         with tempfile.TemporaryDirectory() as directory:

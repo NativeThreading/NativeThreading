@@ -619,7 +619,7 @@ class InputTests(unittest.TestCase):
             jar.writestr("fabric.mod.json", json.dumps({"id": ident}))
         return path
 
-    def test_only_api_spark_and_explicit_mods(self):
+    def test_lithium_is_default_and_vanilla_stays_reachable(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             (home / "mods").mkdir()
@@ -627,14 +627,55 @@ class InputTests(unittest.TestCase):
                 self.jar(home / "mods" / f"{ident}.jar", ident)
             bench = self.jar(home / "benchmark.jar", "pathfinding-benchmark")
             selected = run.select_mods(home, [], bench)
-            self.assertEqual([run.mod_id(p) for p in selected], ["fabric-api", "spark", "pathfinding-benchmark"])
+            self.assertEqual([run.mod_id(p) for p in selected],
+                             ["fabric-api", "spark", "lithium", "pathfinding-benchmark"])
+            vanilla = run.select_mods(home, [], bench, lithium=False)
+            self.assertEqual([run.mod_id(p) for p in vanilla], ["fabric-api", "spark", "pathfinding-benchmark"])
             nt = home / "mods/native-threading.jar"
             self.assertIn(nt, run.select_mods(home, [nt], bench))
+            explicit = home / "mods/lithium.jar"
+            self.assertEqual(run.select_mods(home, [explicit], bench).count(explicit), 1)
+            with self.assertRaisesRegex(ValueError, "conflicts with an explicit Lithium"):
+                run.select_mods(home, [explicit], bench, lithium=False)
             with self.assertRaisesRegex(ValueError, "Duplicate"):
-                run.select_mods(home, [home / "mods/spark.jar"], bench)
+                run.select_mods(home, [explicit, explicit], bench)
             self.jar(home / "mods/another-api.jar", "fabric-api")
             with self.assertRaisesRegex(ValueError, "exactly one"):
                 run.select_mods(home, [], bench)
+
+    def test_stack_name_and_lithium_config(self):
+        self.assertEqual(run.stack_name({"fabric-api"}), "vanilla")
+        self.assertEqual(run.stack_name({"fabric-api", "lithium"}), "base")
+        self.assertEqual(run.stack_name({"native-threading"}), "vanilla+nt")
+        self.assertEqual(run.stack_name({"lithium", "native-threading"}), "base+nt")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            self.assertIsNone(run.lithium_config(home))
+            (home / "config").mkdir()
+            (home / "config/lithium.properties").write_text("x=1\n")
+            config = run.lithium_config(home)
+            self.assertEqual(config["content"], "x=1\n")
+            self.assertEqual(config["sha256"], run.sha(home / "config/lithium.properties"))
+
+    def test_drop_runtime_keeps_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            server = Path(directory) / "server"
+            (server / "libraries/net").mkdir(parents=True)
+            (server / "libraries/net/core.jar").write_bytes(b"L")
+            (server / "server.jar").write_bytes(b"S")
+            (server / "versions/26.2").mkdir(parents=True)
+            (server / "versions/26.2/server.jar").write_bytes(b"V")
+            (server / "mods").mkdir()
+            (server / "mods/lithium.jar").write_bytes(b"M")
+            (server / "world").mkdir()
+            (server / "world/level.dat").write_bytes(b"W")
+            (server / "pathbench-measure.json").write_text("{}")
+            run.drop_runtime(server)
+            for name in run.RUNTIME_COPIES:
+                self.assertFalse((server / name).exists(), name)
+            for kept in ("mods/lithium.jar", "world/level.dat", "pathbench-measure.json"):
+                self.assertTrue((server / kept).is_file(), kept)
+            run.drop_runtime(server)  # Idempotent once the copies are gone.
 
     def test_deterministic_properties_and_loopback(self):
         args = run.parser().parse_args([])
@@ -785,6 +826,24 @@ class InputTests(unittest.TestCase):
             self.assertIn("01-open-1 VALID: all checks passed", out.getvalue())
             self.assertIn("02-open-2 REJECTED: Setup did not return PATHBENCH READY", out.getvalue())
 
+    def test_no_lithium_flag_reaches_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "source"
+            home.mkdir()
+            (home / "eula.txt").write_text("eula=true\n")
+            for extra, expected in (([], True), (["--no-lithium"], False)):
+                with self.subTest(extra=extra), \
+                        patch.object(run, "select_mods", return_value=[]) as select, \
+                        patch.object(run, "provenance", return_value={}), \
+                        patch.object(run, "run_one", return_value=dict(scene="open", valid=True, rejection=None,
+                                                                       measure=result())), \
+                        patch("sys.stdout", new_callable=io.StringIO):
+                    code = run.main(["--server-home", str(home), "--output", str(root / f"out-{expected}"),
+                                     "--skip-build", "--scene", "open", *extra])
+                self.assertEqual(code, 0)
+                select.assert_called_once_with(home, [], lithium=expected)
+
     def test_allay_main_routes_arguments_references_and_summary_with_existing_flags(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -809,7 +868,7 @@ class InputTests(unittest.TestCase):
             self.assertEqual(code, 0)
             build.assert_not_called()
             launch.assert_not_called()
-            select.assert_called_once_with(home, [mod])
+            select.assert_called_once_with(home, [mod], lithium=True)
             self.assertEqual(one.call_count, 2)
             first, second = [call.args for call in one.call_args_list]
             self.assertEqual(first[2], "allay")

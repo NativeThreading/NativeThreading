@@ -115,6 +115,12 @@ def prepare(args, folder, mods, password, manifest):
         shutil.copy2(args.nt_config, target)
         manifest["nt_config"] = {"source": args.nt_config, "sha256": base.sha(target),
                                   "content": redact(json.loads(target.read_text()))}
+    ids = {mod["id"] for mod in manifest["mods"]}
+    manifest["stack"] = base.stack_name(ids)
+    manifest["lithium_config"] = base.lithium_config(home) if "lithium" in ids else None
+    if manifest["lithium_config"]:
+        (server / "config").mkdir(exist_ok=True)
+        shutil.copy2(manifest["lithium_config"]["source"], server / "config/lithium.properties")
     (server / "server.properties").write_text(properties(args, password))
     (server / "server.properties").chmod(0o600)
 
@@ -149,6 +155,7 @@ def repeat_identity(manifest):
                 "source_world_sha256": manifest["source_world"]["files_sha256"],
                 "mods": sorted((m["id"], m["file"], m["sha256"]) for m in manifest["mods"]),
                 "nt_config_sha256": manifest.get("nt_config", {}).get("sha256"),
+                "lithium_config_sha256": (manifest.get("lithium_config") or {}).get("sha256"),
                 "parameters": manifest["parameters"], "command": manifest["command"],
                 "java_version": manifest["java_version"], "server_properties": manifest["server_properties"],
                 "affinity_available": sorted(os.sched_getaffinity(0))}
@@ -516,6 +523,7 @@ def run(args, folder, mods, origin=None, reference=None):
             check_sources(manifest["provenance"])
         except Exception as error:
             manifest.update(valid=False, rejection=f"{manifest['rejection'] or ''}; source integrity: {error}")
+        base.drop_runtime(server)
         manifest["finished_at"] = base.stamp()
         save_manifest()
         summary = summary or {"schema": 1, "mode": mode}
@@ -538,7 +546,10 @@ def parser():
     p.add_argument("--java", default="java")
     p.add_argument("--cpus", default="0-15")
     p.add_argument("--heap", default="2G")
-    p.add_argument("--mod", action="append", default=[], help="Explicit extra Fabric jar; never selected implicitly")
+    p.add_argument("--mod", action="append", default=[],
+                   help="Explicit extra Fabric jar; replaces the discovered jar with the same mod ID")
+    p.add_argument("--no-lithium", action="store_true",
+                   help="Vanilla stack: skip the --server-home Lithium jar copied by default")
     p.add_argument("--nt-config")
     p.add_argument("--activate-classic", action="store_true", help="Run source tnt_chamber:build ONCE before observation (clears/rebuilds chamber)")
     p.add_argument("--skip-build", action="store_true")
@@ -583,13 +594,18 @@ def main(argv=None):
         p.error("Output must be outside the source server/world")
     if args.dry_run:
         print(json.dumps({"parameters": vars(args), "build": None if args.skip_build else BUILD,
-                          "observer_jar": str(BENCH_JAR), "automatic_mod_ids": ["fabric-api", "spark"],
+                          "observer_jar": str(BENCH_JAR),
+                          "automatic_mod_ids": base.automatic_mod_ids(not args.no_lithium),
+                          "stack": base.stack_name({*base.automatic_mod_ids(not args.no_lithium),
+                                                    *[base.mod_id(Path(m)) for m in args.mod]}),
                           "workload": "activate source tnt_chamber:build once" if args.activate_classic else "preserve original world",
                           "fresh_jvms": args.repeat, "observer_command": observer_command(args)}, indent=2))
         return 0
     folder = None
     runs = []
     try:
+        if args.no_lithium and any(base.mod_id(Path(m)) == "lithium" for m in args.mod):
+            raise ValueError("--no-lithium conflicts with an explicit Lithium --mod")
         if args.nt_config and not any(base.mod_id(Path(m)) == "native-threading" for m in args.mod):
             raise ValueError("--nt-config requires an explicit NativeThreading --mod")
         folder = Path(args.output) / (base.dt.datetime.now(base.dt.timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(4))
@@ -597,7 +613,8 @@ def main(argv=None):
         if not args.skip_build:
             with (folder / "build.log").open("wb") as log:
                 subprocess.run(BUILD, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
-        mods = base.select_mods(Path(args.server_home), [Path(m) for m in args.mod], benchmark=BENCH_JAR)
+        mods = base.select_mods(Path(args.server_home), [Path(m) for m in args.mod], benchmark=BENCH_JAR,
+                                lithium=not args.no_lithium)
         origin = provenance()
         base.save(folder / "provenance.json", origin)
         reference = None

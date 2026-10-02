@@ -127,8 +127,37 @@ def mod_id(path):
         return json.loads(jar.read("fabric.mod.json"))["id"]
 
 
-def select_mods(home, extra, benchmark=BENCH_JAR):
-    automatic = {"fabric-api": [], "spark": []}
+AUTOMATIC_MOD_IDS = ("fabric-api", "spark")
+
+
+def automatic_mod_ids(lithium=True):
+    """Mods discovered in --server-home/mods. Lithium is the default stack: it
+    prunes collision, shape, explosion-raycast and node-evaluation work that
+    would otherwise be charged to these workloads, so vanilla-only is the
+    explicit oracle stack rather than the default."""
+    return [*AUTOMATIC_MOD_IDS, "lithium"] if lithium else list(AUTOMATIC_MOD_IDS)
+
+
+def stack_name(ids):
+    """Manifest stack label; `base` means vanilla + Lithium, as in the root README."""
+    return ("base" if "lithium" in ids else "vanilla") + ("+nt" if "native-threading" in ids else "")
+
+
+def lithium_config(home):
+    """Effective Lithium config for the isolated server, or None when absent.
+
+    The isolated server never inherits `--server-home/config`, so the file must
+    be copied and hashed explicitly; otherwise a locally edited
+    `lithium.properties` would silently change what a manifest claims was
+    measured."""
+    path = Path(home) / "config/lithium.properties"
+    if not path.is_file():
+        return None
+    return {"source": str(path), "sha256": sha(path), "content": path.read_text()}
+
+
+def select_mods(home, extra, benchmark=BENCH_JAR, lithium=True):
+    automatic = {ident: [] for ident in automatic_mod_ids(lithium)}
     for path in sorted((home / "mods").glob("*.jar")):
         try:
             ident = mod_id(path)
@@ -136,6 +165,14 @@ def select_mods(home, extra, benchmark=BENCH_JAR):
             continue
         if ident in automatic:
             automatic[ident].append(path)
+    # An explicit --mod supersedes automatic discovery of the same mod ID, so a
+    # caller-supplied Lithium build replaces the discovered one instead of
+    # colliding with it.
+    supplied = {mod_id(path) for path in extra}
+    if "lithium" in supplied and not lithium:
+        raise ValueError("--no-lithium conflicts with an explicit Lithium --mod")
+    for ident in [ident for ident in automatic if ident in supplied]:
+        del automatic[ident]
     for ident, paths in automatic.items():
         if len(paths) != 1:
             raise ValueError(f"Expected exactly one {ident} jar in {home / 'mods'}: {paths}")
@@ -501,6 +538,27 @@ def stop(process):
         pass  # A terminated server may have closed the console pipe first.
 
 
+RUNTIME_COPIES = ("libraries", "server.jar", "versions")
+
+
+def drop_runtime(server):
+    """Delete the copied server runtime after the JVM has exited.
+
+    It is ~95% of a run folder and identical in every run, while the manifest's
+    runtime_sha256 already identifies it; the archive is the world, mods, logs,
+    Spark profile and manifest, not a second copy of the server. A failed
+    deletion costs disk, never a measurement, so it stays non-fatal."""
+    for name in RUNTIME_COPIES:
+        path = Path(server) / name
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def run_one(args, folder, scene, mods, origin, env, reference):
     folder.mkdir()
     server = folder / "server"
@@ -571,6 +629,12 @@ def run_one(args, folder, scene, mods, origin, env, reference):
             shutil.copy2(args.nt_config, target)
             manifest["nt_config"] = {"source": args.nt_config, "sha256": sha(target),
                                       "content": json.loads(target.read_text())}
+        ids = {mod["id"] for mod in manifest["mods"]}
+        manifest["stack"] = stack_name(ids)
+        manifest["lithium_config"] = lithium_config(home) if "lithium" in ids else None
+        if manifest["lithium_config"]:
+            (server / "config").mkdir(exist_ok=True)
+            shutil.copy2(manifest["lithium_config"]["source"], server / "config/lithium.properties")
         (server / "server.properties").write_text(properties(args, password))
         (server / "server.properties").chmod(0o600)
         if reference:
@@ -583,6 +647,8 @@ def run_one(args, folder, scene, mods, origin, env, reference):
                 raise ValueError("Mod artifacts differ between repetitions")
             if manifest.get("nt_config", {}).get("sha256") != reference.get("nt_config", {}).get("sha256"):
                 raise ValueError("NT config differs between repetitions")
+            if (manifest.get("lithium_config") or {}).get("sha256") != (reference.get("lithium_config") or {}).get("sha256"):
+                raise ValueError("Lithium config differs between repetitions")
         for port in (args.game_port, args.rcon_port):
             with socket.socket() as check:
                 check.bind(("127.0.0.1", port))
@@ -708,6 +774,7 @@ def run_one(args, folder, scene, mods, origin, env, reference):
         except Exception as error:
             manifest.update(valid=False, rejection=f"{manifest['rejection'] or ''}; cleanup: {error}")
         finally:
+            drop_runtime(server)
             manifest["finished_at"] = stamp()
             save(folder / "manifest.json", manifest)
     return manifest
@@ -766,7 +833,10 @@ def parser():
     p.add_argument("--scene", action="append", choices=(*SCENES, "allay", "block-updates"))
     p.add_argument("--block-change", choices=("collision", "same-shape", "none"), default="collision")
     p.add_argument("--label", default="baseline")
-    p.add_argument("--mod", action="append", default=[], help="Explicit additional Fabric JAR; repeatable")
+    p.add_argument("--mod", action="append", default=[],
+                   help="Explicit additional Fabric JAR; replaces the discovered JAR with the same mod ID")
+    p.add_argument("--no-lithium", action="store_true",
+                   help="Vanilla stack: skip the --server-home Lithium JAR copied by default")
     p.add_argument("--nt-config")
     p.add_argument("--java", default="java")
     p.add_argument("--cpus", default="0-15")
@@ -818,13 +888,18 @@ def main(argv=None):
         if getattr(args, key):
             setattr(args, key, str(Path(getattr(args, key)).expanduser().resolve()))
     args.mod = [str(Path(mod).expanduser().resolve()) for mod in args.mod]
+    if args.no_lithium and any(mod_id(Path(mod)) == "lithium" for mod in args.mod):
+        p.error("--no-lithium conflicts with an explicit Lithium --mod")
     if Path(args.output).is_relative_to(Path(args.server_home)):
         p.error("--output must not be inside --server-home")
     if "/" in args.java:
         args.java = str(Path(args.java).expanduser().resolve())
     if args.dry_run:
         print(json.dumps({"parameters": vars(args), "build": None if args.skip_build else BUILD,
-                          "benchmark_jar": str(BENCH_JAR), "automatic_mod_ids": ["fabric-api", "spark"],
+                          "benchmark_jar": str(BENCH_JAR),
+                          "automatic_mod_ids": automatic_mod_ids(not args.no_lithium),
+                          "stack": stack_name({*automatic_mod_ids(not args.no_lithium),
+                                               *[mod_id(Path(mod)) for mod in args.mod]}),
                           "fresh_jvms": len(args.scene) * args.repeat}, indent=2))
         return 0
     output = None
@@ -842,7 +917,7 @@ def main(argv=None):
         if not args.skip_build:
             with (output / "build.log").open("wb") as log:
                 subprocess.run(BUILD, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
-        mods = select_mods(home, [Path(mod) for mod in args.mod])
+        mods = select_mods(home, [Path(mod) for mod in args.mod], lithium=not args.no_lithium)
         origin = provenance()
         env = {k: v for k, v in os.environ.items() if k not in
                ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "CLASSPATH")}
