@@ -68,9 +68,9 @@ requests. Do not interpret the entire mean-tick difference as pure search cost.
 
 ## Exact Trigger Path
 
-Inspected in this standalone build's `./gradlew -p benchmarks/pathfinding/mod
-genSources` output for Minecraft 26.2, Loom 1.16.3, Fabric Loader 0.19.3 and API
-0.152.1+26.2, original unobfuscated server-side names:
+Inspected in this project's `./gradlew :fabric:genSources` output for Minecraft
+26.3, Loom 1.18.2, Fabric Loader 0.19.5 and API 0.161.0+26.3, original
+unobfuscated server-side names:
 
 ```text
 Level.setBlock(..., UPDATE_ALL)
@@ -91,7 +91,7 @@ searches **after** the placement tick.
 
 Read-only generated source archive:
 
-`mod/.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-043a8b3edf/26.2/minecraft-merged-043a8b3edf-26.2-sources.jar`
+`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-7e9a32a5b8/26.3/minecraft-merged-7e9a32a5b8-26.3-sources.jar`
 
 Relevant classes: `ServerLevel`, `PathNavigation`, `Mob`, `GoalSelector`, and `Cow`.
 The additional test-only navigation mixin observes predicate/recompute entry and

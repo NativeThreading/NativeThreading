@@ -143,9 +143,9 @@ pass the live fixture world/entities into workers to make it "parallel".
 
 ## Source And Tests
 
-Source context is the same Gradle-generated Minecraft 26.2 archive documented in
-[README.md](README.md), original unobfuscated names, Fabric Loader 0.19.3,
-Loom 1.16.3, Fabric API 0.152.1+26.2, server side. Additional inspected classes:
+Source context is the same Gradle-generated Minecraft 26.3 archive documented in
+[README.md](README.md), original unobfuscated names, Fabric Loader 0.19.5,
+Loom 1.18.2, Fabric API 0.161.0+26.3, server side. Additional inspected classes:
 `Allay`, `AllayAi`, `NearestItemSensor`, `GoToWantedItem`, `MoveToTargetSink`,
 `FlyingPathNavigation`, `InventoryCarrier`, `ItemEntity`, `TickRateManager`,
 `ServerTickRateManager`, and `MinecraftServer`.

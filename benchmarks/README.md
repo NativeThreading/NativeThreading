@@ -1,6 +1,6 @@
 # Benchmark Suite
 
-Two standalone measurement kits for Minecraft 26.2 servers. Nothing here is part
+Two standalone measurement kits for Minecraft 26.3 servers. Nothing here is part
 of the mod build: the root `build`, `assemble`, `check` and release tasks
 neither build nor validate them, and no fixture jar ships in a release.
 

@@ -1,6 +1,6 @@
 # Pathfinding Benchmark
 
-A test-only, in-server baseline for Minecraft 26.2 ground navigation. It calls
+A test-only, in-server baseline for Minecraft 26.3 ground navigation. It calls
 the actual `GroundPathNavigation.createPath` / `PathFinder` / `WalkNodeEvaluator`
 implementation, not a reimplementation of A*. No production mixins, parallel
 pathfinding, or dependency on NotEnoughPalette are introduced.
@@ -30,7 +30,7 @@ requests, rather than wall-clock runtime, stays fixed if the server overloads.
 
 Requirements: Linux, `taskset`, Python 3.11+, Java 26 (runtime, vector module),
 the repository Gradle wrapper and Java 25 toolchain (build), and an existing
-Minecraft 26.2 Fabric server at `~/fabric-server` with an accepted EULA.
+Minecraft 26.3 Fabric server at `~/fabric-server` with an accepted EULA.
 Only its launcher, server jar, libraries, Fabric API and Spark are copied.
 `--java`, `--server-home`, `--cpus`, `--heap`, and port arguments override the
 machine defaults; see `--help`. Default affinity is CPUs `0-15`, heap is 2 GiB.
@@ -194,11 +194,18 @@ live `Mob`/`ServerLevel` references from the fixture.
 ## Source Context
 
 Verified against this project's `./gradlew :fabric:genSources` output: Minecraft
-26.2, Fabric Loader 0.19.3, Loom 1.16.3 (declared `1.16-SNAPSHOT`), Fabric API
-0.152.1+26.2; server side, original unobfuscated Mojang names, no separate mapping
-dependency. Read-only generated source archive:
+26.3, Fabric Loader 0.19.5, Loom 1.18.2, Fabric API 0.161.0+26.3; server side,
+original unobfuscated Mojang names, no separate mapping dependency. Read-only
+generated source archive:
 
-`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-043a8b3edf/26.2/minecraft-merged-043a8b3edf-26.2-sources.jar`
+`.gradle/loom-cache/minecraftMaven/net/minecraft/minecraft-merged-7e9a32a5b8/26.3/minecraft-merged-7e9a32a5b8-26.3-sources.jar`
 
 Reference classes: `PathNavigation`, `GroundPathNavigation`, `PathFinder`, `Path`,
 and `EntityTypes`. This generated source is not committed or added as a dependency.
+
+The fixture was ported from the 26.2 harness (Minecraft 26.2, Fabric Loader 0.19.3,
+Loom 1.16.3, Fabric API 0.152.1+26.2); `PathFinder.findPath`, `PathNavigation`
+(`shouldRecomputePath`/`recomputePath`/`mob`), `Allay.pickUpItem` and
+`ItemEntity.merge` were re-verified against the official 26.3 server JAR. Results
+recorded under `results/` before the port are 26.2 measurements; re-run both sides
+before comparing across the port.

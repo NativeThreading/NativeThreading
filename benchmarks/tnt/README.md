@@ -130,11 +130,17 @@ artifacts; no result is committed.
 
 ## Source Context And Tests
 
-Minecraft 26.2, Fabric Loader 0.19.3, Loom 1.16.3, Fabric API 0.152.1+26.2, original
-unobfuscated server-side names. Signatures were inspected in the main project's
-previously generated, read-only Minecraft 26.2 source archive, produced by
+Ported to Minecraft 26.3, Fabric Loader 0.19.5, Loom 1.18.2, Fabric API 0.161.0+26.3,
+original unobfuscated server-side names. Every observer inject target
+(`MinecraftServer.tickServer` HEAD/RETURN, `PrimedTnt.explode` RETURN) was re-verified
+against the official 26.3 server JAR for the port. Signatures were originally inspected
+in the main project's read-only Minecraft 26.2 source archive, produced by
 `:fabric:genSources`. The observer has its own pinned dependencies and no
 dependency on the production explosion module.
+
+Runs recorded under `results/` before this port are 26.2 measurements (Minecraft 26.2,
+Fabric Loader 0.19.3, Loom 1.16.3, Fabric API 0.152.1+26.2). Re-run both sides before
+comparing across the port.
 
 ```bash
 python -B -m unittest discover -s benchmarks/tnt -p 'test_*.py'

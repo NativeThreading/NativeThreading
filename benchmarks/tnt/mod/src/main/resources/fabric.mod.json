@@ -6,5 +6,5 @@
   "environment": "server",
   "entrypoints": {"main": ["com.github.uright008.benchmark.tnt.TntObserver"]},
   "mixins": ["tnt-observer.mixins.json"],
-  "depends": {"fabricloader": ">=0.19.3", "fabric-api": "*", "minecraft": "26.2", "java": ">=25"}
+  "depends": {"fabricloader": ">=0.19.5", "fabric-api": "*", "minecraft": "26.3", "java": ">=25"}
 }
