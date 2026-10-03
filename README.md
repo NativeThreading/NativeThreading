@@ -42,10 +42,17 @@ Configure modules in `config/nt.json`.
 ## Build
 
 ```bash
-./gradlew build -x test
+./gradlew build
 ```
 
 Output: `build/libs/native-threading-*.jar`
+
+The in-server gametests are not part of `build` (they boot a dedicated server);
+run them explicitly:
+
+```bash
+./gradlew :fabric:runGameTest
+```
 
 ## License
 

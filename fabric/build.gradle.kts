@@ -35,13 +35,31 @@ fabricApi {
     }
 }
 
+// Loom hard-wires runGameTest into check and offers no opt-out (GameTestSettings
+// has no such flag), but a gametest boots a full dedicated server. Keep it out of
+// `build`/`check` so the build stays compile + unit tests, and run it explicitly:
+//   ./gradlew :fabric:runGameTest
+afterEvaluate {
+    tasks.named("check") {
+        setDependsOn(dependsOn.filterNot { dep ->
+            val name = when (dep) {
+                is TaskProvider<*> -> dep.name
+                is Task -> dep.name
+                is String -> dep.substringAfterLast(':')
+                else -> ""
+            }
+            name == "runGameTest"
+        })
+    }
+}
+
 dependencies {
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
 }
 
-// Aggregate all submodule sources into the root JAR
+// Aggregate the sibling module sources into the root JAR
 sourceSets {
     main {
         java {
@@ -61,7 +79,7 @@ tasks.processResources {
         expand("version" to version)
     }
 
-    // Merge submodule fabric resources (mixin configs, exclude their fabric.mod.json)
+    // Merge sibling module fabric resources (mixin configs, exclude their fabric.mod.json)
     from("../core/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
     from("../explosion/fabric/src/main/resources") { exclude("fabric.mod.json"); into("") }
 }

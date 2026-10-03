@@ -45,10 +45,15 @@ the exception and may continue asynchronously.
 ## Build and Tests
 
 ```bash
-./gradlew build
+./gradlew build                 # compile + unit tests + validateMixinDiscipline
 ./gradlew :core:test
 ./gradlew :explosion:test
+./gradlew :fabric:runGameTest   # separate on purpose: boots a server, ~50s
 ```
+
+`build`/`check` deliberately do **not** run the gametests — they launch a full
+dedicated server, so they are an explicit task and a separate CI job. Run
+`:fabric:runGameTest` whenever a change touches mixin wiring.
 
 Output: `build/libs/native-threading-*.jar`
 

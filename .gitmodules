@@ -1,9 +1,0 @@
-[submodule "parallel-core"]
-	path = parallel-core
-	url = git@github.com:uright008/parallel-core.git
-[submodule "vectorial"]
-	path = vectorial
-	url = git@github.com:uright008/vectorial.git
-[submodule "parallel-module-tester"]
-	path = parallel-module-tester
-	url = git@github.com:uright008/parallel-module-tester.git
