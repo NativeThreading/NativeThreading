@@ -10,6 +10,5 @@
   },
   "overwrites": {
     "requireAnnotations": true
-  },
-  "refmap": "core.refmap.json"
+  }
 }
