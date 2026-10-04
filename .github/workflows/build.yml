@@ -42,9 +42,31 @@ jobs:
       - run: chmod +x ./gradlew
       - run: ./gradlew :fabric:runGameTest
 
-  publish:
-    needs: [build, gametest]
+  # A release tag only publishes when it points at a commit that is already on
+  # main, so a tag created on a feature or dev branch can never publish.
+  tag-on-main:
     if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check the tag is on main
+        id: check
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$GITHUB_REF_NAME does not point at a commit on main; publish skipped."
+          fi
+
+  publish:
+    needs: [build, gametest, tag-on-main]
+    if: needs.tag-on-main.outputs.allowed == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
