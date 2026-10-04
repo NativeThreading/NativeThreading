@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -59,9 +60,10 @@ class ConditionBlockingQueueTest {
         CountDownLatch completed = new CountDownLatch(2);
         CountDownLatch oneCompleted = new CountDownLatch(1);
         ConcurrentLinkedQueue<Integer> results = new ConcurrentLinkedQueue<>();
+        AtomicReference<Thread> winner = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread first = consumer(queue, enteredTake, completed, oneCompleted, results, failure);
-        Thread second = consumer(queue, enteredTake, completed, oneCompleted, results, failure);
+        Thread first = consumer(queue, enteredTake, completed, oneCompleted, winner, results, failure);
+        Thread second = consumer(queue, enteredTake, completed, oneCompleted, winner, results, failure);
 
         first.start();
         second.start();
@@ -73,6 +75,14 @@ class ConditionBlockingQueueTest {
             queue.put(7);
 
             await(oneCompleted);
+            // The winner counts oneCompleted down before it reaches the finally
+            // block that counts `completed` down, so reading `completed` here
+            // raced the winner's own tail: on a 2-core CI runner the main thread
+            // won that race and saw 2. Join the winner first, then the "exactly
+            // one consumer completed" assertion is deterministic.
+            Thread won = winner.get();
+            assertNotNull(won, "no consumer completed");
+            won.join(TimeUnit.SECONDS.toMillis(DEADLOCK_GUARD_SECONDS));
             assertNull(failure.get());
             assertEquals(1, results.size());
             assertEquals(7, results.peek());
@@ -193,12 +203,14 @@ class ConditionBlockingQueueTest {
 
     private static Thread consumer(ConditionBlockingQueue<Integer> queue, CountDownLatch enteredTake,
                                    CountDownLatch completed, CountDownLatch oneCompleted,
+                                   AtomicReference<Thread> winner,
                                    ConcurrentLinkedQueue<Integer> results,
                                    AtomicReference<Throwable> failure) {
         return new Thread(() -> {
             enteredTake.countDown();
             try {
                 results.add(queue.take());
+                winner.compareAndSet(null, Thread.currentThread());
                 oneCompleted.countDown();
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
