@@ -27,6 +27,13 @@
 
 - `ExplosionChunkGridCache` 按 flat view 真正读取的 section 矩形提供 `ChunkGrid`,static 复用,
   缓存 key 同时包含 `ServerLevel` 身份与矩形;矩形不同则重建。
+- flat view 的碰撞几何在主线程用**活世界 + 真实格点坐标**解析:
+  `state.getCollisionShape(level, pos)`(2-arg,等价空 `CollisionContext`)。只有
+  `!block.hasDynamicShape()` 的状态其形状是 BlockState 的纯函数(原版烘焙 cache),
+  按 BlockState 身份做 per-state 盒缓存;`dynamicShape` 状态(moving piston、shulker box、
+  bamboo、pointed dripstone、sulfur spike 等)的形状依赖块实体/坐标,逐格解析且**永不进缓存**。
+  worker 只接收 `double[][]` 盒表,不接收 `Level` / `BlockState`。传 null level/pos 是历史事故根因:
+  方块实现直接解引用(moving piston → `level.getBlockEntity`)。
 - 实体捕获在主线程完成:一次空间查询遍历,直接产出快照数组(`SnapshotBatch` + `Entity[]`
   refs,均为 static 复用),顺序与原版 `hurtEntities` 相同;`ignoreExplosion` / spectator /
   距离过滤都在这一遍里按原版语义完成。
@@ -37,8 +44,9 @@
 
 - **方块段** `ExplosionBlockStage.compute`:先在主线程按原版顺序从 `level.random` 预生成全部
   1352 条射线的功率(复用 `RAY_POWERS_CACHE`),再在 worker 上追踪射线写 dense BitSet;
-  worker 失败就用同一份已画数据在主线程串行重追踪——不重跑 vanilla,不重画 RNG。最后把
-  BitSet 折叠成 `List<BlockPos>`,并把 `WorldReadViewImpl`(只读方块/碰撞快照)显式返回给实体段。
+  worker 的 DDA 只读捕获好的盒表(视图外格子按 AIR,与 flat view 越界语义一致),不调用任何
+  方块/level API;worker 失败就用同一份已画数据在主线程串行重追踪——不重跑 vanilla,不重画 RNG。
+  最后把 BitSet 折叠成 `List<BlockPos>`,并把 `WorldReadViewImpl`(只读方块/碰撞快照)显式返回给实体段。
 - **实体段** `ExplosionEntityStage.apply`:worker 上算伤害、击退与曝光度
   (`ExplosionEntityDamageComputer` 用原始数组快照;`ExplosionExposureComputer` 对 flat view
   做与原版 `getSeenPercent` 相同的采样)。worker 不碰 RNG、不碰活对象。
@@ -84,11 +92,14 @@
 ## 5. 测试
 
 - `:explosion:test`:`ExplosionRayFlatDifferentialTest`(射线/曝光的逐位差分)、
+  `ExplosionShapeBoxesLiveTest`(全注册表默认状态 + dynamicShape 逐格解析/缓存不变量)、
   `ExplosionRayBoundsTest`、`ExplosionFlatViewHelperTest`、
   `ExplosionEntityDamageComputationTest`、`ExplosionEntityApplicationTest`、
   `ExplosionKnockbackTest`、`ExplosionParallelEligibilityTest`、`WorldReadViewTest`、
   `ExplosionCapturedBlockGetterTest`、`ExplosionBlockStageEntityCallbackTest`。
-- `:fabric:runGameTest`:端到端服务端 gametest。
+- `:fabric:runGameTest`:端到端服务端 gametest;`ExplosionDynamicShapeGameTest` 把
+  moving piston / shulker box / bamboo / pointed dripstone / sulfur spike 放进真实的 TNT 爆炸
+  包络,并行开关两次都必须跑完(修复前该用例以 `MovingPistonBlock.getBlockEntity` NPE 失败)。
 - `-Dnt.aabbIndex.verify=true`:索引开启时逐实体对照 vanilla 空间查询(等价门)。
 
 ## 6. 相关文档
