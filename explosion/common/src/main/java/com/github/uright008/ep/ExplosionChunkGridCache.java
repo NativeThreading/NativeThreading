@@ -1,6 +1,7 @@
 package com.github.uright008.ep;
 
 import com.github.uright008.pc.ChunkGrid;
+import com.github.uright008.pc.ChunkSafeAccessor;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -13,7 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
  *  is part of the key: a grid's chunks are bound to one ServerLevel, so a
  *  blast in a different dimension must never reuse it. Chunks are referenced,
  *  not copied, so block edits between blasts are read live; a blast whose
- *  coverage differs from the cached rectangle rebuilds. */
+ *  coverage differs from the cached rectangle rebuilds. Chunk object identity is
+ *  part of the implicit key: an unload/reload replaces the {@code LevelChunk}
+ *  objects, so a hit also verifies every captured chunk is still current
+ *  ({@link ChunkGrid#stillCurrent}) and otherwise rebuilds. */
 public final class ExplosionChunkGridCache {
 
     private record CachedGrid(ServerLevel level, ChunkGrid grid,
@@ -56,7 +60,9 @@ public final class ExplosionChunkGridCache {
     /** Returns a grid covering exactly the sections the flat view reads, reusing
      *  the cached one when the same level and rectangle are hit again. Only an
      *  identical rectangle may be reused: a larger grid would force-load extra
-     *  chunks the explosion never reads. */
+     *  chunks the explosion never reads. Reuse also requires every captured chunk
+     *  to still be the level's current chunk object: a reload replaces them and
+     *  the cached grid would then read pre-unload block states. */
     public static ChunkGrid forExplosion(ExplosionContext ctx) {
         ExplosionRayBounds.SectionRect rect = ExplosionRayBounds.sectionRect(ctx.center(), ctx.radius());
         int needMinX = rect.minX();
@@ -67,9 +73,11 @@ public final class ExplosionChunkGridCache {
         int needSizeZ = needMaxZ - needMinZ + 1;
 
         CachedGrid cached = CACHE.get();
+        ChunkSafeAccessor accessor = (ChunkSafeAccessor) ctx.level().getChunkSource();
         if (cached != null && cached.level == ctx.level()
                 && cached.minSectionX == needMinX && cached.minSectionZ == needMinZ
-                && cached.sizeX == needSizeX && cached.sizeZ == needSizeZ) {
+                && cached.sizeX == needSizeX && cached.sizeZ == needSizeZ
+                && cached.grid.stillCurrent(accessor)) {
             HITS.incrementAndGet();
             // Log every 8192 hits (power of two) to avoid spam, like entity paths.
             long h = HITS.get();
