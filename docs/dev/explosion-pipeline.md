@@ -80,6 +80,10 @@
 - **实体段** `ExplosionEntityStage.apply`:worker 上算伤害、击退与曝光度
   (`ExplosionEntityDamageComputer` 用原始数组快照;`ExplosionExposureComputer` 对 flat view
   做与原版 `getSeenPercent` 相同的采样)。worker 不碰 RNG、不碰活对象。
+- **空域曝光快速判定(P2)**: 采样前先看"实体 AABB + 空上下文采样偏移 + 爆心"的保守包围盒,
+  若其中 flat 盒表全空,则 27 条采样必然全部 miss,直接返回 `1.0F`(原版 hits/count 恒等于
+  1.0F,逐位一致);否则回退逐射线采样。包围盒访问格数上限 128 格,超过(大实体贴近爆炸盒
+  边缘)直接走精确射线,避免快速判定本身比 27 条射线更慢。worker 侧常数优化,不改变结果。
 - 可选宽相索引 `AabbIndex`(默认关):per-section SoA AABB 索引替代逐实体
   `getBoundingBox()` 扫描,顺序约束由 `EntitySectionIndexMixin` / `EntityBoundingBoxIndexMixin` /
   `ServerLevelIndexMixin` 维护;校验模式 `-Dnt.aabbIndex.verify=true` 逐实体对照 vanilla 查询。
