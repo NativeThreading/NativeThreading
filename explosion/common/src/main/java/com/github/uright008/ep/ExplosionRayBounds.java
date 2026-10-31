@@ -1,5 +1,6 @@
 package com.github.uright008.ep;
 
+import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
@@ -15,14 +16,32 @@ public record ExplosionRayBounds(int minX, int minY, int minZ, int maxX, int max
         return Mth.ceil(Mth.ceil(radius * MAX_INITIAL_POWER_MULTIPLIER / POWER_DECAY_PER_STEP) * RAY_STEP);
     }
 
-    /** Section range that must be loaded around the blast: the ray reach and
-     *  the entity blast box (±(2r+1), which the exposure DDA samples), rounded
-     *  up to 16-block sections plus one. Used by both the flat view and the
-     *  ChunkGrid so they always agree. */
+    /** Half-extent of the box both the flat view and the entity blast box cover:
+     *  the ray reach and the entity box (±(2r+1)), whichever is larger. */
+    public static int bound(float radius) {
+        return Math.max(blockReach(radius), Mth.ceil(radius * 2.0F + 1.0F));
+    }
+
+    /** Chunk rectangle that the flat view actually reads: exactly the sections the
+     *  ±bound box intersects. Used when narrowGridFootprint is on (default); the
+     *  padded-square path stays available as an opt-out. */
+    public record SectionRect(int minX, int maxX, int minZ, int maxZ) {}
+
+    public static SectionRect sectionRect(Vec3 center, float radius) {
+        int bound = bound(radius);
+        return new SectionRect(
+                SectionPos.blockToSectionCoord(Mth.floor(center.x - bound)),
+                SectionPos.blockToSectionCoord(Mth.floor(center.x + bound)),
+                SectionPos.blockToSectionCoord(Mth.floor(center.z - bound)),
+                SectionPos.blockToSectionCoord(Mth.floor(center.z + bound)));
+    }
+
+    /** Padded centred-square section range (ray reach and entity blast box,
+     *  rounded up to sections plus one). Production grids use
+     *  {@link #sectionRect} instead; this stays for the flat-view parity
+     *  gametest, which deliberately exercises the padded square. */
     public static int sectionRange(float radius) {
-        int entityReach = Mth.ceil(radius * 2.0F + 1.0F);
-        int bound = Math.max(blockReach(radius), entityReach);
-        return Mth.ceil(bound / 16.0F) + 1;
+        return Mth.ceil(bound(radius) / 16.0F) + 1;
     }
 
     public static ExplosionRayBounds forExplosion(Vec3 center, float radius) {
@@ -31,8 +50,7 @@ public record ExplosionRayBounds(int minX, int minY, int minZ, int maxX, int max
         // sample rays must stay inside the flat view — otherwise cells beyond
         // it read as AIR and exposure is overestimated. Cover the entity box
         // so exposure DDA always resolves against real (captured) blocks.
-        int entityReach = Mth.ceil(radius * 2.0F + 1.0F);
-        int bound = Math.max(blockReach(radius), entityReach);
+        int bound = bound(radius);
         return new ExplosionRayBounds(
                 Mth.floor(center.x - bound), Mth.floor(center.y - bound), Mth.floor(center.z - bound),
                 Mth.floor(center.x + bound), Mth.floor(center.y + bound), Mth.floor(center.z + bound));

@@ -145,6 +145,10 @@ public final class ExplosionEntityStage {
         ctx.level().getEntities(ctx.source(), box, entity -> {
             if (entity.isSpectator()) return false;
             if (entity.ignoreExplosion(self)) return false;
+            // Vanilla's chunk promotions land after hurtEntities, so a chunk this blast just
+            // loaded is still HIDDEN for vanilla's capture. Skip entities that sat in such
+            // chunks before the blast touched the world (ExplosionVisibilitySnapshot).
+            if (ExplosionVisibilitySnapshot.hiddenAtCapture(entity)) return false;
             int entityId = entity.getId();
             double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
             if (entity.distanceToSqr(ctx.center()) > radiusSquare) return false;

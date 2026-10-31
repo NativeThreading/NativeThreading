@@ -5,6 +5,7 @@ import com.github.uright008.ep.ExplosionChunkGridCache;
 import com.github.uright008.ep.ExplosionContext;
 import com.github.uright008.ep.ExplosionEntityStage;
 import com.github.uright008.ep.ExplosionRayParams;
+import com.github.uright008.ep.ExplosionVisibilitySnapshot;
 import com.github.uright008.ep.ExplosionParallelConfig;
 import com.github.uright008.ep.ExplosionParallelEligibility;
 import com.github.uright008.ep.WorldReadViewImpl;
@@ -79,6 +80,10 @@ public abstract class ServerExplosionMixin {
             cir.setReturnValue(java.util.Collections.emptyList());
             return;
         }
+        // Vanilla queues chunk promotions and they land after hurtEntities, so a blast never
+        // sees entities in chunks it just loaded. Freeze "which chunks are loaded" BEFORE this
+        // blast touches the world, so the capture can skip entities vanilla could not see yet.
+        ExplosionVisibilitySnapshot.begin(this.level, ctx.center(), ctx.radius());
         ExplosionBlockStage.Result result = ExplosionBlockStage.compute(ctx, ensureChunksLoaded());
         this.blastWorldView = result.worldView();
         cir.setReturnValue(result.blocks());
@@ -99,8 +104,12 @@ public abstract class ServerExplosionMixin {
         }
         ProfilerFiller profiler = Profiler.get();
         profiler.push("explosion_entities_parallel");
-        if (ExplosionEntityStage.apply(ctx, this.blastWorldView)) {
-            ci.cancel();
+        try {
+            if (ExplosionEntityStage.apply(ctx, this.blastWorldView)) {
+                ci.cancel();
+            }
+        } finally {
+            ExplosionVisibilitySnapshot.end();
         }
         profiler.pop();
     }

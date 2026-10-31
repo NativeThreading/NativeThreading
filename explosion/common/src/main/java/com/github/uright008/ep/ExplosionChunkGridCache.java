@@ -1,20 +1,19 @@
 package com.github.uright008.ep;
 
 import com.github.uright008.pc.ChunkGrid;
-import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Static {@link ChunkGrid} reuse across blasts. A built grid plus the level
- *  it reads from and the section range it covers; chained blasts in the same
- *  region (the TNT benchmark's forceloaded room) reuse one grid instead of
+ *  it reads from and the section rectangle it covers; chained blasts in the
+ *  same region (the TNT benchmark's forceloaded room) reuse one grid instead of
  *  rebuilding it per explosion — every blast constructs a fresh
  *  ServerExplosion, so an instance field would rebuild every time. The level
  *  is part of the key: a grid's chunks are bound to one ServerLevel, so a
  *  blast in a different dimension must never reuse it. Chunks are referenced,
  *  not copied, so block edits between blasts are read live; a blast whose
- *  coverage leaves the cached range or whose dimension differs rebuilds. */
+ *  coverage differs from the cached rectangle rebuilds. */
 public final class ExplosionChunkGridCache {
 
     private record CachedGrid(ServerLevel level, ChunkGrid grid,
@@ -41,20 +40,23 @@ public final class ExplosionChunkGridCache {
         return String.format("ChunkGrid cache: hits=%d misses=%d total=%d miss=%.1f%%", h, m, total, missPct);
     }
 
-    /** Returns a grid covering the blast's section range, reusing the cached
-     *  one when the blast is in the same level and inside the covered range. */
+    /** Returns a grid covering exactly the sections the flat view reads, reusing
+     *  the cached one when the same level and rectangle are hit again. Only an
+     *  identical rectangle may be reused: a larger grid would force-load extra
+     *  chunks the explosion never reads. */
     public static ChunkGrid forExplosion(ExplosionContext ctx) {
-        int range = ExplosionRayBounds.sectionRange(ctx.radius());
-        int scx = SectionPos.blockToSectionCoord((int) Math.floor(ctx.center().x));
-        int scz = SectionPos.blockToSectionCoord((int) Math.floor(ctx.center().z));
-        int needMinX = scx - range, needMaxX = scx + range;
-        int needMinZ = scz - range, needMaxZ = scz + range;
+        ExplosionRayBounds.SectionRect rect = ExplosionRayBounds.sectionRect(ctx.center(), ctx.radius());
+        int needMinX = rect.minX();
+        int needMaxX = rect.maxX();
+        int needMinZ = rect.minZ();
+        int needMaxZ = rect.maxZ();
+        int needSizeX = needMaxX - needMinX + 1;
+        int needSizeZ = needMaxZ - needMinZ + 1;
 
         CachedGrid cached = CACHE.get();
-        if (cached != null
-                && cached.level == ctx.level()
-                && needMinX >= cached.minSectionX && needMaxX <= cached.minSectionX + cached.sizeX - 1
-                && needMinZ >= cached.minSectionZ && needMaxZ <= cached.minSectionZ + cached.sizeZ - 1) {
+        if (cached != null && cached.level == ctx.level()
+                && cached.minSectionX == needMinX && cached.minSectionZ == needMinZ
+                && cached.sizeX == needSizeX && cached.sizeZ == needSizeZ) {
             HITS.incrementAndGet();
             // Log every 8192 hits (power of two) to avoid spam, like entity paths.
             long h = HITS.get();
@@ -65,8 +67,8 @@ public final class ExplosionChunkGridCache {
             return cached.grid;
         }
         MISSES.incrementAndGet();
-        ChunkGrid grid = new ChunkGrid(ctx.level(), scx, scz, range);
-        CACHE.set(new CachedGrid(ctx.level(), grid, scx - range, scz - range, range * 2 + 1, range * 2 + 1));
+        ChunkGrid grid = new ChunkGrid(ctx.level(), needMinX, needMaxX, needMinZ, needMaxZ);
+        CACHE.set(new CachedGrid(ctx.level(), grid, needMinX, needMinZ, needSizeX, needSizeZ));
         return grid;
     }
 }

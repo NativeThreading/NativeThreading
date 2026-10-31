@@ -29,10 +29,19 @@ public final class ChunkGrid {
      *  computed once in {@code ExplosionRayBounds.sectionRange}) so the
      *  coverage physics lives in one place. */
     public ChunkGrid(ServerLevel level, int centerSectionX, int centerSectionZ, int range) {
-        this.sizeX = range * 2 + 1;
-        this.sizeZ = range * 2 + 1;
-        this.minSectionX = centerSectionX - range;
-        this.minSectionZ = centerSectionZ - range;
+        this(level, centerSectionX - range, centerSectionX + range,
+                centerSectionZ - range, centerSectionZ + range);
+    }
+
+    /** Rectangular variant: covers exactly the sections the flat view reads,
+     *  instead of the padded centred square. Geometry is otherwise identical —
+     *  same capture, same lazy section fill. */
+    public ChunkGrid(ServerLevel level, int minSectionX, int maxSectionX,
+                     int minSectionZ, int maxSectionZ) {
+        this.sizeX = maxSectionX - minSectionX + 1;
+        this.sizeZ = maxSectionZ - minSectionZ + 1;
+        this.minSectionX = minSectionX;
+        this.minSectionZ = minSectionZ;
         int totalChunks = sizeX * sizeZ;
         this.chunks = new ChunkAccess[totalChunks];
         this.sections = new LevelChunkSection[totalChunks][];
