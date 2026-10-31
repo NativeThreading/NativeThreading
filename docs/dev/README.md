@@ -60,7 +60,7 @@ chore(build): update Gradle wrapper
 [`code-organization.md`](code-organization.md) §5 是完整清单;最小版本:
 
 - [ ] 每个 mixin ≤ 250 行,只做注入,管线逻辑在实现类
-- [ ] 所有 static 缓存:有安全论证注释、绑定世界带 level-key、只在主线程写
+- [ ] 所有 static 缓存:有安全论证注释、绑定世界带 level-key、只在主线程写、持有活 chunk/section 引用的校验对象身份
 - [ ] 没有让 vanilla 重跑已消费 RNG / 已做一半工作的 fallback
 - [ ] 新数值路径有 differential 测试;`./gradlew build` 通过
 - [ ] 每处新代码能说出 profile 依据 + 消费者;没有测试的优化不提交

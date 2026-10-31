@@ -26,7 +26,9 @@
 ### 2.1 捕获(主线程)
 
 - `ExplosionChunkGridCache` 按 flat view 真正读取的 section 矩形提供 `ChunkGrid`,static 复用,
-  缓存 key 同时包含 `ServerLevel` 身份与矩形;矩形不同则重建。
+  缓存 key 同时包含 `ServerLevel` 身份与矩形;矩形不同则重建。命中还校验 grid 捕获的每个
+  `LevelChunk` 仍是 level 当前对象(C5):卸载/重载会替换对象,失效则重建,避免命中旧对象
+  读到卸载前的方块状态。
 - flat view 的碰撞几何在主线程用**活世界 + 真实格点坐标**解析:
   `state.getCollisionShape(level, pos)`(2-arg,等价空 `CollisionContext`)。只有
   `!block.hasDynamicShape()` 的状态其形状是 BlockState 的纯函数(原版烘焙 cache),
@@ -100,6 +102,9 @@
 - `:fabric:runGameTest`:端到端服务端 gametest;`ExplosionDynamicShapeGameTest` 把
   moving piston / shulker box / bamboo / pointed dripstone / sulfur spike 放进真实的 TNT 爆炸
   包络,并行开关两次都必须跑完(修复前该用例以 `MovingPistonBlock.getBlockEntity` NPE 失败)。
+   `ChunkGridCacheReloadGameTest` 覆盖区块卸载/重载后的 ChunkGrid 缓存复用:先证明 cache hit
+  能看到同 chunk 对象的活编辑(C/P 阶段),再让 rig 所在 chunk 卸载、重载并重建资源,同矩形爆炸
+  必须保持 vanilla 一致性(修复前陈旧 grid 会把半径 8 爆炸炸出黑曜石破坏)。
 - `-Dnt.aabbIndex.verify=true`:索引开启时逐实体对照 vanilla 空间查询(等价门)。
 
 ## 6. 相关文档

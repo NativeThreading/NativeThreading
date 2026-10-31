@@ -44,6 +44,11 @@ description: "Hard architecture rules for the NativeThreading Minecraft mod code
 
 **C4 — 缓存只在主线程写,worker 只读不可变快照。** 任何让 worker 写共享结构的"优化"直接否决。
 
+**C5 — 持有活 chunk/section 引用的缓存,命中必须校验对象身份(或卸载时失效)。**
+`ServerLevel` 身份 + 矩形不是完整 key:`LevelChunk`/`LevelChunkSection` 会在卸载/重载时被替换,
+旧引用仍可读(卸载只 `setLoaded(false)` + 清 block entity,section 数据留在内存),命中旧对象会
+读到卸载前的方块状态。校验方式:逐 chunk 比较 level 当前返回的对象,或在 chunk 卸载时失效缓存。
+
 ## 3. 线程边界纪律(AGENTS.md 强化版)
 
 **T1 — 三段式固定:捕获(主)→ 纯算(worker)→ 应用(主)。** 不引入第四段。
@@ -79,7 +84,7 @@ description: "Hard architecture rules for the NativeThreading Minecraft mod code
 ## 9. 提交前逐条过
 
 - [ ] 每个 mixin ≤ 250 行,只做注入,逻辑在实现类
-- [ ] 所有 static 缓存:安全论证注释、跨维度 key、主线程写
+- [ ] 所有 static 缓存:安全论证注释、跨维度 key、主线程写、持有活 chunk/section 引用时校验对象身份
 - [ ] 没有"让 vanilla 重跑已消费 RNG 工作"的 fallback
 - [ ] 新数值路径有 differential 测试
 - [ ] 配置只多不少是模块级 on/off

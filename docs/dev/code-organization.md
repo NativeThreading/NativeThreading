@@ -152,7 +152,8 @@ neoforge/
 3. 何时 join?——回存前 worker 已全部结束
 4. 为何无竞争?——一次爆炸内串行 + worker 只读
 
-规则:复用必须 static(C1)、绑定世界必须 level-key(C2)、复用数组每次全量重写(C3)。
+规则:复用必须 static(C1)、绑定世界必须 level-key(C2)、复用数组每次全量重写(C3)、
+持有活 chunk/section 引用的缓存命中必须校验对象身份(C5)。
 
 ### 4.5 交接与同步
 
@@ -178,7 +179,7 @@ neoforge/
 - [ ] mixin ≤250 行,只做注入点(M1/M2)
 - [ ] 模块归属过了 3.2 判断表,依赖方向单向(3.3)
 - [ ] worker 只收不可变值/只读视图,无活容器/实体/RNG/回调(4.2)
-- [ ] 每个 static 缓存过四问(4.4),绑定世界的带 level-key
+- [ ] 每个 static 缓存过四问(4.4),绑定世界的带 level-key,持有活 chunk/section 引用的校验对象身份
 - [ ] RNG 与 vanilla 逐次一致,不放两遍(R1/R2)
 - [ ] 数值路径有 differential 测试(V2)
 - [ ] `./gradlew validateMixinDiscipline` 通过
