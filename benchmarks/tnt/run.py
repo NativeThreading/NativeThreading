@@ -150,6 +150,43 @@ def check_sources(origin):
             raise ValueError(f"Driver/build source changed since batch provenance capture: {name}")
 
 
+IS_DARWIN = platform.system() == "Darwin"
+
+
+def _affinity(pid):
+    """CPU set of a process. Linux exposes one; macOS has no equivalent, so the run is unpinned."""
+    if IS_DARWIN:
+        return list(range(os.cpu_count() or 1))
+    return sorted(os.sched_getaffinity(pid))
+
+
+def _cpu_info():
+    if IS_DARWIN:
+        try:
+            return subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                           text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return platform.processor()
+    return Path("/proc/cpuinfo").read_text()
+
+
+def _uptime():
+    if IS_DARWIN:
+        try:
+            return subprocess.check_output(["uptime"], text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    return Path("/proc/uptime").read_text()
+
+
+def _launch_prefix(args):
+    """CPU pinning prefix. taskset is Linux-only; on macOS the run is unpinned and the manifest
+    says so rather than recording an affinity that was never applied."""
+    if IS_DARWIN:
+        return []
+    return ["taskset", "-c", args.cpus]
+
+
 def repeat_identity(manifest):
     identity = {"runtime_sha256": manifest["runtime_sha256"],
                 "source_world_sha256": manifest["source_world"]["files_sha256"],
@@ -158,7 +195,7 @@ def repeat_identity(manifest):
                 "lithium_config_sha256": (manifest.get("lithium_config") or {}).get("sha256"),
                 "parameters": manifest["parameters"], "command": manifest["command"],
                 "java_version": manifest["java_version"], "server_properties": manifest["server_properties"],
-                "affinity_available": sorted(os.sched_getaffinity(0))}
+                "affinity_available": _affinity(0)}
     return json.loads(json.dumps(identity))  # Freeze nested values independently of mutable args/manifests.
 
 
@@ -306,15 +343,16 @@ def run(args, folder, mods, origin=None, reference=None):
     password = secrets.token_hex(24)
     env = {k: v for k, v in os.environ.items() if k not in
            ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "CLASSPATH")}
-    command = ["taskset", "-c", args.cpus, args.java, f"-Xms{args.heap}", f"-Xmx{args.heap}",
+    command = _launch_prefix(args) + [args.java, f"-Xms{args.heap}", f"-Xmx{args.heap}",
                "--add-modules=jdk.incubator.vector", "-Dtnt.observer.enabled=true",
                "-jar", "fabric-server-launch.jar", "nogui"]
     manifest = {"schema": 1, "mode": mode, "valid": False, "rejection": "incomplete", "started_at": base.stamp(),
                 "parameters": vars(args), "provenance": origin if origin is not None else provenance(),
                 "command": command, "commands": [],
-                "platform": platform.platform(), "cpu_info": Path("/proc/cpuinfo").read_text(),
-                "cpu_count": os.cpu_count(), "affinity_requested": args.cpus,
-                "uptime": Path("/proc/uptime").read_text(), "load": list(os.getloadavg()),
+                "platform": platform.platform(), "cpu_info": _cpu_info(),
+                "cpu_count": os.cpu_count(),
+                "affinity_requested": ("unpinned (darwin)" if IS_DARWIN else args.cpus),
+                "uptime": _uptime(), "load": list(os.getloadavg()),
                 "ignored_java_environment": [k for k in os.environ if k not in env],
                 "java_version": subprocess.check_output([args.java, "-version"], stderr=subprocess.STDOUT,
                                                          env=env, timeout=30).decode(errors="replace"),
@@ -417,7 +455,7 @@ def run(args, folder, mods, origin=None, reference=None):
                     return False
 
             wait_for(ready, 300, "startup and authenticated RCON")
-            manifest["affinity_actual"] = sorted(os.sched_getaffinity(process.pid))
+            manifest["affinity_actual"] = _affinity(process.pid)
             shutil.copy2(console, folder / "initial-server.log")
             if args.activate_classic:
                 reply = command_once("function tnt_chamber:build")
