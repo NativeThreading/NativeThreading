@@ -75,11 +75,21 @@ class ParallelThreadPoolTest {
     }
 
     @Test
-    void recreateAll_poolsRecreated() {
-        ExecutorService pool1 = ParallelThreadPool.getPool("test-recreate");
-        ParallelThreadPool.recreateAll();
-        ExecutorService pool2 = ParallelThreadPool.getPool("test-recreate");
-        assertTrue(pool1 != pool2, "pool should be a new instance after recreateAll");
+    void shutdownAll_poolsShutdownAndRecreatedLazily() {
+        ExecutorService pool1 = ParallelThreadPool.getPool("test-shutdown");
+        ParallelThreadPool.shutdownAll();
         assertTrue(pool1.isShutdown(), "old pool should be shutdown");
+        ExecutorService pool2 = ParallelThreadPool.getPool("test-shutdown");
+        assertTrue(pool1 != pool2, "pool should be a new instance after shutdownAll");
+        assertTrue(!pool2.isShutdown(), "new pool should be usable");
+    }
+
+    @Test
+    void onServerStopped_shutsDownPools() {
+        ExecutorService pool = ParallelThreadPool.getPool("test-server-stop");
+        ParallelCore.onServerStopped();
+        assertTrue(pool.isShutdown(), "server stop should shut the worker pool down");
+        ExecutorService fresh = ParallelThreadPool.getPool("test-server-stop");
+        assertTrue(pool != fresh, "next use should lazily create a fresh pool");
     }
 }

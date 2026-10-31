@@ -15,4 +15,14 @@ public class ParallelCore {
 
         ParallelCommand.registerSubCommand(new ParallelCoreCommand());
     }
+
+    /**
+     * Drops per-server runtime state. Worker pools are lazily recreated on next
+     * use, so a client does not keep a finished single-player session's threads
+     * alive between worlds. Loaders call this from their server-stopped event.
+     */
+    public static void onServerStopped() {
+        ParallelThreadPool.shutdownAll();
+        LOGGER.info("ParallelCore stopped — worker pools shut down.");
+    }
 }

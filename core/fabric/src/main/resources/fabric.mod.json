@@ -8,7 +8,7 @@
     "uright008"
   ],
   "license": "MIT",
-  "environment": "server",
+  "environment": "*",
   "entrypoints": {
     "main": [
       "com.github.uright008.pc.ParallelCoreFabric"
