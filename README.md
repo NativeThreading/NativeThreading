@@ -2,13 +2,14 @@
 
 *Parallelize selected heavy server workloads in Minecraft.*
 
-NativeThreading is a server-side Minecraft 26.3 mod that moves selected vanilla
-server workloads off the main thread through mixins, while keeping
+NativeThreading is a Minecraft 26.3 mod that moves selected vanilla server
+workloads off the main thread through mixins, while keeping
 vanilla-observable results identical. It currently parallelizes explosion
 computation — TNT chain reactions and other large blasts.
 
-Releases ship a Fabric jar and a NeoForge jar. Nothing is installed on the
-client.
+Releases ship a Fabric jar and a NeoForge jar. The same jar runs inside a
+dedicated server or a client's integrated (single-player) server; there is no
+client-side code or protocol change.
 
 ## Features
 
@@ -19,7 +20,9 @@ client.
   match vanilla for the same world and seed.
 - **One switch per module** — `/parallel explosion` or `config/nt.json`; no
   per-optimization knobs.
-- **Server-side only** — no client code, no protocol changes.
+- **Dedicated or integrated servers** — the same jar works in a dedicated
+  server and in a client's single-player world; no client code, no protocol
+  changes.
 
 ## Installation
 
@@ -29,6 +32,11 @@ Drop the jar matching your loader into `mods/`:
 |---|---|
 | Fabric | Fabric Loader ≥ 0.19.5 + Fabric API |
 | NeoForge | NeoForge 26.3 (tested with 26.3.0.41-beta) |
+
+The same jar can also be installed on a Fabric or NeoForge client to run in
+the integrated server of a single-player world. World state captured by the
+pipeline (chunk-grid cache, last blast's entity references) is dropped when the
+server stops, so leaving and re-entering a world does not retain the old one.
 
 All modules are enabled by default and configured in `config/nt.json`:
 
@@ -40,7 +48,8 @@ All modules are enabled by default and configured in `config/nt.json`:
 }
 ```
 
-Commands (OP level 2):
+Commands (OP level 2; in single-player, cheats must be enabled — without them
+the config file still works):
 
 ```
 /parallel explosion                 status
@@ -54,7 +63,9 @@ Commands (OP level 2):
 125 TNT blocks inside a 5×5×5 obsidian shell, ignited by a command block. Spark
 sampled 25 s windows, 3 runs per configuration, averaged. Machine: i9-12900HX
 (24 cores), measured cold after reboot. Every configuration includes Fabric API
-and Lithium; `base` is vanilla + Lithium.
+and Lithium; `base` is vanilla + Lithium. These numbers are dedicated-server
+MSPT; a single-player client shares cores with the render thread, so its
+frame-time effect has not been measured and is not claimed here.
 
 | Configuration | MSPT (mean) |
 |---|---|

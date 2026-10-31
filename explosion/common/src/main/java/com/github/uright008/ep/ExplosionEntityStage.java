@@ -247,6 +247,21 @@ public final class ExplosionEntityStage {
         ExplosionEntityApplication.apply(result, APPLY_TARGET);
     }
 
+    /**
+     * Drops the cross-blast static state that can reference a world: the last capture's
+     * entity references and the apply-target context/entity. Called when the owning server
+     * stops, so a client that leaves a single-player world does not retain that world's
+     * {@code ServerLevel} and entities through these statics.
+     *
+     * <p>{@link #CAPTURE_SNAPSHOTS} is left alone: it holds primitive-only records and the
+     * next capture clears it anyway.</p>
+     */
+    public static void clearStaticState() {
+        CAPTURE_REFS.clear();
+        applyCtx = null;
+        applyEntity = null;
+    }
+
     // ── Main-thread entity helpers ───────────────────────────────────────────
 
     private static boolean isEntityContextBlock(net.minecraft.world.level.block.Block block) {

@@ -3,12 +3,12 @@
   "id": "native-threading",
   "version": "${version}",
   "name": "Native Threading",
-  "description": "Parallel explosion computation for Minecraft servers. Use /parallel to control.",
+  "description": "Parallel explosion computation for Minecraft servers, including a client's integrated (single-player) server. Use /parallel to control.",
   "authors": [
     "uright008"
   ],
   "license": "MIT",
-  "environment": "server",
+  "environment": "*",
   "entrypoints": {
     "main": [
       "com.github.uright008.nt.NativeThreading"

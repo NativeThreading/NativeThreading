@@ -40,6 +40,19 @@ public final class ExplosionChunkGridCache {
         return String.format("ChunkGrid cache: hits=%d misses=%d total=%d miss=%.1f%%", h, m, total, missPct);
     }
 
+    /**
+     * Drops the cached grid and the {@link ServerLevel} it references. Called when the
+     * owning server stops: the dedicated-server assumption "the level lives as long as the
+     * process" does not hold for a client, whose integrated server creates and discards
+     * levels per single-player session. Without this, the last session's level (and its
+     * chunks) would stay reachable from this static until another explosion replaced it.
+     */
+    public static void clear() {
+        CACHE.set(null);
+        HITS.set(0);
+        MISSES.set(0);
+    }
+
     /** Returns a grid covering exactly the sections the flat view reads, reusing
      *  the cached one when the same level and rectangle are hit again. Only an
      *  identical rectangle may be reused: a larger grid would force-load extra
