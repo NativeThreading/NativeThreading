@@ -6,11 +6,15 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.zombie.Zombie;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.PowderSnowBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Entity-context exposure parity gametests.
@@ -66,7 +70,12 @@ public final class ExplosionContextParityGameTest {
     /** Removes every entity in the level. */
     private static void clearEntities(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        level.getAllEntities().forEach(Entity::discard);
+        // getAllEntities() is a live view over the entity lookup map. Discarding
+        // while iterating mutates that map (NPE/flaky once the level holds
+        // entities from another concurrently running gametest). Snapshot first.
+        java.util.List<Entity> entities = new java.util.ArrayList<>();
+        level.getAllEntities().forEach(entities::add);
+        entities.forEach(Entity::discard);
     }
 
     private static float runOnce(GameTestHelper helper, boolean parallel) {
@@ -126,6 +135,79 @@ public final class ExplosionContextParityGameTest {
                     if (Float.compare(vanillaHealth, parallelHealth) != 0) {
                         helper.fail("powder-snow exposure differs: vanilla health="
                                 + vanillaHealth + " parallel health=" + parallelHealth);
+                    }
+                })
+                .thenExecute(() -> {
+                    ExplosionParallelConfig.setEnabled(original);
+                    helper.succeed();
+                });
+    }
+
+    // ── Liquid (Nether lava) parity ─────────────────────────────────────────
+
+    /** Observable outcome of one liquid-blast run. */
+    private record LiquidOutcome(float zombieHealth, Vec3 itemDelta) {}
+
+    /**
+     * Builds a lava-wall rig at origin: TNT at the west end, a source-lava wall in
+     * the middle. Source lava survives the blast (fluid resistance), so both runs
+     * see the same wall even though the TNT block itself is destroyed.
+     */
+    private static void buildLiquidRig(GameTestHelper helper, BlockPos origin) {
+        helper.setBlock(origin.offset(0, 1, 0), Blocks.TNT.defaultBlockState());
+        for (int y = 0; y <= 3; y++) {
+            helper.setBlock(origin.offset(3, y, 0), Blocks.LAVA.defaultBlockState());
+        }
+    }
+
+    /** Spawns a non-living victim (item entity) with a deterministic zero velocity. */
+    private static ItemEntity spawnItem(GameTestHelper helper, BlockPos pos) {
+        BlockPos abs = helper.absolutePos(pos);
+        ItemEntity item = new ItemEntity(helper.getLevel(),
+                abs.getX() + 0.5, abs.getY() + 0.5, abs.getZ() + 0.5,
+                new ItemStack(Items.STONE));
+        item.setDeltaMovement(Vec3.ZERO);
+        helper.getLevel().addFreshEntity(item);
+        return item;
+    }
+
+    private static LiquidOutcome runLiquidOnce(GameTestHelper helper, boolean parallel) {
+        clearEntities(helper);
+        buildLiquidRig(helper, ORIGIN);
+        // Living victim: must keep the live per-entity exposure even in a lava blast.
+        Zombie zombie = spawnZombie(helper, ORIGIN.offset(6, 1, 0));
+        // Non-living victim: liquid collision shapes are context-free for it, so the
+        // parallel pipeline may use the flat-view exposure. Its knockback
+        // (1-dist)*exposure*kbMult is the exact-value observable.
+        ItemEntity item = spawnItem(helper, ORIGIN.offset(6, 1, 2));
+        ExplosionParallelConfig.setEnabled(parallel);
+        detonate(helper, ORIGIN.offset(0, 1, 0));
+        LiquidOutcome outcome = new LiquidOutcome(zombie.getHealth(), item.getDeltaMovement());
+        zombie.discard();
+        item.discard();
+        return outcome;
+    }
+
+    /**
+     * Mixed-victim liquid parity. The zombie covers the living entity-context path;
+     * the item entity covers the non-living flat-view path that the per-entity
+     * routing introduces for liquid blasts. Both must match vanilla exactly
+     * (identical health / identical knockback vector).
+     */
+    @GameTest(maxTicks = 200, padding = 40)
+    public void liquidContextMixedVictimParity(GameTestHelper helper) {
+        boolean original = ExplosionParallelConfig.isEnabled();
+        helper.startSequence()
+                .thenExecute(() -> {
+                    LiquidOutcome vanilla = runLiquidOnce(helper, false);
+                    LiquidOutcome parallel = runLiquidOnce(helper, true);
+                    if (Float.compare(vanilla.zombieHealth(), parallel.zombieHealth()) != 0) {
+                        helper.fail("liquid blast zombie health differs: vanilla="
+                                + vanilla.zombieHealth() + " parallel=" + parallel.zombieHealth());
+                    }
+                    if (!vanilla.itemDelta().equals(parallel.itemDelta())) {
+                        helper.fail("liquid blast item knockback differs: vanilla="
+                                + vanilla.itemDelta() + " parallel=" + parallel.itemDelta());
                     }
                 })
                 .thenExecute(() -> {

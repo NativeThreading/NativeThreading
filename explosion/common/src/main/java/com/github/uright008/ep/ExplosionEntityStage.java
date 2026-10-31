@@ -124,13 +124,18 @@ public final class ExplosionEntityStage {
         ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
 
-        // Context-free flat shapes are vanilla-exact for 99.9% of blocks. Only
-        // scaffolding and powder snow vary their collision shape by the querying
-        // entity; when either is present in the blast box, exposure must be
-        // computed with the real entity context (vanilla-exact) per hit entity.
-        // Flag is computed once during flat-view fill (O(1) here) instead of
-        // scanning the whole view per explosion (1.4% of tick at 348ms).
-        final boolean needsEntityContext = worldView.hasEntityContextBlocks();
+        // The flat view resolves collision shapes with the empty collision context,
+        // which is vanilla-exact for every entity that cannot observe a
+        // context-dependent shape. In 26.3 exactly three vanilla block categories
+        // read the querying entity: scaffolding and powder snow (any entity), and
+        // liquids (only a LivingEntity that can stand on the fluid — vanilla only
+        // Strider). The fill classified those into flags, so the routing below is
+        // per entity instead of per blast: a lava blast still sends TNT/items/
+        // arrows/minecarts through the worker flat-view path (their liquid shape is
+        // context-free by construction), while LivingEntity exposures stay on the
+        // live vanilla path. Flags are computed inline during the fill (O(1) here)
+        // instead of scanning the whole view per explosion (1.4% of tick at 348ms).
+        final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags = worldView.entityContextFlags();
 
         List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
         List<Entity> refs = CAPTURE_REFS;
@@ -155,28 +160,30 @@ public final class ExplosionEntityStage {
 
             refs.add(entity);
             AABB bb = entity.getBoundingBox();
+            final boolean isPrimedTnt = entity instanceof PrimedTnt;
             boolean shouldDamage;
             float knockbackMultiplier;
-            boolean isPrimedTnt;
             float exposure = 0.0F;
             boolean exposurePreset = false;
-            if (needsEntityContext) {
+            if (entityContextFlags.requiresLiveExposure(entity instanceof LivingEntity)) {
                 shouldDamage = isDefaultCalc
                         ? true : ctx.damageCalculator().shouldDamageEntity(self, entity);
                 knockbackMultiplier = isDefaultCalc
                         ? 1.0F : ctx.damageCalculator().getKnockbackMultiplier(entity);
-                isPrimedTnt = entity instanceof PrimedTnt;
-                exposure = computeContextAwareExposure(
-                        entity, ctx.center().x, ctx.center().y, ctx.center().z);
-                exposurePreset = true;
+                // Vanilla hurtEntities samples exposure only when it can affect
+                // damage or knockback; with both inert the value is never read.
+                // The flat-view worker path applies the same condition.
+                if (shouldDamage || knockbackMultiplier != 0.0F) {
+                    exposure = computeContextAwareExposure(
+                            entity, ctx.center().x, ctx.center().y, ctx.center().z);
+                    exposurePreset = true;
+                }
             } else if (isDefaultCalc) {
                 shouldDamage = true;
                 knockbackMultiplier = 1.0F;
-                isPrimedTnt = entity instanceof PrimedTnt;
             } else {
                 shouldDamage = ctx.damageCalculator().shouldDamageEntity(self, entity);
                 knockbackMultiplier = ctx.damageCalculator().getKnockbackMultiplier(entity);
-                isPrimedTnt = entity instanceof PrimedTnt;
             }
             double eyeY = isPrimedTnt ? feetY : feetY + entity.getEyeHeight();
             // Captured on the main thread so the worker applies it in the exact
@@ -263,18 +270,6 @@ public final class ExplosionEntityStage {
     }
 
     // ── Main-thread entity helpers ───────────────────────────────────────────
-
-    private static boolean isEntityContextBlock(net.minecraft.world.level.block.Block block) {
-        return block instanceof net.minecraft.world.level.block.ScaffoldingBlock
-                || block instanceof net.minecraft.world.level.block.PowderSnowBlock
-                || block instanceof net.minecraft.world.level.block.LiquidBlock;
-    }
-
-    /** Delegates to the flag computed during flat-view fill (O(1)). The old
-     *  per-explosion scan of the whole view was 1.4% of tick. */
-    private static boolean hasEntityContextBlocks(WorldReadViewImpl worldView) {
-        return worldView.hasEntityContextBlocks();
-    }
 
     /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
      *  with the real entity context (scaffolding isAbove/isDescending, powder-snow

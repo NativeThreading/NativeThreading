@@ -37,8 +37,16 @@
 - 实体捕获在主线程完成:一次空间查询遍历,直接产出快照数组(`SnapshotBatch` + `Entity[]`
   refs,均为 static 复用),顺序与原版 `hurtEntities` 相同;`ignoreExplosion` / spectator /
   距离过滤都在这一遍里按原版语义完成。
-- 需要逐实体上下文的方块(scaffolding、powder snow)会让 flat view 标记
-  `hasEntityContextBlocks`,这些实体在捕获时改用原版逐实体曝光计算。
+- flat view 的碰撞形状用空 `CollisionContext` 解析;26.3 里只有 scaffolding、powder snow
+  与 liquid 三类方块会按查询实体改变碰撞形状。填充 flat view 时内联分类成
+  `EntityContextFlags(stateDependent, hasLiquid)`(O(1) 交给实体段,不再逐发爆炸扫描整个 view):
+  - `stateDependent`(scaffolding / powder snow / modded LiquidBlock 子类):整发爆炸的所有实体
+    都走原版逐实体曝光(主线程真实实体上下文);
+  - `hasLiquid`(vanilla LiquidBlock):只有 `LivingEntity` 走原版逐实体曝光;非 LivingEntity
+    (TNT/物品/箭/矿车)的液体碰撞形状恒为空,与 flat view 的空上下文形状逐位一致,继续走 worker
+    的 flat-view 曝光。Nether 熔岩场景因此不再把整发爆炸的实体曝光拖回主线程。
+  - plain liquid 的识别是 `block.getClass() == LiquidBlock.class`(26.3 的水/岩浆都是该类实例);
+    modded 子类保守归入 `stateDependent`。
 
 ### 2.2 计算(worker,纯值)
 
