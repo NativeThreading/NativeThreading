@@ -22,14 +22,18 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
     private final int maxZ;
     private final int strideY;
     private final int strideZ;
-    private final boolean hasEntityContextBlocks;
+    /** Entity-context block profile of this view, classified during the main-thread
+     *  fill; the entity stage uses it to route each entity to the flat-view or the
+     *  live vanilla exposure. Immutable value, safe to read from workers. */
+    private final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags;
 
     public WorldReadViewImpl(
             BlockState[] states,
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
-        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, false);
+        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ,
+                ExplosionFlatViewHelper.EntityContextFlags.NONE);
     }
 
     public WorldReadViewImpl(
@@ -37,14 +41,15 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
             int strideY, int strideZ) {
-        this(states, shapeBoxes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, false);
+        this(states, shapeBoxes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ,
+                ExplosionFlatViewHelper.EntityContextFlags.NONE);
     }
 
     public WorldReadViewImpl(
             BlockState[] states, double[][] shapeBoxes,
             int minX, int minY, int minZ,
             int maxX, int maxY, int maxZ,
-            int strideY, int strideZ, boolean hasEntityContextBlocks) {
+            int strideY, int strideZ, ExplosionFlatViewHelper.EntityContextFlags entityContextFlags) {
         this.states = states;
         this.shapeBoxes = shapeBoxes;
         this.minX = minX;
@@ -55,7 +60,7 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
         this.maxZ = maxZ;
         this.strideY = strideY;
         this.strideZ = strideZ;
-        this.hasEntityContextBlocks = hasEntityContextBlocks;
+        this.entityContextFlags = entityContextFlags;
     }
 
     @Override
@@ -76,8 +81,8 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
         return states[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
     }
 
-    public boolean hasEntityContextBlocks() {
-        return hasEntityContextBlocks;
+    public ExplosionFlatViewHelper.EntityContextFlags entityContextFlags() {
+        return entityContextFlags;
     }
 
     // ── Package-private accessors for the fast ray path ──

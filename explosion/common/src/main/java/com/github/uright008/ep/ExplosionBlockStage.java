@@ -164,8 +164,9 @@ public final class ExplosionBlockStage {
 
         BlockState[] flatBlocks = FLAT_BLOCKS_CACHE.getAndSet(null);
         if (flatBlocks == null || flatBlocks.length < gridSize) flatBlocks = new BlockState[gridSize];
-        boolean hasEntityContextBlocks = ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
-                strideY, strideZ, chunkGrid);
+        final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags =
+                ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+                        strideY, strideZ, chunkGrid);
 
         // Collision boxes are resolved on the main thread against the live level
         // and the real cell position. Static (!hasDynamicShape) states share the
@@ -178,7 +179,7 @@ public final class ExplosionBlockStage {
                 flatBlocks,
                 ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, ctx.level(),
                         minX, minY, minZ, strideY, strideZ, gridSize, SHAPE_BOXES_CACHE),
-                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, hasEntityContextBlocks);
+                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, entityContextFlags);
 
         final ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
