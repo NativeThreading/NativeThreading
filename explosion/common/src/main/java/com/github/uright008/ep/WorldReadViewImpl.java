@@ -8,8 +8,11 @@ public final class WorldReadViewImpl implements WorldReadView<BlockState> {
 
     private final BlockState[] states;
     /** Per-cell axis-aligned box list (6 doubles per box, [minX,minY,minZ,maxX,maxY,maxZ]
-     *  relative to the cell origin), or null for air/full cells. Precomputed on the
-     *  main thread so the worker DDA can do exact box tests without toAabbs() allocation. */
+     *  relative to the cell origin), or null for air cells; full-block cells use the shared
+     *  unit box. Resolved on the main thread from the live level + real cell position
+     *  ({@link ExplosionShapeBoxes}) so the worker DDA can do exact box tests without
+     *  toAabbs() allocation and without touching a level or block-shape API. Null only on
+     *  test views built without a box table. */
     private final double[][] shapeBoxes;
     private final int minX;
     private final int minY;
