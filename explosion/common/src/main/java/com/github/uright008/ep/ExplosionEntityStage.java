@@ -7,11 +7,13 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.ServerExplosion;
+import net.minecraft.world.level.block.PowderSnowBlock;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
@@ -165,7 +167,16 @@ public final class ExplosionEntityStage {
             float knockbackMultiplier;
             float exposure = 0.0F;
             boolean exposurePreset = false;
-            if (entityContextFlags.requiresLiveExposure(entity instanceof LivingEntity)) {
+            boolean liveExposure = entityContextFlags.stateDependent();
+            if (!liveExposure) {
+                // Short-circuit ordering matters: the powder-snow predicate (a type
+                // tag / equipment read) must not run for entities the blast-wide
+                // fallback already covers, nor in the common context-free case.
+                liveExposure = entityContextFlags.requiresLiveExposure(
+                        entity instanceof LivingEntity,
+                        entityContextFlags.hasPowderSnow() && powderSnowMayChangeShape(entity));
+            }
+            if (liveExposure) {
                 shouldDamage = isDefaultCalc
                         ? true : ctx.damageCalculator().shouldDamageEntity(self, entity);
                 knockbackMultiplier = isDefaultCalc
@@ -270,6 +281,35 @@ public final class ExplosionEntityStage {
     }
 
     // ── Main-thread entity helpers ───────────────────────────────────────────
+
+    /**
+     * True when a powder-snow block in the captured view could return a non-empty
+     * collision shape for this entity's own {@code CollisionContext}, which means
+     * the live per-entity {@code getSeenPercent} is required
+     * ({@link ExplosionFlatViewHelper.EntityContextFlags}).
+     *
+     * <p>26.3's {@code PowderSnowBlock#getCollisionShape} returns
+     * {@code Shapes.empty()} unless one of exactly three conditions holds: the
+     * entity's fall distance is above 2.5, the entity is a
+     * {@code FallingBlockEntity}, or the entity can walk on powder snow
+     * ({@code EntityTypeTags.POWDER_SNOW_WALKABLE_MOBS} / leather boots). When all
+     * three are false the live shape equals the flat view's empty-context shape for
+     * every powder-snow block regardless of entity position, so the flat exposure is
+     * bit-identical to vanilla and sampling it live would only add main-thread
+     * work.</p>
+     *
+     * <p>Called on the main thread during capture, only when the view actually
+     * contains powder snow ({@code hasPowderSnow} short-circuits the call).</p>
+     */
+    private static boolean powderSnowMayChangeShape(Entity entity) {
+        if (entity.fallDistance > 2.5) {
+            return true;
+        }
+        if (entity instanceof FallingBlockEntity) {
+            return true;
+        }
+        return PowderSnowBlock.canEntityWalkOnPowderSnow(entity);
+    }
 
     /** Vanilla-exact exposure: {@link net.minecraft.world.level.ServerExplosion#getSeenPercent}
      *  with the real entity context (scaffolding isAbove/isDescending, powder-snow

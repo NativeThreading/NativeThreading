@@ -39,12 +39,23 @@
   距离过滤都在这一遍里按原版语义完成。
 - flat view 的碰撞形状用空 `CollisionContext` 解析;26.3 里只有 scaffolding、powder snow
   与 liquid 三类方块会按查询实体改变碰撞形状。填充 flat view 时内联分类成
-  `EntityContextFlags(stateDependent, hasLiquid)`(O(1) 交给实体段,不再逐发爆炸扫描整个 view):
-  - `stateDependent`(scaffolding / powder snow / modded LiquidBlock 子类):整发爆炸的所有实体
-    都走原版逐实体曝光(主线程真实实体上下文);
+  `EntityContextFlags(stateDependent, hasLiquid, hasPowderSnow)`(O(1) 交给实体段,
+  不再逐发爆炸扫描整个 view):
+  - `stateDependent`(scaffolding / modded LiquidBlock 子类):整发爆炸的所有实体都走原版
+    逐实体曝光(主线程真实实体上下文)。scaffolding 的 flat-view 形状是 `SHAPE_STABLE`
+    (空上下文的 `isAbove(..., true)` 返回默认 `true`),而真实实体多数得到空形状,
+    两者对几乎所有实体都不一致,所以无法逐实体放行;modded liquid 子类形状覆盖未知,
+    同样保守处理。
   - `hasLiquid`(vanilla LiquidBlock):只有 `LivingEntity` 走原版逐实体曝光;非 LivingEntity
     (TNT/物品/箭/矿车)的液体碰撞形状恒为空,与 flat view 的空上下文形状逐位一致,继续走 worker
     的 flat-view 曝光。Nether 熔岩场景因此不再把整发爆炸的实体曝光拖回主线程。
+  - `hasPowderSnow`(PowderSnowBlock):细雪的 flat-view 形状恒为空(空上下文的
+    `isAbove(..., false)` 返回默认 `false`);活实体上下文只有在①`fallDistance > 2.5`
+    ②实体是 `FallingBlockEntity` ③实体能站上细雪(`POWDER_SNOW_WALKABLE_MOBS` tag
+    或脚穿皮革靴)时才非空。实体段用 `powderSnowMayChangeShape(entity)` 逐实体判定:
+    三条都不满足时活形状恒等于 flat view 的空形状,flat 曝光逐位一致,照常下放 worker;
+    满足者(下落中的实体、落沙/落方块、穿皮革靴的活体)才走主线程 live 曝光。
+    含细雪的雪原爆炸因此不再整发退化为串行。
   - plain liquid 的识别是 `block.getClass() == LiquidBlock.class`(26.3 的水/岩浆都是该类实例);
     modded 子类保守归入 `stateDependent`。
 

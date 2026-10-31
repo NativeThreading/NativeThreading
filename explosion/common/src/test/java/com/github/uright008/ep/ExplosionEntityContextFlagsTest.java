@@ -20,29 +20,33 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for the per-entity entity-context routing that splits the old
- * blast-wide {@code hasEntityContextBlocks} flag into
+ * Tests for the per-entity entity-context routing driven by
  * {@link ExplosionFlatViewHelper.EntityContextFlags}.
  *
- * <p>Two things are locked here:</p>
+ * <p>Three things are locked here:</p>
  * <ol>
  *   <li><b>Classification:</b> only vanilla {@link LiquidBlock} is a plain liquid;
- *       scaffolding / powder snow (and a modded {@code LiquidBlock} subclass) are
- *       state-dependent and therefore force the live per-entity exposure for every
- *       entity.</li>
+ *       scaffolding (and a modded {@code LiquidBlock} subclass) is state-dependent
+ *       and forces the live per-entity exposure for every entity; powder snow gets
+ *       its own flag because its context dependence can be decided per entity.</li>
+ *   <li><b>Routing policy:</b> liquid needs live exposure for living entities,
+ *       powder snow for entities that can observe a powder-snow shape (fall
+ *       distance / falling block / walk-on-snow), state-dependent blocks for
+ *       everyone.</li>
  *   <li><b>Exactness premise:</b> a {@link LiquidBlock} resolves to an empty
- *       collision shape for the collision context vanilla's
- *       {@code getSeenPercent} builds for a non-living entity
- *       ({@code CollisionContext.of(entity)} — {@code alwaysCollideWithFluid=false},
- *       {@code entity instanceof LivingEntity == false}), so the context-free flat
- *       view is bit-identical for those entities. The second test also locks the
- *       flat-view box table to a pass-through ({@code null}) for liquid cells.</li>
+ *       collision shape for the collision context vanilla's {@code getSeenPercent}
+ *       builds for a non-living entity, and powder snow resolves to an empty shape
+ *       for both the context-free flat view and any entity context that fails the
+ *       powder-snow predicate. The flat-view box table must therefore be a
+ *       pass-through ({@code null}) for those cells, while scaffolding's flat-view
+ *       shape is non-empty ({@code SHAPE_STABLE}) - which is why scaffolding keeps
+ *       the blast-wide live fallback.</li>
  * </ol>
  *
  * <p>A real non-living entity needs a level to construct, so the non-living branch
  * is exercised with an {@link EntityCollisionContext} carrying a {@code null}
- * entity: {@code LiquidBlock#ifMobIsColliding} only checks
- * {@code entity instanceof LivingEntity}, which is false in both cases.</p>
+ * entity: both liquid and powder-snow shape overrides only inspect the entity when
+ * it is non-null (and liquid only for {@code LivingEntity}).</p>
  */
 class ExplosionEntityContextFlagsTest {
 
@@ -66,28 +70,58 @@ class ExplosionEntityContextFlagsTest {
 
     @Test
     void noContextBlocks_neverNeedsLiveExposure() {
-        assertThat(ExplosionFlatViewHelper.EntityContextFlags.NONE.requiresLiveExposure(false)).isFalse();
-        assertThat(ExplosionFlatViewHelper.EntityContextFlags.NONE.requiresLiveExposure(true)).isFalse();
+        ExplosionFlatViewHelper.EntityContextFlags none = ExplosionFlatViewHelper.EntityContextFlags.NONE;
+        assertThat(none.requiresLiveExposure(false, false)).isFalse();
+        assertThat(none.requiresLiveExposure(true, false)).isFalse();
+        assertThat(none.requiresLiveExposure(false, true)).isFalse();
+        assertThat(none.requiresLiveExposure(true, true)).isFalse();
     }
 
     @Test
     void liquidOnly_needsLiveExposureForLivingEntitiesOnly() {
         ExplosionFlatViewHelper.EntityContextFlags flags =
-                new ExplosionFlatViewHelper.EntityContextFlags(false, true);
-        assertThat(flags.requiresLiveExposure(false)).isFalse();
-        assertThat(flags.requiresLiveExposure(true)).isTrue();
+                new ExplosionFlatViewHelper.EntityContextFlags(false, true, false);
+        assertThat(flags.requiresLiveExposure(false, false)).isFalse();
+        assertThat(flags.requiresLiveExposure(true, false)).isTrue();
+        assertThat(flags.requiresLiveExposure(false, true)).isFalse();
+        assertThat(flags.requiresLiveExposure(true, true)).isTrue();
+    }
+
+    @Test
+    void powderSnowOnly_needsLiveExposureOnlyForPowderSensitiveEntities() {
+        ExplosionFlatViewHelper.EntityContextFlags flags =
+                new ExplosionFlatViewHelper.EntityContextFlags(false, false, true);
+        assertThat(flags.requiresLiveExposure(false, false)).isFalse();
+        assertThat(flags.requiresLiveExposure(true, false)).isFalse();
+        assertThat(flags.requiresLiveExposure(false, true)).isTrue();
+        assertThat(flags.requiresLiveExposure(true, true)).isTrue();
     }
 
     @Test
     void stateDependent_needsLiveExposureForEveryEntity() {
         ExplosionFlatViewHelper.EntityContextFlags flags =
-                new ExplosionFlatViewHelper.EntityContextFlags(true, false);
-        assertThat(flags.requiresLiveExposure(false)).isTrue();
-        assertThat(flags.requiresLiveExposure(true)).isTrue();
-        ExplosionFlatViewHelper.EntityContextFlags both =
-                new ExplosionFlatViewHelper.EntityContextFlags(true, true);
-        assertThat(both.requiresLiveExposure(false)).isTrue();
-        assertThat(both.requiresLiveExposure(true)).isTrue();
+                new ExplosionFlatViewHelper.EntityContextFlags(true, false, false);
+        assertThat(flags.requiresLiveExposure(false, false)).isTrue();
+        assertThat(flags.requiresLiveExposure(true, false)).isTrue();
+        assertThat(flags.requiresLiveExposure(false, true)).isTrue();
+        assertThat(flags.requiresLiveExposure(true, true)).isTrue();
+        ExplosionFlatViewHelper.EntityContextFlags all =
+                new ExplosionFlatViewHelper.EntityContextFlags(true, true, true);
+        assertThat(all.requiresLiveExposure(false, false)).isTrue();
+        assertThat(all.requiresLiveExposure(true, true)).isTrue();
+    }
+
+    @Test
+    void liquidAndPowderSnow_areIndependentlyRouted() {
+        ExplosionFlatViewHelper.EntityContextFlags flags =
+                new ExplosionFlatViewHelper.EntityContextFlags(false, true, true);
+        // Non-living, powder-insensitive entity: the only exact flat-view case.
+        assertThat(flags.requiresLiveExposure(false, false)).isFalse();
+        // Living entity: liquid shape is context-dependent (Striders).
+        assertThat(flags.requiresLiveExposure(true, false)).isTrue();
+        // Powder-sensitive non-living entity (falling block / falling item).
+        assertThat(flags.requiresLiveExposure(false, true)).isTrue();
+        assertThat(flags.requiresLiveExposure(true, true)).isTrue();
     }
 
     // ── Block classification ────────────────────────────────────────────────
@@ -101,19 +135,30 @@ class ExplosionEntityContextFlagsTest {
             assertThat(ExplosionFlatViewHelper.isStateDependentContextBlock(block))
                     .as("not state-dependent: %s", block)
                     .isFalse();
+            assertThat(ExplosionFlatViewHelper.isPowderSnowBlock(block))
+                    .as("not powder snow: %s", block)
+                    .isFalse();
         }
     }
 
     @Test
-    void scaffoldingAndPowderSnow_areStateDependent() {
-        for (Block block : new Block[]{Blocks.SCAFFOLDING, Blocks.POWDER_SNOW}) {
-            assertThat(ExplosionFlatViewHelper.isStateDependentContextBlock(block))
-                    .as("state-dependent: %s", block)
-                    .isTrue();
-            assertThat(ExplosionFlatViewHelper.isPlainLiquidBlock(block))
-                    .as("not a liquid: %s", block)
-                    .isFalse();
-        }
+    void scaffolding_isStateDependent() {
+        assertThat(ExplosionFlatViewHelper.isStateDependentContextBlock(Blocks.SCAFFOLDING))
+                .isTrue();
+        assertThat(ExplosionFlatViewHelper.isPlainLiquidBlock(Blocks.SCAFFOLDING))
+                .isFalse();
+        assertThat(ExplosionFlatViewHelper.isPowderSnowBlock(Blocks.SCAFFOLDING))
+                .isFalse();
+    }
+
+    @Test
+    void powderSnow_hasItsOwnFlagAndIsNotStateDependent() {
+        assertThat(ExplosionFlatViewHelper.isPowderSnowBlock(Blocks.POWDER_SNOW))
+                .isTrue();
+        assertThat(ExplosionFlatViewHelper.isStateDependentContextBlock(Blocks.POWDER_SNOW))
+                .isFalse();
+        assertThat(ExplosionFlatViewHelper.isPlainLiquidBlock(Blocks.POWDER_SNOW))
+                .isFalse();
     }
 
     @Test
@@ -124,6 +169,9 @@ class ExplosionEntityContextFlagsTest {
                     .isFalse();
             assertThat(ExplosionFlatViewHelper.isPlainLiquidBlock(block))
                     .as("not a liquid: %s", block)
+                    .isFalse();
+            assertThat(ExplosionFlatViewHelper.isPowderSnowBlock(block))
+                    .as("not powder snow: %s", block)
                     .isFalse();
         }
     }
@@ -152,19 +200,41 @@ class ExplosionEntityContextFlagsTest {
     }
 
     @Test
-    void flatViewShapeBoxes_arePassThroughForLiquidCells() {
+    void powderSnowCollisionShape_isEmptyForContextFreeAndEntitylessContexts() {
+        BlockState state = Blocks.POWDER_SNOW.defaultBlockState();
+        VoxelShape empty = state.getCollisionShape(EmptyBlockGetter.INSTANCE, POS, CollisionContext.empty());
+        assertThat(empty.isEmpty()).as("context-free powder snow shape").isTrue();
+        VoxelShape entityless = state.getCollisionShape(EmptyBlockGetter.INSTANCE, POS,
+                new NonLivingCollisionContext(null));
+        assertThat(entityless.isEmpty()).as("entityless powder snow shape").isTrue();
+    }
+
+    @Test
+    void flatViewShapeBoxes_arePassThroughForLiquidAndPowderSnowCells() {
         // 2x2 grid in one section; layout: index = (x)+y*2 (min=(0,0,0), strideY=2, strideZ=2).
         BlockState[] states = new BlockState[]{
                 Blocks.LAVA.defaultBlockState(),                                        // (0,0,0) liquid
                 Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 1),        // (1,0,0) flowing liquid
-                Blocks.STONE.defaultBlockState(),                                       // (0,1,0) solid
+                Blocks.POWDER_SNOW.defaultBlockState(),                                 // (0,1,0) powder snow
                 Blocks.AIR.defaultBlockState(),                                         // (1,1,0) air
         };
         double[][] boxes = ExplosionShapeBoxes.flattenShapeBoxes(
                 states, EmptyBlockGetter.INSTANCE, 0, 0, 0, 2, 2, states.length);
         assertThat(boxes[0]).as("source lava cell").isNull();
         assertThat(boxes[1]).as("flowing water cell").isNull();
-        assertThat(boxes[2]).as("stone cell").isNotNull();
+        assertThat(boxes[2]).as("powder snow cell").isNull();
         assertThat(boxes[3]).as("air cell").isNull();
+    }
+
+    @Test
+    void flatViewShapeBoxes_areNotEmptyForScaffoldingCells() {
+        // Empty context resolves scaffolding with isAbove(..., true) -> SHAPE_STABLE,
+        // which is why scaffolding keeps the blast-wide live fallback.
+        BlockState[] states = new BlockState[]{
+                Blocks.SCAFFOLDING.defaultBlockState(),
+        };
+        double[][] boxes = ExplosionShapeBoxes.flattenShapeBoxes(
+                states, EmptyBlockGetter.INSTANCE, 0, 0, 0, 1, 1, states.length);
+        assertThat(boxes[0]).as("scaffolding cell").isNotNull();
     }
 }

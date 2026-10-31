@@ -25,6 +25,15 @@ import net.minecraft.world.phys.Vec3;
  * are in the blast box. Each test detonates a TNT behind a scaffold/powder-snow
  * wall, then asserts the entity's health matches between vanilla (parallel
  * disabled) and parallel runs.</p>
+ *
+ * <p>Powder snow is routed per entity: entities that cannot observe a
+ * powder-snow shape (fall distance <= 2.5, not a falling block, not walking on
+ * powder snow) use the flat-view exposure, while powder-sensitive entities
+ * (e.g. a zombie falling with fallDistance > 2.5) must keep the live
+ * per-entity sampling. {@link #powderSnowSensitiveEntityParity} covers both
+ * sides in one blast: a falling zombie only matches vanilla if the live shape is
+ * sampled, and the item entity's knockback only matches if the flat path is
+ * bit-identical.</p>
  */
 public final class ExplosionContextParityGameTest {
 
@@ -135,6 +144,61 @@ public final class ExplosionContextParityGameTest {
                     if (Float.compare(vanillaHealth, parallelHealth) != 0) {
                         helper.fail("powder-snow exposure differs: vanilla health="
                                 + vanillaHealth + " parallel health=" + parallelHealth);
+                    }
+                })
+                .thenExecute(() -> {
+                    ExplosionParallelConfig.setEnabled(original);
+                    helper.succeed();
+                });
+    }
+
+    // ── Powder-snow per-entity routing (tested separately from the fallback) ──
+
+    /** Observable outcome of one powder-snow blast run. */
+    private record PowderOutcome(float zombieHealth, Vec3 itemDelta) {}
+
+    /**
+     * Builds a powder-snow blast: TNT at the west end, a powder-snow wall in the
+     * middle, one powder-sensitive entity (zombie with fallDistance > 2.5: live
+     * shape) and one powder-insensitive entity (item: flat shape) on the east side.
+     * The wall lies between both victims and the blast center, so a flat exposure
+     * for the falling zombie would visibly change its damage.
+     */
+    private static PowderOutcome runPowderSensitiveOnce(GameTestHelper helper, boolean parallel) {
+        clearEntities(helper);
+        buildPowderSnowRig(helper, ORIGIN);
+        Zombie zombie = spawnZombie(helper, ORIGIN.offset(6, 1, 0));
+        // > 2.5 makes PowderSnowBlock return FALLING_COLLISION_SHAPE for this
+        // entity; NT must therefore use the live per-entity exposure for it.
+        zombie.fallDistance = 4.0;
+        ItemEntity item = spawnItem(helper, ORIGIN.offset(6, 1, 2));
+        ExplosionParallelConfig.setEnabled(parallel);
+        detonate(helper, ORIGIN.offset(0, 1, 0));
+        PowderOutcome outcome = new PowderOutcome(zombie.getHealth(), item.getDeltaMovement());
+        zombie.discard();
+        item.discard();
+        return outcome;
+    }
+
+    /**
+     * Mixed powder-snow parity: the falling zombie exercises the powder-sensitive
+     * live path, the item entity the powder-insensitive flat path. Both must match
+     * vanilla bit-for-bit (identical health / knockback vector).
+     */
+    @GameTest(maxTicks = 200, padding = 40)
+    public void powderSnowSensitiveEntityParity(GameTestHelper helper) {
+        boolean original = ExplosionParallelConfig.isEnabled();
+        helper.startSequence()
+                .thenExecute(() -> {
+                    PowderOutcome vanilla = runPowderSensitiveOnce(helper, false);
+                    PowderOutcome parallel = runPowderSensitiveOnce(helper, true);
+                    if (Float.compare(vanilla.zombieHealth(), parallel.zombieHealth()) != 0) {
+                        helper.fail("powder-snow sensitive zombie health differs: vanilla="
+                                + vanilla.zombieHealth() + " parallel=" + parallel.zombieHealth());
+                    }
+                    if (!vanilla.itemDelta().equals(parallel.itemDelta())) {
+                        helper.fail("powder-snow item knockback differs: vanilla="
+                                + vanilla.itemDelta() + " parallel=" + parallel.itemDelta());
                     }
                 })
                 .thenExecute(() -> {

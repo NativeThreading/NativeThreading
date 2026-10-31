@@ -33,29 +33,56 @@ public final class ExplosionFlatViewHelper {
      * vanilla-exact for that entity's exposure or the live per-entity
      * {@code getSeenPercent} must be used.</p>
      *
-     * <p>{@link LiquidBlock} is special: its context-dependent shape only exists for
-     * a {@code LivingEntity} that satisfies {@code getLiquidCollisionShape()} and
-     * {@code canStandOnFluid} ({@link LiquidBlock#getCollisionShape} returns
-     * {@link net.minecraft.world.phys.shapes.Shapes#empty()} for every other
-     * entity). Non-living entities therefore have a context-free liquid shape, and
-     * their flat-view exposure is bit-identical to vanilla even in a lava
-     * blast.</p>
+     * <p>The three categories are narrowed differently:</p>
+     * <ul>
+     *   <li><b>{@link LiquidBlock}</b>: the context-dependent shape only exists for a
+     *       {@code LivingEntity} that satisfies {@code getLiquidCollisionShape()} and
+     *       {@code canStandOnFluid} ({@link LiquidBlock#getCollisionShape} returns
+     *       {@link net.minecraft.world.phys.shapes.Shapes#empty()} for every other
+     *       entity). Non-living entities therefore have a context-free liquid shape,
+     *       and their flat-view exposure is bit-identical to vanilla even in a lava
+     *       blast.</li>
+     *   <li><b>{@link PowderSnowBlock}</b>: the flat view resolves it to
+     *       {@link net.minecraft.world.phys.shapes.Shapes#empty()} (empty context: its
+     *       {@code isAbove(..., false)} branch returns the default {@code false}).
+     *       The live context can only widen it under three conditions - fall distance
+     *       above 2.5, a {@code FallingBlockEntity}, or an entity that can walk on
+     *       powder snow (tag / leather boots). The entity stage evaluates exactly
+     *       those conditions per entity; when they are false the live shape is
+     *       empty for any powder-snow block and any entity position, so the flat
+     *       exposure stays bit-identical and introspection is not needed.</li>
+     *   <li><b>{@link ScaffoldingBlock}</b>: the flat view resolves it to
+     *       {@code SHAPE_STABLE} (empty context: {@code isAbove(..., true)} returns the
+     *       default {@code true}), while the live shape is usually empty (entity not
+     *       standing on the scaffold). The two disagree for practically every entity,
+     *       so a view containing scaffolding keeps the blast-wide live fallback
+     *       ({@code stateDependent}).</li>
+     * </ul>
      *
      * <p><b>Modded caveat</b> (pre-existing F9 assumption): a modded block that
      * overrides {@code getCollisionShape(..., CollisionContext)} and varies its
      * shape by the querying entity is not detected here. Such a block only makes the
-     * flat view inexact if it appears inside the blast volume; the liquid-only
-     * narrowing below applies the same assumption that the existing no-context-block
-     * path already relies on. A modded {@link LiquidBlock} subclass is treated as
+     * flat view inexact if it appears inside the blast volume; the narrowing above
+     * applies the same assumption that the existing no-context-block path already
+     * relies on. A modded {@link LiquidBlock} subclass is treated as
      * state-dependent (conservative), because its shape override is unknown.</p>
      */
-    public record EntityContextFlags(boolean stateDependent, boolean hasLiquid) {
-        public static final EntityContextFlags NONE = new EntityContextFlags(false, false);
+    public record EntityContextFlags(boolean stateDependent, boolean hasLiquid, boolean hasPowderSnow) {
+        public static final EntityContextFlags NONE = new EntityContextFlags(false, false, false);
 
-        /** True when this entity's exposure must be computed with the live entity
-         *  context (vanilla {@code getSeenPercent}) instead of the flat view. */
-        public boolean requiresLiveExposure(boolean livingEntity) {
-            return this.stateDependent || (this.hasLiquid && livingEntity);
+        /**
+         * True when this entity's exposure must be computed with the live entity
+         * context (vanilla {@code getSeenPercent}) instead of the flat view.
+         *
+         * @param livingEntity           {@code entity instanceof LivingEntity}
+         * @param sensitiveToPowderSnow  true only when the view contains powder snow
+         *        and the entity can observe a context-dependent powder-snow shape
+         *        (see {@code ExplosionEntityStage#powderSnowMayChangeShape})
+         */
+        public boolean requiresLiveExposure(boolean livingEntity, boolean sensitiveToPowderSnow) {
+            return this.stateDependent
+                    || (this.hasLiquid && livingEntity)
+                    || (this.hasPowderSnow && sensitiveToPowderSnow);
         }
     }
 
@@ -99,10 +126,10 @@ public final class ExplosionFlatViewHelper {
 
     /**
      * Like {@link #fillSectioned} but also classifies the entity-context blocks in
-     * the filled view (scaffolding / powder snow / liquid) for the entity stage's
+     * the filled view (scaffolding / liquid / powder snow) for the entity stage's
      * per-entity exposure routing. Computed inline during the fill so the caller
      * avoids a second O(N) scan; the per-cell classification short-circuits once
-     * both categories have been observed (the common case is neither, so the
+     * every category has been observed (the common case is none, so the
      * classification piggybacks on the palette reads that already happen).
      */
     public static EntityContextFlags fillSectionedWithContext(BlockState[] dst,
@@ -114,6 +141,7 @@ public final class ExplosionFlatViewHelper {
         ChunkGrid.SectionRef ref = new ChunkGrid.SectionRef();
         boolean stateDependent = false;
         boolean hasLiquid = false;
+        boolean hasPowderSnow = false;
         for (int cz = minZ >> 4; cz <= maxZ >> 4; cz++) {
             int zMin = Math.max(minZ, cz << 4);
             int zMax = Math.min(maxZ, (cz << 4) + 15);
@@ -145,13 +173,16 @@ public final class ExplosionFlatViewHelper {
                                 for (int x = xMin; x <= xMax; x++, i++) {
                                     BlockState state = section.getBlockState(x & 15, ly, lz);
                                     dst[i] = state;
-                                    if (!stateDependent || !hasLiquid) {
+                                    if (!stateDependent || !hasLiquid || !hasPowderSnow) {
                                         Block block = state.getBlock();
                                         if (!stateDependent && isStateDependentContextBlock(block)) {
                                             stateDependent = true;
                                         }
                                         if (!hasLiquid && isPlainLiquidBlock(block)) {
                                             hasLiquid = true;
+                                        }
+                                        if (!hasPowderSnow && isPowderSnowBlock(block)) {
+                                            hasPowderSnow = true;
                                         }
                                     }
                                 }
@@ -161,19 +192,26 @@ public final class ExplosionFlatViewHelper {
                 }
             }
         }
-        return new EntityContextFlags(stateDependent, hasLiquid);
+        return new EntityContextFlags(stateDependent, hasLiquid, hasPowderSnow);
     }
 
-    /** Scaffolding and powder snow vary their collision shape by the querying
-     *  entity for any entity type, so a view containing either must use the live
-     *  per-entity exposure for everyone. A modded {@link LiquidBlock} subclass is
-     *  grouped here too: its shape override is unknown, so treat it as if it could
-     *  vary by context. */
+    /** Scaffolding changes its collision shape for practically every entity (the
+     *  empty-context flat shape is {@code SHAPE_STABLE}, while the live shape is
+     *  usually empty), so a view containing scaffolding uses the live per-entity
+     *  exposure for everyone. A modded {@link LiquidBlock} subclass is grouped here
+     *  too: its shape override is unknown, so treat it as if it could vary by
+     *  context. Powder snow is deliberately not grouped here - it has a cheap
+     *  per-entity predicate and its own flag ({@code hasPowderSnow}). */
     static boolean isStateDependentContextBlock(Block block) {
-        if (block instanceof ScaffoldingBlock || block instanceof PowderSnowBlock) {
-            return true;
-        }
-        return block instanceof LiquidBlock && block.getClass() != LiquidBlock.class;
+        return block instanceof ScaffoldingBlock
+                || (block instanceof LiquidBlock && block.getClass() != LiquidBlock.class);
+    }
+
+    /** True for powder snow, which is routed by the entity stage's per-entity
+     *  fall-distance / falling-block / walk-on-snow predicate instead of the
+     *  blast-wide fallback. */
+    static boolean isPowderSnowBlock(Block block) {
+        return block instanceof PowderSnowBlock;
     }
 
     /** True only for vanilla liquids. 26.3 registers both water and lava as plain
