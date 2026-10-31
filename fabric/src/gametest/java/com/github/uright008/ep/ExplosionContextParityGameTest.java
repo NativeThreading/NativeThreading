@@ -277,6 +277,66 @@ public final class ExplosionContextParityGameTest {
                 });
     }
 
+    // ── Grouped victims (shared compute unit, per-victim ordered push) ──────
+
+    /**
+     * Runs one scaffold-wall blast with two groups of TNT victims interleaved in
+     * capture order (A,B,A,B,...), plus an item entity that must stay on the
+     * ungrouped per-entity path. Scaffolding forces the live exposure path, so
+     * the grouping path is active. Returns every victim's knockback delta in
+     * capture order, item last.
+     */
+    private static List<Vec3> runGroupedTntOnce(GameTestHelper helper, boolean parallel) {
+        clearEntities(helper);
+        buildScaffoldRig(helper, ORIGIN);
+        List<PrimedTnt> victims = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            BlockPos pos = i % 2 == 0 ? ORIGIN.offset(6, 1, 0) : ORIGIN.offset(6, 1, 2);
+            victims.add(spawnPrimedTnt(helper, pos, 200));
+        }
+        ItemEntity item = spawnItem(helper, ORIGIN.offset(6, 1, 4));
+        ExplosionParallelConfig.setEnabled(parallel);
+        detonate(helper, ORIGIN.offset(0, 1, 0));
+        List<Vec3> deltas = new ArrayList<>();
+        for (PrimedTnt tnt : victims) deltas.add(tnt.getDeltaMovement());
+        deltas.add(item.getDeltaMovement());
+        for (PrimedTnt tnt : victims) tnt.discard();
+        item.discard();
+        return deltas;
+    }
+
+    /**
+     * Grouping parity: compatible exact-class PrimedTnt victims share one
+     * computed result and one worker unit, but each still receives its own push
+     * in vanilla capture order. The interleaved A/B groups exercise the
+     * unit-sharing setup; the item keeps the mixed ungrouped path covered.
+     */
+    @GameTest(maxTicks = 200, padding = 40)
+    public void tntGroupedVictimsParity(GameTestHelper helper) {
+        boolean original = ExplosionParallelConfig.isEnabled();
+        helper.startSequence()
+                .thenExecute(() -> {
+                    List<Vec3> vanilla = runGroupedTntOnce(helper, false);
+                    List<Vec3> parallel = runGroupedTntOnce(helper, true);
+                    if (vanilla.size() != parallel.size()) {
+                        helper.fail("grouped victim count differs: vanilla=" + vanilla.size()
+                                + " parallel=" + parallel.size());
+                        return;
+                    }
+                    for (int i = 0; i < vanilla.size(); i++) {
+                        if (!vanilla.get(i).equals(parallel.get(i))) {
+                            helper.fail("grouped victim knockback differs at " + i
+                                    + ": vanilla=" + vanilla.get(i) + " parallel=" + parallel.get(i));
+                            return;
+                        }
+                    }
+                })
+                .thenExecute(() -> {
+                    ExplosionParallelConfig.setEnabled(original);
+                    helper.succeed();
+                });
+    }
+
     // ── Liquid (Nether lava) parity ─────────────────────────────────────────
 
     /** Observable outcome of one liquid-blast run. */

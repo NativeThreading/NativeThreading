@@ -40,8 +40,31 @@ public final class ExplosionEntityStage {
     // would re-initialise the lists and negate the reuse. 8192 pre-sizes the
     // 3670-entity sustained chamber, so the lists never grow (4.6% of tick
     // was ArrayList.grow at 4096).
-    private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(8192);
+    private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_UNITS = new ArrayList<>(8192);
     private static final List<Entity> CAPTURE_REFS = new ArrayList<>(8192);
+
+    // Per-blast captured-victim layout: every victim keeps its own refs entry and
+    // its own ordered apply push, but compatible victims share one compute unit
+    // (one snapshot, one worker task, one result). unitOfVictim[victimIndex] is
+    // the compute-unit index; unitIsGroup[unitIndex] marks units whose apply is
+    // push-only (see captureEntityDamageSnapshots / applyGroupedDamage).
+    private static int[] VICTIM_UNITS = new int[8192];
+    private static boolean[] UNIT_IS_GROUP = new boolean[8192];
+    private static long ENTITY_LAST_UNITS;
+    private static long ENTITY_LAST_GROUPED_VICTIMS;
+
+    // Group table for the current blast: identical victims (same feet position,
+    // eye height and sampled exposure) share one compute unit. Capacity 16; past
+    // it a victim simply becomes an own unit, so a blast full of distinct victims
+    // cannot degrade (no per-victim allocation happens either way).
+    private static final int GROUP_CAPACITY = 16;
+    private static final double[] GROUP_FEET_X = new double[GROUP_CAPACITY];
+    private static final double[] GROUP_FEET_Y = new double[GROUP_CAPACITY];
+    private static final double[] GROUP_FEET_Z = new double[GROUP_CAPACITY];
+    private static final double[] GROUP_EYE_Y = new double[GROUP_CAPACITY];
+    private static final float[] GROUP_EXPOSURE = new float[GROUP_CAPACITY];
+    private static final int[] GROUP_UNIT = new int[GROUP_CAPACITY];
+    private static int groupSize;
 
     // Per-blast exposure dedup scratch (cleared at every capture, primitive only).
     // For a non-living entity whose collision context reads nothing but its own
@@ -94,44 +117,83 @@ public final class ExplosionEntityStage {
             LOGGER.error("Explosion entity capture failed; falling back to vanilla", e);
             return false;
         }
-        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = captured.snapshots();
+        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units = captured.units();
         List<Entity> refs = captured.refs();
-        if (snapshots.isEmpty()) return true;
+        if (refs.isEmpty()) return true;
+        int[] unitOfVictim = captured.unitOfVictim();
+        boolean[] unitIsGroup = captured.unitIsGroup();
+        ENTITY_LAST_UNITS = units.size();
         try {
             ++ENTITY_WORKER_BATCHES;
             List<ExplosionEntityDamageComputer.EntityDamageResult> results =
-                    ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), snapshots,
+                    ParallelWorker.mapBatched(ParallelThreadPool.getPool("Explosion"), units,
                             snapshot -> ExplosionEntityDamageComputer.computeEntityDamage(
                                     snapshot, centerX, centerY, centerZ, dr, worldView),
-                            ParallelWorker.autoBatchSize(snapshots.size()), 5);
-            for (int i = 0; i < results.size(); i++) {
-                ExplosionEntityDamageComputer.EntityDamageResult r = results.get(i);
-                if (r != null) applyEntityDamage(r, refs.get(i), ctx);
-            }
+                            ParallelWorker.autoBatchSize(units.size()), 5);
+            applyCaptureResults(results, refs, unitOfVictim, unitIsGroup, ctx);
         } catch (RuntimeException e) {
-            // Workers failed — the snapshots captured on the main thread are
-            // still valid, so compute them serially instead of re-running
-            // vanilla hurtEntities (which would re-scan the entity sections).
+            // Workers failed — the units captured on the main thread are still
+            // valid, so compute them serially instead of re-running vanilla
+            // hurtEntities (which would re-scan the entity sections).
             ++ENTITY_FALLBACKS;
             LOGGER.error("Explosion entity workers failed; computing damage serially", e);
-            for (int i = 0; i < snapshots.size(); i++) {
-                ExplosionEntityDamageComputer.EntityDamageResult r = ExplosionEntityDamageComputer.computeEntityDamage(
-                        snapshots.get(i), centerX, centerY, centerZ, dr, worldView);
-                if (r != null) applyEntityDamage(r, refs.get(i), ctx);
+            java.util.List<ExplosionEntityDamageComputer.EntityDamageResult> serial =
+                    new ArrayList<>(units.size());
+            for (int i = 0; i < units.size(); i++) {
+                serial.add(ExplosionEntityDamageComputer.computeEntityDamage(
+                        units.get(i), centerX, centerY, centerZ, dr, worldView));
             }
+            applyCaptureResults(serial, refs, unitOfVictim, unitIsGroup, ctx);
         }
 
         logEntityPathCounters();
         return true;
     }
 
-    /** Snapshots plus the capture-time entity references, parallel lists.
-     *  Applying by reference (not by ID re-lookup) matches vanilla
-     *  hurtEntities, which iterates its collected list and still damages an
-     *  entity that an earlier hit in the same blast removed. */
+    /** Applies one blast's results in vanilla order: victims are visited in
+     *  capture order and each still receives its own push; grouped victims only
+     *  share the computed values, not the world writes. */
+    private static void applyCaptureResults(
+            List<ExplosionEntityDamageComputer.EntityDamageResult> results,
+            List<Entity> refs, int[] unitOfVictim, boolean[] unitIsGroup,
+            ExplosionContext ctx) {
+        long groupedVictims = 0;
+        for (int i = 0; i < refs.size(); i++) {
+            int unit = unitOfVictim[i];
+            ExplosionEntityDamageComputer.EntityDamageResult r = results.get(unit);
+            if (r == null) continue;
+            Entity entity = refs.get(i);
+            if (unitIsGroup[unit]) {
+                applyGroupedDamage(r, entity);
+                groupedVictims++;
+            } else {
+                applyEntityDamage(r, entity, ctx);
+            }
+        }
+        ENTITY_LAST_GROUPED_VICTIMS = groupedVictims;
+    }
+
+    /** Grouped victim apply: for an exact-class PrimedTnt victim the damage,
+     *  bookkeep and onExplosionHit steps are all proven vanilla no-ops (final
+     *  hurtServer -> false, non-projectile/non-player, Entity default empty
+     *  onExplosionHit), so only the ordered push remains. push(double,double,
+     *  double) is the same call vanilla reaches through pushFromExplosion(Vec3)
+     *  without allocating the intermediate Vec3. */
+    private static void applyGroupedDamage(
+            ExplosionEntityDamageComputer.EntityDamageResult result, Entity entity) {
+        entity.push(result.kbX(), result.kbY(), result.kbZ());
+    }
+
+    /** Captured compute units plus the per-victim unit mapping and the
+     *  capture-time entity references. Applying by reference (not by ID
+     *  re-lookup) matches vanilla hurtEntities, which iterates its collected
+     *  list and still damages an entity that an earlier hit in the same blast
+     *  removed. */
     private record CapturedDamage(
-            List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots,
-            List<Entity> refs) {}
+            List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units,
+            List<Entity> refs,
+            int[] unitOfVictim,
+            boolean[] unitIsGroup) {}
 
     private static CapturedDamage captureEntityDamageSnapshots(
             ExplosionContext ctx, WorldReadViewImpl worldView,
@@ -147,6 +209,7 @@ public final class ExplosionEntityStage {
         final boolean pureEntityCalculator = isDefaultCalc
                 || ctx.damageCalculator().getClass() == EntityBasedExplosionDamageCalculator.class;
         exposureDedupSize = 0;
+        groupSize = 0;
 
         // The flat view resolves collision shapes with the empty collision context,
         // which is vanilla-exact for every entity that cannot observe a
@@ -161,9 +224,9 @@ public final class ExplosionEntityStage {
         // instead of scanning the whole view per explosion (1.4% of tick at 348ms).
         final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags = worldView.entityContextFlags();
 
-        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> snapshots = CAPTURE_SNAPSHOTS;
+        List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units = CAPTURE_UNITS;
         List<Entity> refs = CAPTURE_REFS;
-        snapshots.clear();
+        units.clear();
         refs.clear();
         // Single pass over the entity sections: the predicate runs in place of
         // vanilla's NO_SPECTATORS selector, so the spatial query and the
@@ -183,6 +246,8 @@ public final class ExplosionEntityStage {
             if (entity.distanceToSqr(ctx.center()) > radiusSquare) return false;
 
             refs.add(entity);
+            int victimIndex = refs.size() - 1;
+            ensureVictimCapacity(refs.size());
             AABB bb = entity.getBoundingBox();
             final boolean isPrimedTnt = entity instanceof PrimedTnt;
             // PrimedTnt#hurtServer is final and returns false without side effects,
@@ -254,14 +319,93 @@ public final class ExplosionEntityStage {
                     ? living.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)
                     : 0.0;
 
-            snapshots.add(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
-                    feetX, feetY, feetZ, eyeY,
-                    bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
-                    shouldDamage, knockbackMultiplier, exposure, exposurePreset,
-                    kbRes));
+            // Grouping condition: exact vanilla PrimedTnt victim whose damage is
+            // elided, on the live-exposure path with a preset sample. Then the
+            // computed result only depends on (feet position, eye height, exposure)
+            // and the apply step only needs the ordered push - every other
+            // per-entity callback is a proven no-op. Subclasses stay own units.
+            final boolean groupable = damageElided
+                    && liveExposure
+                    && exposurePreset
+                    && entity.getClass() == PrimedTnt.class;
+            int unit;
+            if (groupable) {
+                int group = groupLookup(feetX, feetY, feetZ, eyeY, exposure);
+                if (group >= 0) {
+                    VICTIM_UNITS[victimIndex] = GROUP_UNIT[group];
+                    return false;
+                }
+                boolean asGroup = groupSize < GROUP_CAPACITY;
+                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
+                        feetX, feetY, feetZ, eyeY,
+                        bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
+                        shouldDamage, knockbackMultiplier, exposure, exposurePreset,
+                        kbRes), asGroup);
+                if (asGroup) {
+                    groupStore(feetX, feetY, feetZ, eyeY, exposure, unit);
+                }
+            } else {
+                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
+                        feetX, feetY, feetZ, eyeY,
+                        bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
+                        shouldDamage, knockbackMultiplier, exposure, exposurePreset,
+                        kbRes), false);
+            }
+            VICTIM_UNITS[victimIndex] = unit;
             return false;
         });
-        return new CapturedDamage(snapshots, refs);
+        return new CapturedDamage(units, refs, VICTIM_UNITS, UNIT_IS_GROUP);
+    }
+
+    private static void ensureVictimCapacity(int required) {
+        if (required <= VICTIM_UNITS.length) return;
+        int capacity = Math.max(required, VICTIM_UNITS.length * 2);
+        VICTIM_UNITS = java.util.Arrays.copyOf(VICTIM_UNITS, capacity);
+    }
+
+    private static int addComputeUnit(
+            ExplosionEntityDamageComputer.EntityDamageSnapshot unit, boolean grouped) {
+        int index = CAPTURE_UNITS.size();
+        CAPTURE_UNITS.add(unit);
+        if (index >= UNIT_IS_GROUP.length) {
+            UNIT_IS_GROUP = java.util.Arrays.copyOf(UNIT_IS_GROUP, UNIT_IS_GROUP.length * 2);
+        }
+        UNIT_IS_GROUP[index] = grouped;
+        return index;
+    }
+
+    /** Finds the compute unit shared by victims with the same captured values;
+     *  see the grouping condition in {@code captureEntityDamageSnapshots}. */
+    static int groupLookup(double feetX, double feetY, double feetZ, double eyeY, float exposure) {
+        for (int i = 0; i < groupSize; i++) {
+            if (GROUP_FEET_X[i] == feetX && GROUP_FEET_Y[i] == feetY && GROUP_FEET_Z[i] == feetZ
+                    && GROUP_EYE_Y[i] == eyeY && GROUP_EXPOSURE[i] == exposure) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    static void groupStore(double feetX, double feetY, double feetZ, double eyeY,
+                           float exposure, int unit) {
+        if (groupSize >= GROUP_CAPACITY) return;
+        int i = groupSize++;
+        GROUP_FEET_X[i] = feetX;
+        GROUP_FEET_Y[i] = feetY;
+        GROUP_FEET_Z[i] = feetZ;
+        GROUP_EYE_Y[i] = eyeY;
+        GROUP_EXPOSURE[i] = exposure;
+        GROUP_UNIT[i] = unit;
+    }
+
+    /** Test hook: compute unit recorded for a group slot. */
+    static int groupUnit(int slot) {
+        return GROUP_UNIT[slot];
+    }
+
+    /** Test hook: number of group slots used by the current/last capture. */
+    static int groupCount() {
+        return groupSize;
     }
 
     /**
@@ -321,8 +465,8 @@ public final class ExplosionEntityStage {
     private static void logEntityPathCounters() {
         long paths = ++PARALLEL_ENTITY_PATHS;
         if ((paths & (paths - 1)) == 0) {
-            LOGGER.info("Explosion entity paths: active={}, workerBatches={}, fallbacks={}",
-                    paths, ENTITY_WORKER_BATCHES, ENTITY_FALLBACKS);
+            LOGGER.info("Explosion entity paths: active={}, workerBatches={}, fallbacks={}, units={}, groupedVictims={}",
+                    paths, ENTITY_WORKER_BATCHES, ENTITY_FALLBACKS, ENTITY_LAST_UNITS, ENTITY_LAST_GROUPED_VICTIMS);
         }
     }
 
@@ -376,7 +520,7 @@ public final class ExplosionEntityStage {
      * stops, so a client that leaves a single-player world does not retain that world's
      * {@code ServerLevel} and entities through these statics.
      *
-     * <p>{@link #CAPTURE_SNAPSHOTS} is left alone: it holds primitive-only records and the
+     * <p>{@link #CAPTURE_UNITS} is left alone: it holds primitive-only records and the
      * next capture clears it anyway.</p>
      */
     public static void clearStaticState() {
@@ -384,6 +528,7 @@ public final class ExplosionEntityStage {
         applyCtx = null;
         applyEntity = null;
         clearExposureDedup();
+        groupSize = 0;
     }
 
     /** Test/cleanup hook: drops the per-blast exposure dedup scratch. */

@@ -69,6 +69,13 @@
   在 parallel 允许的 Tier A/B 伤害计算器实体钩子继承自默认纯实现的前提下,
   纯 TNT 受害者的整段伤害计算/调用被跳过(仅保留可观察的击退);
   物品/落方块/矿车等有真实伤害副作用的非生存实体不适用。
+- **分组捕获(P2-C)**: 精确 `PrimedTnt` 类、伤害已省略、live 路径且 exposure 已采样的实体
+  若捕获值 `(feetX, feetY, feetZ, eyeY, exposure)` 完全相同,则共享一个计算单元
+  (一个 snapshot / 一个 worker 任务 / 一个 result);组表上限 16,超出即回落为独立单元。
+  捕获仍按 vanilla `getEntities` 顺序把**每个受害者**记进 refs 与 `unitOfVictim`,
+  所以实体枚举顺序和可见性不变,只是计算去重。分组等价性依赖:精确类(无 onExplosionHit
+  覆写)、伤害省略(§2.1 上一条)、live 预置曝光、以及 5 个捕获值全等 ⇒
+  `computeEntityDamage` 输出逐位相同。子类/物品/落方块等全部仍走逐实体单元。
 
 ### 2.2 计算(worker,纯值)
 
@@ -92,6 +99,12 @@
 
 - `ExplosionEntityApplication` 把 worker 结果写回实体:伤害、击退、`hitPlayers`。
   所有世界/实体修改都只发生在这一层。
+- 分组单元(§2.1)的 apply 只做**逐受害者的有序 push**:按捕获顺序遍历 refs、每个实体
+  `push(kbX,kbY,kbZ)` 恰好一次(`push(double,double,double)` 与 vanilla
+  `pushFromExplosion(Vec3)` 的 finite 检查/写入语义相同,但省掉 Vec3 分配);
+  hurt/bookkeep/onExplosionHit 对精确 `PrimedTnt` 受害者都是已证明的 vanilla no-op,
+  因此不再调用。push 的调用顺序和次数与 vanilla hurtEntities 完全一致;
+  非组单元继续走 `ExplosionEntityApplication`(伤害/击退/记账/回调)。
 - 实体段 worker 失败时用捕获好的快照在主线程串行计算,不重跑 vanilla;只有**捕获阶段**失败
   (没有可用快照)才返回 false,由 mixin 放行原版 `hurtEntities`。捕获/计算不消费 RNG,
   因此这条降级不影响随机序列。
