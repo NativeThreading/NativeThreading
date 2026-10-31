@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.monster.zombie.Zombie;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -15,6 +16,9 @@ import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.PowderSnowBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Entity-context exposure parity gametests.
@@ -199,6 +203,72 @@ public final class ExplosionContextParityGameTest {
                     if (!vanilla.itemDelta().equals(parallel.itemDelta())) {
                         helper.fail("powder-snow item knockback differs: vanilla="
                                 + vanilla.itemDelta() + " parallel=" + parallel.itemDelta());
+                    }
+                })
+                .thenExecute(() -> {
+                    ExplosionParallelConfig.setEnabled(original);
+                    helper.succeed();
+                });
+    }
+
+    // ── Non-living peak: repeated TNT victims share one exposure sample ──────
+
+    /** Spawns a primed TNT with a stable zero velocity. */
+    private static PrimedTnt spawnPrimedTnt(GameTestHelper helper, BlockPos pos, int fuse) {
+        BlockPos abs = helper.absolutePos(pos);
+        PrimedTnt tnt = EntityTypes.TNT.create(helper.getLevel(),
+                net.minecraft.world.entity.EntitySpawnReason.LOAD);
+        if (tnt == null) throw new IllegalStateException("cannot spawn tnt");
+        tnt.setPos(abs.getX() + 0.5, abs.getY(), abs.getZ() + 0.5);
+        tnt.setFuse(fuse);
+        helper.getLevel().addFreshEntity(tnt);
+        return tnt;
+    }
+
+    /**
+     * Runs one scaffold-wall blast with several primed-TNT victims: three at the
+     * same position (one exposure-dedup group) and one at a different position
+     * (second group). The scaffold wall forces the live exposure path, so the
+     * dedup cache is active. Returns every victim's knockback delta.
+     */
+    private static List<Vec3> runTntDedupOnce(GameTestHelper helper, boolean parallel) {
+        clearEntities(helper);
+        buildScaffoldRig(helper, ORIGIN);
+        List<PrimedTnt> victims = new ArrayList<>();
+        for (int i = 0; i < 3; i++) victims.add(spawnPrimedTnt(helper, ORIGIN.offset(6, 1, 0), 200));
+        victims.add(spawnPrimedTnt(helper, ORIGIN.offset(6, 1, 2), 200));
+        ExplosionParallelConfig.setEnabled(parallel);
+        detonate(helper, ORIGIN.offset(0, 1, 0));
+        List<Vec3> deltas = new ArrayList<>(victims.size());
+        for (PrimedTnt tnt : victims) deltas.add(tnt.getDeltaMovement());
+        for (PrimedTnt tnt : victims) tnt.discard();
+        return deltas;
+    }
+
+    /**
+     * Dedup parity: a non-living victim whose collision context is position-only
+     * gets one shared exposure sample per (AABB, feet Y, isDescending) group, and
+     * primed-TNT damage is elided (final {@code hurtServer -> false}). Every
+     * victim's knockback vector must still match vanilla exactly.
+     */
+    @GameTest(maxTicks = 200, padding = 40)
+    public void tntDedupParity(GameTestHelper helper) {
+        boolean original = ExplosionParallelConfig.isEnabled();
+        helper.startSequence()
+                .thenExecute(() -> {
+                    List<Vec3> vanilla = runTntDedupOnce(helper, false);
+                    List<Vec3> parallel = runTntDedupOnce(helper, true);
+                    if (vanilla.size() != parallel.size()) {
+                        helper.fail("tnt dedup victim count differs: vanilla=" + vanilla.size()
+                                + " parallel=" + parallel.size());
+                        return;
+                    }
+                    for (int i = 0; i < vanilla.size(); i++) {
+                        if (!vanilla.get(i).equals(parallel.get(i))) {
+                            helper.fail("tnt dedup knockback differs at victim " + i
+                                    + ": vanilla=" + vanilla.get(i) + " parallel=" + parallel.get(i));
+                            return;
+                        }
                     }
                 })
                 .thenExecute(() -> {

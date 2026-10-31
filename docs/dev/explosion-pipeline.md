@@ -58,6 +58,17 @@
     含细雪的雪原爆炸因此不再整发退化为串行。
   - plain liquid 的识别是 `block.getClass() == LiquidBlock.class`(26.3 的水/岩浆都是该类实例);
     modded 子类保守归入 `stateDependent`。
+- **非生存实体的曝光去重(P2)**: 对非 `LivingEntity`、非落方块、非实验性矿车、
+  `fallDistance <= 2.5` 且不满足 `canEntityWalkOnPowderSnow` 的实体,活实体上下文在
+  26.3 只会通过三类方块影响形状——液体(要求 LivingEntity)、细雪(要求上述条件)、
+  scaffolding(只读实体脚部 Y 与 `isDescending`);这三者对它们都只依赖
+  `(AABB, feetY, isDescending)`。因此 `getSeenPercent` 对相同 key 的实体逐位相同,
+  每发爆炸按 key 复用一次 live 采样(上限 8 组,见 `EXPOSURE_DEDUP_CAPACITY`)。
+  TNT 单点堆积/物品堆这类大量同位置受害者的场景,曝光调用从 O(n)/发降到 O(1)/发。
+  同时 `PrimedTnt#hurtServer` 是 `final` 且恒返回 false(无副作用),
+  在 parallel 允许的 Tier A/B 伤害计算器实体钩子继承自默认纯实现的前提下,
+  纯 TNT 受害者的整段伤害计算/调用被跳过(仅保留可观察的击退);
+  物品/落方块/矿车等有真实伤害副作用的非生存实体不适用。
 
 ### 2.2 计算(worker,纯值)
 

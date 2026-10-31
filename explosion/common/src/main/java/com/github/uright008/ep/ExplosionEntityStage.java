@@ -11,6 +11,8 @@ import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.vehicle.minecart.AbstractMinecart;
+import net.minecraft.world.level.EntityBasedExplosionDamageCalculator;
 import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.ServerExplosion;
 import net.minecraft.world.level.block.PowderSnowBlock;
@@ -40,6 +42,19 @@ public final class ExplosionEntityStage {
     // was ArrayList.grow at 4096).
     private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_SNAPSHOTS = new ArrayList<>(8192);
     private static final List<Entity> CAPTURE_REFS = new ArrayList<>(8192);
+
+    // Per-blast exposure dedup scratch (cleared at every capture, primitive only).
+    // For a non-living entity whose collision context reads nothing but its own
+    // AABB, feet Y and shift-down flag, vanilla getSeenPercent is a pure function
+    // of (AABB, feetY, isDescending, center, world). Repeated victims - the TNT
+    // pile in one spot is the motivating case - then share one live sampling
+    // instead of one per entity. See exposureContextIsPositionOnly.
+    private static final int EXPOSURE_DEDUP_CAPACITY = 8;
+    private static final double[] EXPOSURE_DEDUP_AABB = new double[EXPOSURE_DEDUP_CAPACITY * 6];
+    private static final double[] EXPOSURE_DEDUP_FEET_Y = new double[EXPOSURE_DEDUP_CAPACITY];
+    private static final boolean[] EXPOSURE_DEDUP_DESCENDING = new boolean[EXPOSURE_DEDUP_CAPACITY];
+    private static final float[] EXPOSURE_DEDUP_VALUE = new float[EXPOSURE_DEDUP_CAPACITY];
+    private static int exposureDedupSize;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("native-threading:explosion:entity");
     // Explosions are serial on the main thread, so plain longs are sufficient
@@ -125,6 +140,13 @@ public final class ExplosionEntityStage {
         double radiusSquare = (double) doubleRadius * doubleRadius;
         ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
+        // Tier A/B calculators only (the mixin gates the pipeline on
+        // ExplosionParallelEligibility). EntityBasedExplosionDamageCalculator
+        // inherits every entity hook from the vanilla default implementation, so
+        // both tiers have pure, side-effect-free entity damage hooks.
+        final boolean pureEntityCalculator = isDefaultCalc
+                || ctx.damageCalculator().getClass() == EntityBasedExplosionDamageCalculator.class;
+        exposureDedupSize = 0;
 
         // The flat view resolves collision shapes with the empty collision context,
         // which is vanilla-exact for every entity that cannot observe a
@@ -163,6 +185,14 @@ public final class ExplosionEntityStage {
             refs.add(entity);
             AABB bb = entity.getBoundingBox();
             final boolean isPrimedTnt = entity instanceof PrimedTnt;
+            // PrimedTnt#hurtServer is final and returns false without side effects,
+            // and the eligible calculators' entity hooks are inherited pure
+            // implementations, so the whole damage path is a no-op for a primed-TNT
+            // victim under the same source vanilla uses (the TNT itself, or null).
+            // Skipping it is therefore vanilla-observable-equivalent; the knockback
+            // remains live and observable.
+            final boolean damageElided = isPrimedTnt && pureEntityCalculator
+                    && (ctx.source() == null || ctx.source().getClass() == PrimedTnt.class);
             boolean shouldDamage;
             float knockbackMultiplier;
             float exposure = 0.0F;
@@ -177,20 +207,41 @@ public final class ExplosionEntityStage {
                         entityContextFlags.hasPowderSnow() && powderSnowMayChangeShape(entity));
             }
             if (liveExposure) {
-                shouldDamage = isDefaultCalc
-                        ? true : ctx.damageCalculator().shouldDamageEntity(self, entity);
-                knockbackMultiplier = isDefaultCalc
-                        ? 1.0F : ctx.damageCalculator().getKnockbackMultiplier(entity);
+                if (damageElided) {
+                    shouldDamage = false;
+                    knockbackMultiplier = 1.0F;
+                } else {
+                    shouldDamage = isDefaultCalc
+                            ? true : ctx.damageCalculator().shouldDamageEntity(self, entity);
+                    knockbackMultiplier = isDefaultCalc
+                            ? 1.0F : ctx.damageCalculator().getKnockbackMultiplier(entity);
+                }
                 // Vanilla hurtEntities samples exposure only when it can affect
                 // damage or knockback; with both inert the value is never read.
                 // The flat-view worker path applies the same condition.
                 if (shouldDamage || knockbackMultiplier != 0.0F) {
-                    exposure = computeContextAwareExposure(
-                            entity, ctx.center().x, ctx.center().y, ctx.center().z);
+                    if (exposureContextIsPositionOnly(entity)) {
+                        double feetYNow = entity.getY();
+                        boolean descending = entity.isDescending();
+                        int slot = exposureDedupLookup(bb, feetYNow, descending);
+                        if (slot >= 0) {
+                            exposure = EXPOSURE_DEDUP_VALUE[slot];
+                        } else {
+                            exposure = computeContextAwareExposure(
+                                    entity, ctx.center().x, ctx.center().y, ctx.center().z);
+                            exposureDedupStore(bb, feetYNow, descending, exposure);
+                        }
+                    } else {
+                        exposure = computeContextAwareExposure(
+                                entity, ctx.center().x, ctx.center().y, ctx.center().z);
+                    }
                     exposurePreset = true;
                 }
             } else if (isDefaultCalc) {
                 shouldDamage = true;
+                knockbackMultiplier = 1.0F;
+            } else if (damageElided) {
+                shouldDamage = false;
                 knockbackMultiplier = 1.0F;
             } else {
                 shouldDamage = ctx.damageCalculator().shouldDamageEntity(self, entity);
@@ -211,6 +262,60 @@ public final class ExplosionEntityStage {
             return false;
         });
         return new CapturedDamage(snapshots, refs);
+    }
+
+    /**
+     * True when vanilla's {@code getSeenPercent} exposure of this entity depends
+     * only on its AABB, feet Y and shift-down flag - so two such entities at the
+     * same spot always sample bit-identical exposure and can share one call.
+     *
+     * <p>For a non-living entity the collision context can only feed three vanilla
+     * shape readers: liquids (need a {@code LivingEntity}), powder snow (needs
+     * {@code fallDistance > 2.5}, a {@code FallingBlockEntity}, or the
+     * walk-on-powder predicate) and scaffolding ({@code isAbove} on the entity
+     * bottom + {@code isDescending}). {@code MinecartCollisionContext} overrides
+     * {@code isAbove} for rail shapes, so minecarts stay conservative.</p>
+     */
+    private static boolean exposureContextIsPositionOnly(Entity entity) {
+        return !(entity instanceof LivingEntity)
+                && !(entity instanceof FallingBlockEntity)
+                && !(entity instanceof AbstractMinecart)
+                && !(entity.fallDistance > 2.5)
+                && !PowderSnowBlock.canEntityWalkOnPowderSnow(entity);
+    }
+
+    /** Returns the slot of an existing dedup group for this exact sample context,
+     *  or -1 when this entity must sample exposure itself. */
+    static int exposureDedupLookup(AABB bb, double feetY, boolean descending) {
+        for (int i = 0; i < exposureDedupSize; i++) {
+            if (EXPOSURE_DEDUP_FEET_Y[i] == feetY
+                    && EXPOSURE_DEDUP_DESCENDING[i] == descending
+                    && EXPOSURE_DEDUP_AABB[i * 6] == bb.minX
+                    && EXPOSURE_DEDUP_AABB[i * 6 + 1] == bb.minY
+                    && EXPOSURE_DEDUP_AABB[i * 6 + 2] == bb.minZ
+                    && EXPOSURE_DEDUP_AABB[i * 6 + 3] == bb.maxX
+                    && EXPOSURE_DEDUP_AABB[i * 6 + 4] == bb.maxY
+                    && EXPOSURE_DEDUP_AABB[i * 6 + 5] == bb.maxZ) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Records one sampled exposure group; silently stops growing at the cap so a
+     *  blast full of distinct non-living entities cannot unbound the scratch. */
+    static void exposureDedupStore(AABB bb, double feetY, boolean descending, float exposure) {
+        if (exposureDedupSize >= EXPOSURE_DEDUP_CAPACITY) return;
+        int i = exposureDedupSize++;
+        EXPOSURE_DEDUP_FEET_Y[i] = feetY;
+        EXPOSURE_DEDUP_DESCENDING[i] = descending;
+        EXPOSURE_DEDUP_AABB[i * 6] = bb.minX;
+        EXPOSURE_DEDUP_AABB[i * 6 + 1] = bb.minY;
+        EXPOSURE_DEDUP_AABB[i * 6 + 2] = bb.minZ;
+        EXPOSURE_DEDUP_AABB[i * 6 + 3] = bb.maxX;
+        EXPOSURE_DEDUP_AABB[i * 6 + 4] = bb.maxY;
+        EXPOSURE_DEDUP_AABB[i * 6 + 5] = bb.maxZ;
+        EXPOSURE_DEDUP_VALUE[i] = exposure;
     }
 
     private static void logEntityPathCounters() {
@@ -278,6 +383,17 @@ public final class ExplosionEntityStage {
         CAPTURE_REFS.clear();
         applyCtx = null;
         applyEntity = null;
+        clearExposureDedup();
+    }
+
+    /** Test/cleanup hook: drops the per-blast exposure dedup scratch. */
+    static void clearExposureDedup() {
+        exposureDedupSize = 0;
+    }
+
+    /** Test hook: sampled exposure of a stored dedup group. */
+    static float exposureDedupValue(int slot) {
+        return EXPOSURE_DEDUP_VALUE[slot];
     }
 
     // ── Main-thread entity helpers ───────────────────────────────────────────
