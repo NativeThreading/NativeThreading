@@ -1,6 +1,6 @@
 # NativeThreading 代码组织规范
 
-> 引入新功能时按此结构落地。与 `docs/architecture-discipline.md`(行为纪律)配套:
+> 引入新功能时按此结构落地。与同目录 `architecture-discipline.md`(行为纪律)配套:
 > 行为纪律管"**不能做什么**"(mixin 只做注入、缓存必须 static、RNG 不放两遍……),
 > 本文档管"**应该长什么样**"(文件怎么拆、模块怎么分、线程安全层怎么写)。
 > 两份一起构成"新功能落地规范"。Agent 侧版本:`.agents/skills/native-threading-architecture/`。

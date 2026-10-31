@@ -30,3 +30,6 @@ fabric/run/
 
 # ZCode session artifacts
 .zcode/
+
+# 调研/教训归档只留本地，不进仓库（维护者 2026-10）
+docs/archive/

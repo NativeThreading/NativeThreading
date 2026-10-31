@@ -18,7 +18,7 @@ fun gitVersion(): String {
 val modVersion = gitVersion()
 val modName = providers.gradleProperty("archives_base_name").get()
 
-// ── Architecture discipline (docs/architecture-discipline.md M2/M4) ───────
+// ── Architecture discipline (docs/dev/architecture-discipline.md M2/M4) ────
 // M4: every *.mixins.json must be strict JSON (no trailing commas) and every
 // listed class must exist as a source file. M2: mixin classes over 250 lines
 // are a hard failure (split into implementation classes).

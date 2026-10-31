@@ -1,6 +1,6 @@
 # Core
 
-`core` owns shared execution, configuration, commands, and capture primitives for NativeThreading. It does not own workload pipelines. Feature modules own the capture, compute, and application details for their subsystems.
+`core` owns shared execution, configuration, commands, and capture primitives for NativeThreading. It does not own workload pipelines. Repo-wide rules: `docs/dev/`. Feature modules own the capture, compute, and application details for their subsystems.
 
 ## Build and Tests
 

@@ -1,65 +1,95 @@
 # NativeThreading
 
-Multi-module Fabric mod for Minecraft 26.3, parallelizing selected server workloads via mixins.
+*Parallelize selected heavy server workloads in Minecraft.*
 
-## Modules
+NativeThreading is a server-side Minecraft 26.3 mod that moves selected vanilla
+server workloads off the main thread through mixins, while keeping
+vanilla-observable results identical. It currently parallelizes explosion
+computation — TNT chain reactions and other large blasts.
 
-| Module | What it parallelizes |
-|--------|---------------------|
-| **explosion** | TNT/creepers — ray tracing + entity damage |
+Releases ship a Fabric jar and a NeoForge jar. Nothing is installed on the
+client.
 
-All share `core/` (thread pool, safe world access, deferred writes, config).
+## Features
+
+- **Explosion pipeline** — ray tracing and entity damage/exposure are computed on
+  worker threads; chunk reads and world/entity writes stay on the main thread.
+- **Vanilla-identical results** — the per-ray power draws come from
+  `level.random` in vanilla order, so the destroyed block set and blast shape
+  match vanilla for the same world and seed.
+- **One switch per module** — `/parallel explosion` or `config/nt.json`; no
+  per-optimization knobs.
+- **Server-side only** — no client code, no protocol changes.
 
 ## Installation
 
-Drop `native-threading-1.0.0.jar` into your `mods/` folder. Requires Fabric Loader ≥ 0.19.5.
+Drop the jar matching your loader into `mods/`:
 
-Configure modules in `config/nt.json`.
+| Loader | Requirement |
+|---|---|
+| Fabric | Fabric Loader ≥ 0.19.5 + Fabric API |
+| NeoForge | NeoForge 26.3 (tested with 26.3.0.41-beta) |
+
+All modules are enabled by default and configured in `config/nt.json`:
+
+```json
+{
+  "explosion": {
+    "enabled": true
+  }
+}
+```
+
+Commands (OP level 2):
+
+```
+/parallel explosion                 status
+/parallel explosion <true|false>    toggle parallel explosions
+/parallel explosion reload          reload config/nt.json
+/parallel explosion stats           chunk-grid cache and phase counters
+```
 
 ## Performance
 
-**场景**:125 个 TNT 方块置于 5×5×5 黑曜石密闭外壳中(防止爆炸击穿),命令方块点燃触发链式反应,Spark 每轮采样 25s。机器:i9-12900HX 24 核,系统重启后冷态测量。每组合 3 轮取均值。
+125 TNT blocks inside a 5×5×5 obsidian shell, ignited by a command block. Spark
+sampled 25 s windows, 3 runs per configuration, averaged. Machine: i9-12900HX
+(24 cores), measured cold after reboot. Every configuration includes Fabric API
+and Lithium; `base` is vanilla + Lithium.
 
-对照组构成(所有组合均加载 Fabric API 等基础模组,`base` 组即包含 [Lithium](https://modrinth.com/mod/lithium)):
+| Configuration | MSPT (mean) |
+|---|---|
+| base (vanilla + [Lithium](https://modrinth.com/mod/lithium)) | 198.0 ms |
+| + [NotEnoughPalette](https://github.com/NativeThreading/NotEnoughPalette) | 190.0 ms |
+| + NativeThreading | 47.2 ms |
+| + NotEnoughPalette + NativeThreading | **45.7 ms** |
 
-| 组合 | 已加载模组(除基础模组外) | MSPT (mean) |
-|------|--------------------------|-------------|
-| base(原版+锂) | — | 198.0 ms |
-| + NEP | [NotEnoughPalette](https://github.com/NativeThreading/NotEnoughPalette) | 190.0 ms |
-| + NT | NativeThreading | 47.2 ms |
-| + NEP + NT | NotEnoughPalette + NativeThreading | **45.7 ms** |
+## Behavior notes
 
-> 纯 vanilla(不含 Lithium)未在本环境单独测量——`base` 组合已包含 Lithium,上表用它代表"原版+锂"基线。769 ms 是早期无黑曜石外壳、爆炸击穿导致实体数量失控时的旧数据,不适用于当前受控场景。
+- The RNG is consumed draw-for-draw like vanilla, from the same `level.random`
+  instance; no worker thread touches it.
+- The destroyed block set is identical to vanilla. Which destroyed block a drop
+  or fire roll lands on can differ because the block list is assembled in a
+  different order (the drop table itself is unchanged and per-block random).
+- Chunk loading and entity capture match vanilla at weak-load frontiers: an
+  explosion does not see entities in chunks it just loaded.
 
-**RNG(与原版序列逐位一致)**:原版 `ServerExplosion` 在计算射线时,按 xx→yy→zz 顺序遍历 16³ 网格边界,每条射线在主线程取一次 `level.random.nextFloat()`(功率扰动 `0.7 + u * 0.6`)。NativeThreading 的并行路径在主线程以**完全相同的顺序**预生成全部 1352 个射线功率(同样调 `level.random.nextFloat()`),worker 只消费预先算好的数组、全程不接触任何 RNG——因此**同一存档、同一位置、同样数量的 TNT 引爆,随机序列与原版逐位一致**,爆炸形态按原版随机种子可复现。
-
-> 早期实现曾用 `ThreadLocalRandom`,导致序列不可复现(且当时误以为 worker 需要各自取随机数);后来发现 1352 次随机全部在主线程串行生成、worker 零 RNG 访问,遂改回 `level.random`。`core` 曾有一个 `LevelRandomMixin`,把每个 `Level` 的 `random` 替换为 `ThreadSafeRandomSource`(为已删除的并行实体 tick 准备的线程安全包装),这会让序列经一次 `nextLong()` 派生、不再是纯原版逐位——该 mixin 已随并行实体 tick 一并移除,`level.random` 保持原版实例。原版爆炸本身也是随机的(每次结果都不同),但 NT 与原版共享同一随机序列。
-
-**掉落/火焰的随机映射(已知差异,接受)**:射线功率与 RNG 序列逐位一致、**被炸掉的方块集合与原版完全一致**;但 vanilla 的方块按单线程插入顺序进入 HashSet,NT 是 16 线程并行算出后再汇总,插入顺序不同 → 方块集合交给 vanilla 的 `Util.shuffle` 后,每个方块分到的 `level.random` 段不同,因此**掉落物和火焰落在哪个方块上与原版不同**。掉落物本身每爆炸都随机(同分布),破坏集合一致才是可观察的结果;为复刻插入顺序需让 worker 从紧凑 BitSet 改为 per-ray 列表,成本大于收益,故接受并记录。
-
-**弱加载机器(盾构机)相关(始终生效,无开关)**:原版的区块提升任务排在 `hurtEntities` 之后,所以爆炸**看不到自己这一发才加载的区块里的实体**(实测:冻结在无加载区块里的 TNT,被"加载它所在区块"的那一发爆炸完全不推,击退 0)。NT 的批量网格 force-load 会提前排空主线程队列,使捕获提前看到这些实体、多推 0.700。现在爆炸在触碰世界之前记录仍然未加载的区块,捕获时跳过其中的实体,但不改变它们的跟踪状态,因此之后的爆炸与原版一样能看到它们。同一处改动还让网格只覆盖扁平视图真正读取的 section,而不是外扩的方形网格:4 格爆炸在弱加载前沿从 35 个区块降到 28 个(原版 1–4),不再点亮/提前生成无加载方向的相邻区块。
-
-| 键(`config/nt.json` → `explosion`) | 默认 | 说明 |
-|---|---|---|
-| `enabled` | true | 并行爆炸总开关 |
-| `aabbIndex` | false | 实体宽相 AABB 索引(实验,默认关) |
-
-**Vectorial(已移除)**:早期爆炸实体捕获走 SoA 实体数据以换取紧凑内存布局,但实测表明:2MB+ 的 SoA 字段数组只为捕获路径约 10 个字段服务、其余 55 个字段无消费方,且每 tick 全量同步开销与 vanilla 空间查询(`level.getEntities`)相当。捕获已改回主线程空间查询构建 snapshot,worker 阶段不变,SoA 模块(含 mixin+javaagent)随之移除。
+Details and rationale: [`docs/dev/explosion-pipeline.md`](docs/dev/explosion-pipeline.md).
 
 ## Build
 
 ```bash
-./gradlew build
+./gradlew build                 # compile + unit tests + validateMixinDiscipline
+./gradlew :fabric:runGameTest   # full-server gametests (explicit; boots a server)
 ```
 
-Output: `build/libs/native-threading-*.jar`
+Output: `build/libs/native-threading-*.jar`. Requires JDK 25 (the benchmark kits
+also use a Java 26 runtime).
 
-The in-server gametests are not part of `build` (they boot a dedicated server);
-run them explicitly:
+## Development
 
-```bash
-./gradlew :fabric:runGameTest
-```
+Architecture rules, code organization, pipeline design and the pre-submit
+self-check live in [`docs/dev/README.md`](docs/dev/README.md). Measurement kits
+live in [`benchmarks/README.md`](benchmarks/README.md).
 
 ## License
 
