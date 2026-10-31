@@ -11,7 +11,8 @@
       "com.github.uright008.ep.ExplosionFlatViewParityGameTest",
       "com.github.uright008.ep.MinecartTntParityGameTest",
       "com.github.uright008.ep.TntChamberParityGameTest",
-      "com.github.uright008.ep.TntPrimedExplosionParityGameTest"
+      "com.github.uright008.ep.TntPrimedExplosionParityGameTest",
+      "com.github.uright008.ep.ChunkGridCacheReloadGameTest"
     ]
   }
 }
