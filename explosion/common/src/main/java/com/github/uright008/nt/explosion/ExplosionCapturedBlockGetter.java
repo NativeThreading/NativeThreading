@@ -52,6 +52,21 @@ public final class ExplosionCapturedBlockGetter implements BlockGetter {
         return getBlockState(pos).getFluidState();
     }
 
+    // Paper-family (Paper/Leaves) patches BlockGetter with these two "if loaded" accessors on
+    // top of the vanilla interface this class is normally compiled against. The captured view
+    // is always loaded, so they answer from the same snapshot. They are declared without
+    // @Override on purpose: the vanilla-mapped builds keep compiling, while on a Paper-family
+    // server the class then satisfies BlockGetter's extra abstract methods.
+    @Nullable
+    public BlockState getBlockStateIfLoaded(BlockPos pos) {
+        return getBlockState(pos);
+    }
+
+    @Nullable
+    public FluidState getFluidIfLoaded(BlockPos pos) {
+        return getFluidState(pos);
+    }
+
     @Override
     public @Nullable BlockEntity getBlockEntity(BlockPos pos) {
         return null;

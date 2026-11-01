@@ -17,6 +17,7 @@ rootProject.name = "NativeThreading"
 
 include(":fabric")
 include(":neoforge")
+include(":leaves")
 include(":core")
 include(":explosion")
 

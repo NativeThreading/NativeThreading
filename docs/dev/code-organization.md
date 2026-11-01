@@ -75,6 +75,10 @@ core/      执行原语层: worker/池/阶段标记/配置框架/命令框架/�
 explosion/ workload 层: 一个特性一条完整管线(捕获→纯算→应用)。
 fabric/    聚合 loader: 打包 workload 模块。
 neoforge/
+leaves/    聚合 loader(Leaves): 同一批 common 源码包成 leavesclip 原生 mixin 插件
+           (Mojang-mapped、无 remap、Leaves 专用 mixins.json),只能跑专用服务端。
+core/leaves/    core 的 Leaves 平台壳(/nt 的 Bukkit 命令桥 + core 生命周期),
+                与 core/fabric、core/neoforge 同级,由 leaves 聚合构建编译。
 ```
 
 ### 3.2 归属判断表
@@ -88,7 +92,7 @@ neoforge/
 | 通用世界读取视图(不绑定特性的 chunk 访问) | core |
 | 某特性的管线逻辑(捕获/计算/应用) | 该特性的 workload 模块 |
 | 某特性专属的视图/计算(flat view、曝光度) | 该特性的 workload 模块 |
-| 平台入口、mixins.json、mod metadata | 模块内的 fabric/neoforge 壳 |
+| 平台入口、mixins.json、mod metadata | 模块内的 fabric/neoforge/leaves 壳 |
 
 **边界案例——单消费者的公共设施**(如 `ChunkGrid` 目前只有 explosion 用):
 可留在 core(作为执行原语的延伸),但必须满足:不依赖 workload 类型、API 是

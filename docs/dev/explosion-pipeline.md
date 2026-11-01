@@ -146,6 +146,7 @@
 - `units`: 计算单元数(每发实体段的平均单元数)与方块段每次射线数;
 - `exposure`: clear-region 快速判定命中次数,以及去重/分组槽位容量;
 - `time`: 方块段 capture/worker、实体段 capture/worker/apply 的平均主线程耗时;
+- `block capture detail`: 方块段 capture 内部细分(RNG 抽数 / flat fill / shape boxes / tier 捕获 / 其它);
 - `chunkgrid`: `ExplosionChunkGridCache` 命中/未命中率;
 - `params`: 当前线程池大小、射线数、去重槽位、分组槽位、clear-region 预算。
 

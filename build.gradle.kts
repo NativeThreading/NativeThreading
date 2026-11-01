@@ -22,15 +22,18 @@ val modName = providers.gradleProperty("archives_base_name").get()
 // M4: every *.mixins.json must be strict JSON (no trailing commas) and every
 // listed class must exist as a source file. M2: mixin classes over 250 lines
 // are a hard failure (split into implementation classes).
+val leavesPluginJson = file("leaves/src/main/resources/leaves-plugin.json")
 val mixinConfigFiles = fileTree(rootDir) {
     include("*/fabric/src/main/resources/**/*.mixins.json")
     include("*/neoforge/src/main/resources/**/*.mixins.json")
+    include("*/leaves/src/main/resources/**/*.mixins.json")
 }
 
 tasks.register("validateMixinDiscipline") {
     group = "verification"
     description = "Architecture discipline M2/M4: strict mixin JSON, classes exist, size budget"
     inputs.files(mixinConfigFiles)
+    inputs.file(leavesPluginJson)
     doLast {
         val errors = mutableListOf<String>()
         val slurper = groovy.json.JsonSlurper()
@@ -60,6 +63,56 @@ tasks.register("validateMixinDiscipline") {
                 }
             }
         }
+
+        // Leaves packaging: leavesclip extracts the whole `mixin.package-name` subtree from the
+        // plugin jar into its mixins jar, so the plugin main class must live outside it and every
+        // mixin config must resolve inside it.
+        val leavesJson = try {
+            slurper.parseText(leavesPluginJson.readText()) as Map<*, *>
+        } catch (e: Exception) {
+            null.also { errors += "leaves-plugin.json: unparseable JSON: ${e.message}" }
+        }
+        if (leavesJson != null) {
+            val features = leavesJson["features"] as? Map<*, *>
+            val required = (features?.get("required") as? List<*>)?.map { it.toString() } ?: emptyList()
+            if (!required.contains("mixin")) {
+                errors += "leaves-plugin.json: features.required must contain \"mixin\""
+            }
+            val mixin = leavesJson["mixin"] as? Map<*, *>
+            val packageName = mixin?.get("package-name")?.toString()
+            val mainClass = leavesJson["main"]?.toString()
+            if (packageName.isNullOrBlank()) {
+                errors += "leaves-plugin.json: mixin.package-name is required"
+            } else {
+                if (mainClass != null && (mainClass == packageName || mainClass.startsWith("$packageName."))) {
+                    errors += "leaves-plugin.json: main class $mainClass lives inside mixin.package-name $packageName and would be extracted from the plugin jar"
+                }
+                val listedConfigs = (mixin["mixins"] as? List<*>)?.map { it.toString() } ?: emptyList()
+                if (listedConfigs.isEmpty()) {
+                    errors += "leaves-plugin.json: mixin.mixins must list the mixin configs"
+                }
+                for (configName in listedConfigs) {
+                    val configFile = file("leaves/src/main/resources/$configName")
+                    if (!configFile.isFile) {
+                        errors += "leaves-plugin.json: mixin config $configName not found under leaves/src/main/resources"
+                        continue
+                    }
+                    val config = try {
+                        slurper.parseText(configFile.readText()) as Map<*, *>
+                    } catch (e: Exception) {
+                        continue // already reported by the mixin config loop above
+                    }
+                    val configPackage = config["package"]?.toString() ?: ""
+                    if (!(configPackage == packageName || configPackage.startsWith("$packageName."))) {
+                        errors += "leaves-plugin.json: $configName package $configPackage is outside mixin.package-name $packageName"
+                    }
+                    if (config["target"]?.toString() != "@env(PREINIT)") {
+                        errors += "leaves-plugin.json: $configName must target @env(PREINIT), the leavesclip launcher never leaves that phase"
+                    }
+                }
+            }
+        }
+
         if (errors.isNotEmpty()) {
             throw GradleException("Architecture discipline violations:\n" + errors.joinToString("\n"))
         }
@@ -83,6 +136,9 @@ tasks.register<Jar>("releaseJar") {
 
 tasks.named("assemble") {
     dependsOn("releaseJar")
+    // Loader shells: the Leaves plugin jar is a separate artifact (no Fabric remap, native
+    // leavesclip mixin loader), shipped next to the Fabric aggregate jar in build/libs.
+    dependsOn(":leaves:jar")
 }
 
 publishing {

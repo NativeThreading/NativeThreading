@@ -1,0 +1,17 @@
+{
+  "name": "native-threading",
+  "version": "${version}",
+  "main": "com.github.uright008.leaves.NativeThreadingLeavesPlugin",
+  "api-version": "${apiVersion}",
+  "description": "Server-side threaded explosion pipeline, injected through the leavesclip native mixin loader",
+  "features": {
+    "required": ["mixin"]
+  },
+  "mixin": {
+    "package-name": "com.github.uright008.nt",
+    "mixins": [
+      "native-threading-core.mixins.json",
+      "native-threading-explosion.mixins.json"
+    ]
+  }
+}

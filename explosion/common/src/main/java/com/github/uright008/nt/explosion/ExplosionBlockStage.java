@@ -140,7 +140,9 @@ public final class ExplosionBlockStage {
         for (int i = 0; i < rayCount; i++) {
             rayPowers[i] = radiusF * (0.7F + ctx.level().getRandom().nextFloat() * 0.6F);
         }
+        final long rngNanos = System.nanoTime() - captureStart;
 
+        final long fillStart = System.nanoTime();
         ExplosionRayBounds bounds = ExplosionRayBounds.forExplosion(ctx.center(), ctx.radius());
         final int minX = bounds.minX();
         final int minY = bounds.minY();
@@ -168,7 +170,9 @@ public final class ExplosionBlockStage {
         final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags =
                 ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
                         strideY, strideZ, chunkGrid);
+        final long fillNanos = System.nanoTime() - fillStart;
 
+        final long boxesStart = System.nanoTime();
         // Collision boxes are resolved on the main thread against the live level
         // and the real cell position. Static (!hasDynamicShape) states share the
         // per-BlockState box cache; dynamicShape states (moving piston, shulker
@@ -181,7 +185,9 @@ public final class ExplosionBlockStage {
                 ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, ctx.level(),
                         minX, minY, minZ, strideY, strideZ, gridSize, SHAPE_BOXES_CACHE),
                 minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, entityContextFlags);
+        final long boxesNanos = System.nanoTime() - boxesStart;
 
+        final long tierStart = System.nanoTime();
         final ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;
         // Non-null only for entity-caused (Tier B) blasts: the source's
@@ -238,6 +244,7 @@ public final class ExplosionBlockStage {
                     calc.shouldBlockExplode(self, level, pos, block, remainingPower);
         }
 
+        final long tierNanos = System.nanoTime() - tierStart;
         final float[] pow = rayPowers;
         final double centerX = ctx.center().x, centerY = ctx.center().y, centerZ = ctx.center().z;
         final int worldMinY = ctx.level().getMinY(), worldMaxY = ctx.level().getMaxY();
@@ -295,6 +302,7 @@ public final class ExplosionBlockStage {
         if (entityResistanceDeltas != null) ENTITY_RESISTANCE_DELTAS_CACHE.set(entityResistanceDeltas);
         if (entityExplodeDecisions != null) ENTITY_EXPLODE_DECISIONS_CACHE.set(entityExplodeDecisions);
 
+        ExplosionStats.recordBlockCaptureBreakdown(rngNanos, fillNanos, boxesNanos, tierNanos);
         ExplosionStats.recordBlockStage(captureNanos, workerNanos);
         return new Result(result, worldView);
     }

@@ -37,8 +37,11 @@ Register command extensions through `NtCommands.registerSubCommand()`. Define ea
 ## Compatibility
 
 Core supports the Fabric and NeoForge aggregate loaders, on dedicated servers
-and in a client's integrated server. Keep the code server-side in behaviour
-(threading boundary above); do not add client-only code or client-side mixins.
+and in a client's integrated server. The `leaves` aggregate loader runs the same
+core code as a plugin on a Mojang-mapped Paper-family server through leavesclip's
+native mixin loader; it is dedicated-server-only (no client integration). Keep
+the code server-side in behaviour (threading boundary above); do not add
+client-only code or client-side mixins.
 
 ## No Cross-Dependency
 

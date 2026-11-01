@@ -47,8 +47,23 @@ public interface NtSubCommand {
      */
     String getStatusLine();
 
+    /**
+     * Platform-shell execution path for hosts without a Brigadier dispatcher (the
+     * Leaves/Paper plugin shell bridges /nt through the Bukkit command map).
+     *
+     * <p>Implementations must accept the same argument forms as {@link #build} and
+     * emit human-readable lines through {@code output}. The default no-op lets the
+     * shell fall back to {@link #getStatusLine()}.</p>
+     *
+     * @param output receives one line per message, legacy formatting codes included
+     * @param args   arguments after the subcommand name (may be empty)
+     */
     default void executePaper(Consumer<String> output, String[] args) {}
 
+    /**
+     * Tab completion counterpart of {@link #executePaper}; {@code args} are the
+     * arguments after the subcommand name. Returning {@code null} disables completion.
+     */
     default List<String> tabCompletePaper(String[] args) {
         return null;
     }

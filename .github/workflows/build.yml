@@ -126,4 +126,8 @@ jobs:
           # for that case). Without this line mc-publish infers "client_and_server"
           # from the metadata and Modrinth marks the release as required on both.
           environment: server
-          files: build/libs/native-threading-*.jar
+          # Fabric/NeoForge aggregate jar only. The Leaves plugin
+          # (native-threading-leaves-*.jar) is built and uploaded as a CI artifact but
+          # targets the leavesclip native mixin loader, which Modrinth has no loader
+          # category for; publishing it as paper/fabric would be misleading.
+          files: build/libs/native-threading-[0-9]*.jar

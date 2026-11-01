@@ -4,6 +4,7 @@
 	"version": "${version}",
 	"name": "Native Threading Explosion",
 	"description": "Native threading explosion raycasting and entity damage. Use /nt explosion to control.",
+	"icon": "assets/explosion/icon.png",
 	"authors": [
 		"uright008"
 	],

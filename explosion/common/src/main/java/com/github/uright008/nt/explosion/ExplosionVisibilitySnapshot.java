@@ -59,7 +59,12 @@ public final class ExplosionVisibilitySnapshot {
     /** True when this entity's chunk was not loaded before the blast started, i.e. vanilla's
      *  entity query could not have returned it. */
     public static boolean hiddenAtCapture(Entity entity) {
-        if (!active) return false;
+        // The snapshot only contains chunks that were HIDDEN when the blast
+        // started; the common case is that every chunk around the blast is already
+        // loaded and the set is empty. Short-circuit before the per-entity
+        // section-coordinate work (this predicate runs for every entity of every
+        // blast; on a 93k-TNT pile that is billions of calls).
+        if (!active || NOT_LOADED.isEmpty()) return false;
         int x = SectionPos.blockToSectionCoord(entity.blockPosition().getX());
         int z = SectionPos.blockToSectionCoord(entity.blockPosition().getZ());
         return NOT_LOADED.contains(ChunkPos.pack(x, z));

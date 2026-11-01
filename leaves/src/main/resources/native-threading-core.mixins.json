@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.github.uright008.nt.core.mixin",
+  "compatibilityLevel": "JAVA_13",
+  "target": "@env(PREINIT)",
+  "mixins": [
+    "ServerChunkCacheMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

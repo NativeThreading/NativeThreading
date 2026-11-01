@@ -14,7 +14,8 @@ class ExplosionStatsTest {
 
     @Test
     void recordsCountersAndTimings() {
-        ExplosionStats.recordBlockStage(1_000L, 2_000L);
+        ExplosionStats.recordBlockStage(10_000L, 20_000L);
+        ExplosionStats.recordBlockCaptureBreakdown(1_000L, 2_000L, 3_000L, 4_000L);
         ExplosionStats.recordBlockSerialFallback();
         ExplosionStats.recordEntityStage(10_000L, 20_000L, 30_000L, 100, 40, 30, 5, 70L);
         ExplosionStats.recordEntitySerialFallback();
@@ -28,7 +29,9 @@ class ExplosionStatsTest {
         assertThat(joined).contains("grouped=70 (70.0% of victims)");
         assertThat(joined).contains("units: 5 (5.00 per entity blast)");
         assertThat(joined).contains("clear-region fast path=1 hits");
-        assertThat(joined).contains("block capture=1.0us worker=2.0us");
+        assertThat(joined).contains("block capture=10.0us worker=20.0us");
+        assertThat(joined).contains(
+                "block capture detail: rng=1.0us fill=2.0us boxes=3.0us tier=4.0us other=0.0us");
         assertThat(joined).contains("entity capture=10.0us worker=20.0us apply=30.0us");
         assertThat(joined).contains("ChunkGrid cache:");
         assertThat(joined).contains("last blast:");
@@ -44,6 +47,8 @@ class ExplosionStatsTest {
         assertThat(joined).contains("blasts: block=0 entity=0");
         assertThat(joined).contains("total=0 (live=0, flat=0)");
         assertThat(joined).contains("block capture=0.0us worker=0.0us");
+        assertThat(joined).contains(
+                "block capture detail: rng=0.0us fill=0.0us boxes=0.0us tier=0.0us other=0.0us");
     }
 
     @Test
