@@ -102,6 +102,11 @@ public final class ExplosionEntityStage {
      *  hurtEntities). */
     public static boolean apply(ExplosionContext ctx, WorldReadViewImpl worldView) {
         if (ctx.radius() < 1.0E-5F) return true;
+        // Diagnostics: a blast that never reaches the capture path (e.g. no
+        // victims in range) must not report the previous blast's last values.
+        ENTITY_LAST_VICTIMS = 0;
+        ENTITY_LAST_UNITS = 0;
+        ENTITY_LAST_GROUPED_VICTIMS = 0;
 
         float doubleRadius = ctx.radius() * 2.0F;
         int x0 = Mth.floor(ctx.center().x - doubleRadius - 1.0);
