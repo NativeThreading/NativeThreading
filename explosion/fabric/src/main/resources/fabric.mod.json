@@ -1,27 +1,28 @@
 {
-	"schemaVersion": 1,
-	"id": "explosion",
-	"version": "${version}",
-	"name": "Native Threading Explosion",
-	"description": "Native threading explosion raycasting and entity damage. Use /nt explosion to control.",
-	"authors": [
-		"uright008"
-	],
-	"license": "MIT",
-	"environment": "*",
-	"entrypoints": {
-		"main": [
-           "com.github.uright008.nt.explosion.ExplosionModuleFabric"
-		]
-	},
-	"mixins": [
-		"explosion.mixins.json"
-	],
-	"depends": {
-		"fabricloader": ">=0.19.5",
-		"minecraft": "~26.3",
-		"java": ">=25",
-		"fabric-api": "*",
-		"native-threading-core": "*"
-	}
+  "schemaVersion": 1,
+  "id": "explosion",
+  "version": "${version}",
+  "name": "Native Threading Explosion",
+  "description": "Native threading explosion raycasting and entity damage. Use /nt explosion to control.",
+  "icon": "assets/explosion/icon.png",
+  "authors": [
+    "uright008"
+  ],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.github.uright008.nt.explosion.ExplosionModuleFabric"
+    ]
+  },
+  "mixins": [
+    "explosion.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*",
+    "native-threading-core": "*"
+  }
 }

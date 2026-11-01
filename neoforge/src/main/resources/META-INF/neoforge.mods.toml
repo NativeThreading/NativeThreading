@@ -8,6 +8,7 @@ version = "${version}"
 displayName = "Native Threading"
 description = "Native threading optimizations for Minecraft servers"
 authors = ["uright008"]
+logoFile = "assets/native-threading/icon.png"
 
 [[mixins]]
 config = "core.mixins.json"

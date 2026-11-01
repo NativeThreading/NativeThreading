@@ -1,5 +1,7 @@
 # NativeThreading
 
+<img src="fabric/src/main/resources/assets/native-threading/icon.png" width="96" height="96" alt="NativeThreading icon" align="right">
+
 *Thread selected heavy server workloads off the main thread in Minecraft.*
 
 NativeThreading is a Minecraft 26.3 mod that moves selected vanilla server

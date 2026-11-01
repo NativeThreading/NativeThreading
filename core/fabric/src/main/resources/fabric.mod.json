@@ -4,6 +4,7 @@
   "version": "${version}",
   "name": "Native Threading Core",
   "description": "Thread pool, safe-zone pattern, and /nt command framework shared by all NativeThreading modules.",
+  "icon": "assets/native-threading-core/icon.png",
   "authors": [
     "uright008"
   ],
