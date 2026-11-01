@@ -38,10 +38,22 @@ public final class ExplosionEntityStage {
     // Static (not per-ServerExplosion) so the reuse survives across blasts —
     // each explosion allocates a fresh ServerExplosion, so an instance field
     // would re-initialise the lists and negate the reuse. 8192 pre-sizes the
-    // 3670-entity sustained chamber, so the lists never grow (4.6% of tick
-    // was ArrayList.grow at 4096).
+    // 3670-entity sustained chamber, so the units list never grows.
     private static final List<ExplosionEntityDamageComputer.EntityDamageSnapshot> CAPTURE_UNITS = new ArrayList<>(8192);
-    private static final List<Entity> CAPTURE_REFS = new ArrayList<>(8192);
+    // Captured victim references live in a plain array with an explicit count:
+    // the 93k-TNT pile captures tens of thousands of victims per blast, and
+    // ArrayList.add's modCount/bounds bookkeeping showed up as a top capture
+    // self-time in JFR (attributed to the inlined ArrayList.add body). The array
+    // is main-thread only, grows geometrically, and keeps strong refs until the
+    // next capture (same contract as the old ArrayList).
+    private static Entity[] CAPTURE_REFS = new Entity[8192];
+    private static int CAPTURE_REF_COUNT;
+    // Per-capture memo for exact PrimedTnt: entity tags cannot change within a
+    // tick and every exact PrimedTnt victim shares the same type, so the
+    // POWDER_SNOW_WALKABLE_MOBS lookup is done once per blast instead of once per
+    // victim (it was 18% of capture self-time on the 93k-TNT pile).
+    private static boolean PRIMED_TNT_POWDER_WALKABLE;
+    private static boolean PRIMED_TNT_POWDER_KNOWN;
 
     // Per-blast captured-victim layout: every victim keeps its own refs entry and
     // its own ordered apply push, but compatible victims share one compute unit
@@ -134,10 +146,11 @@ public final class ExplosionEntityStage {
         }
         final long captureNanos = System.nanoTime() - captureStart;
         List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units = captured.units();
-        List<Entity> refs = captured.refs();
+        Entity[] refs = captured.refs();
+        final int refCount = captured.refCount();
         ENTITY_LAST_UNITS = units.size();
-        ENTITY_LAST_VICTIMS = refs.size();
-        if (refs.isEmpty()) {
+        ENTITY_LAST_VICTIMS = refCount;
+        if (refCount == 0) {
             ExplosionStats.recordEntityStage(captureNanos, 0L, 0L, 0, 0, 0, 0, 0L);
             return true;
         }
@@ -166,10 +179,10 @@ public final class ExplosionEntityStage {
         }
         final long workerNanos = System.nanoTime() - workerStart;
         final long applyStart = System.nanoTime();
-        applyCaptureResults(results, refs, unitOfVictim, unitIsGroup, ctx);
+        applyCaptureResults(results, refs, refCount, unitOfVictim, unitIsGroup, ctx);
         final long applyNanos = System.nanoTime() - applyStart;
         ExplosionStats.recordEntityStage(captureNanos, workerNanos, applyNanos,
-                refs.size(), captured.liveVictims(), captured.dedupHits(),
+                refCount, captured.liveVictims(), captured.dedupHits(),
                 units.size(), ENTITY_LAST_GROUPED_VICTIMS);
 
         logEntityPathCounters();
@@ -181,14 +194,14 @@ public final class ExplosionEntityStage {
      *  share the computed values, not the world writes. */
     private static void applyCaptureResults(
             List<ExplosionEntityDamageComputer.EntityDamageResult> results,
-            List<Entity> refs, int[] unitOfVictim, boolean[] unitIsGroup,
+            Entity[] refs, int refCount, int[] unitOfVictim, boolean[] unitIsGroup,
             ExplosionContext ctx) {
         long groupedVictims = 0;
-        for (int i = 0; i < refs.size(); i++) {
+        for (int i = 0; i < refCount; i++) {
             int unit = unitOfVictim[i];
             ExplosionEntityDamageComputer.EntityDamageResult r = results.get(unit);
             if (r == null) continue;
-            Entity entity = refs.get(i);
+            Entity entity = refs[i];
             if (unitIsGroup[unit]) {
                 applyGroupedDamage(r, entity);
                 groupedVictims++;
@@ -217,7 +230,8 @@ public final class ExplosionEntityStage {
      *  removed. */
     private record CapturedDamage(
             List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units,
-            List<Entity> refs,
+            Entity[] refs,
+            int refCount,
             int[] unitOfVictim,
             boolean[] unitIsGroup,
             int liveVictims,
@@ -256,9 +270,14 @@ public final class ExplosionEntityStage {
         final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags = worldView.entityContextFlags();
 
         List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units = CAPTURE_UNITS;
-        List<Entity> refs = CAPTURE_REFS;
         units.clear();
-        refs.clear();
+        CAPTURE_REF_COUNT = 0;
+        PRIMED_TNT_POWDER_KNOWN = false;
+        final double centerX = ctx.center().x;
+        final double centerY = ctx.center().y;
+        final double centerZ = ctx.center().z;
+        final boolean stateDependent = entityContextFlags.stateDependent();
+        final boolean hasPowderSnow = entityContextFlags.hasPowderSnow();
         // Single pass over the entity sections: the predicate runs in place of
         // vanilla's NO_SPECTATORS selector, so the spatial query and the
         // snapshot capture share one traversal (vanilla's getEntities box →
@@ -266,21 +285,40 @@ public final class ExplosionEntityStage {
         // preserved, all on the same entities). The predicate always returns
         // false, so no intermediate candidate list is materialised.
         ctx.level().getEntities(ctx.source(), box, entity -> {
-            if (entity.isSpectator()) return false;
-            if (entity.ignoreExplosion(self)) return false;
+            // Exact vanilla PrimedTnt inherits both vanilla filters unchanged:
+            // Entity#isSpectator returns false and Entity#ignoreExplosion returns
+            // false. Skipping the two virtual calls for that exact class is
+            // vanilla-equivalent (subclasses keep the calls) and the 93k-TNT pile
+            // runs this predicate for every entity of every blast.
+            final boolean exactPrimedTnt = entity.getClass() == PrimedTnt.class;
+            if (!exactPrimedTnt) {
+                if (entity.isSpectator()) return false;
+                if (entity.ignoreExplosion(self)) return false;
+            }
+            double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
+            // Inlined distanceToSqr with the hoisted center: one less virtual call
+            // and record accessor per candidate, same arithmetic as vanilla.
+            double dx = feetX - centerX;
+            double dy = feetY - centerY;
+            double dz = feetZ - centerZ;
+            if (dx * dx + dy * dy + dz * dz > radiusSquare) return false;
             // Vanilla's chunk promotions land after hurtEntities, so a chunk this blast just
             // loaded is still HIDDEN for vanilla's capture. Skip entities that sat in such
             // chunks before the blast touched the world (ExplosionVisibilitySnapshot).
+            // Ordered after the radius filter: this is our own pure filter, so the
+            // result set is unchanged while far candidates skip the chunk lookup.
             if (ExplosionVisibilitySnapshot.hiddenAtCapture(entity)) return false;
-            int entityId = entity.getId();
-            double feetX = entity.getX(), feetY = entity.getY(), feetZ = entity.getZ();
-            if (entity.distanceToSqr(ctx.center()) > radiusSquare) return false;
 
-            refs.add(entity);
-            int victimIndex = refs.size() - 1;
-            ensureVictimCapacity(refs.size());
+            int refIndex = CAPTURE_REF_COUNT;
+            if (refIndex == CAPTURE_REFS.length) {
+                CAPTURE_REFS = java.util.Arrays.copyOf(CAPTURE_REFS, refIndex << 1);
+            }
+            CAPTURE_REFS[refIndex] = entity;
+            CAPTURE_REF_COUNT = refIndex + 1;
+            int victimIndex = refIndex;
+            ensureVictimCapacity(CAPTURE_REF_COUNT);
             AABB bb = entity.getBoundingBox();
-            final boolean isPrimedTnt = entity instanceof PrimedTnt;
+            final boolean isPrimedTnt = exactPrimedTnt || entity instanceof PrimedTnt;
             // PrimedTnt#hurtServer is final and returns false without side effects,
             // and the eligible calculators' entity hooks are inherited pure
             // implementations, so the whole damage path is a no-op for a primed-TNT
@@ -293,14 +331,14 @@ public final class ExplosionEntityStage {
             float knockbackMultiplier;
             float exposure = 0.0F;
             boolean exposurePreset = false;
-            boolean liveExposure = entityContextFlags.stateDependent();
+            boolean liveExposure = stateDependent;
             if (!liveExposure) {
                 // Short-circuit ordering matters: the powder-snow predicate (a type
                 // tag / equipment read) must not run for entities the blast-wide
                 // fallback already covers, nor in the common context-free case.
                 liveExposure = entityContextFlags.requiresLiveExposure(
                         entity instanceof LivingEntity,
-                        entityContextFlags.hasPowderSnow() && powderSnowMayChangeShape(entity));
+                        hasPowderSnow && powderSnowMayChangeShape(entity));
             }
             if (liveExposure) {
                 captureStats[0]++;
@@ -317,21 +355,18 @@ public final class ExplosionEntityStage {
                 // damage or knockback; with both inert the value is never read.
                 // The flat-view worker path applies the same condition.
                 if (shouldDamage || knockbackMultiplier != 0.0F) {
-                    if (exposureContextIsPositionOnly(entity)) {
-                        double feetYNow = entity.getY();
+                    if (exposureContextIsPositionOnly(entity, hasPowderSnow)) {
                         boolean descending = entity.isDescending();
-                        int slot = exposureDedupLookup(bb, feetYNow, descending);
+                        int slot = exposureDedupLookup(bb, feetY, descending);
                         if (slot >= 0) {
                             captureStats[1]++;
                             exposure = EXPOSURE_DEDUP_VALUE[slot];
                         } else {
-                            exposure = computeContextAwareExposure(
-                                    entity, ctx.center().x, ctx.center().y, ctx.center().z);
-                            exposureDedupStore(bb, feetYNow, descending, exposure);
+                            exposure = computeContextAwareExposure(entity, centerX, centerY, centerZ);
+                            exposureDedupStore(bb, feetY, descending, exposure);
                         }
                     } else {
-                        exposure = computeContextAwareExposure(
-                                entity, ctx.center().x, ctx.center().y, ctx.center().z);
+                        exposure = computeContextAwareExposure(entity, centerX, centerY, centerZ);
                     }
                     exposurePreset = true;
                 }
@@ -360,7 +395,7 @@ public final class ExplosionEntityStage {
             final boolean groupable = damageElided
                     && liveExposure
                     && exposurePreset
-                    && entity.getClass() == PrimedTnt.class;
+                    && exactPrimedTnt;
             int unit;
             if (groupable) {
                 int group = groupLookup(feetX, feetY, feetZ, eyeY, exposure);
@@ -369,7 +404,7 @@ public final class ExplosionEntityStage {
                     return false;
                 }
                 boolean asGroup = groupSize < GROUP_CAPACITY;
-                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
+                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entity.getId(),
                         feetX, feetY, feetZ, eyeY,
                         bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
                         shouldDamage, knockbackMultiplier, exposure, exposurePreset,
@@ -378,7 +413,7 @@ public final class ExplosionEntityStage {
                     groupStore(feetX, feetY, feetZ, eyeY, exposure, unit);
                 }
             } else {
-                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entityId,
+                unit = addComputeUnit(new ExplosionEntityDamageComputer.EntityDamageSnapshot(entity.getId(),
                         feetX, feetY, feetZ, eyeY,
                         bb.minX, bb.minY, bb.minZ, bb.maxX, bb.maxY, bb.maxZ,
                         shouldDamage, knockbackMultiplier, exposure, exposurePreset,
@@ -387,8 +422,8 @@ public final class ExplosionEntityStage {
             VICTIM_UNITS[victimIndex] = unit;
             return false;
         });
-        return new CapturedDamage(units, refs, VICTIM_UNITS, UNIT_IS_GROUP,
-                captureStats[0], captureStats[1]);
+        return new CapturedDamage(units, CAPTURE_REFS, CAPTURE_REF_COUNT,
+                VICTIM_UNITS, UNIT_IS_GROUP, captureStats[0], captureStats[1]);
     }
 
     private static void ensureVictimCapacity(int required) {
@@ -453,8 +488,33 @@ public final class ExplosionEntityStage {
      * walk-on-powder predicate) and scaffolding ({@code isAbove} on the entity
      * bottom + {@code isDescending}). {@code MinecartCollisionContext} overrides
      * {@code isAbove} for rail shapes, so minecarts stay conservative.</p>
+     *
+     * <p>{@code hasPowderSnow} comes from the flat-view fill and is already the
+     * blast-wide routing flag used by {@link ExplosionFlatViewHelper.EntityContextFlags}.
+     * When it is false the view contains no powder-snow block, so the walk-on-powder
+     * predicate cannot affect any sampled shape and the entity-type tag lookup is
+     * skipped (it was 18% of capture self-time on the 93k-TNT pile).</p>
      */
-    private static boolean exposureContextIsPositionOnly(Entity entity) {
+    private static boolean exposureContextIsPositionOnly(Entity entity, boolean hasPowderSnow) {
+        if (entity.getClass() == PrimedTnt.class) {
+            // Exact PrimedTnt cannot be living/falling-block/minecart, so only its
+            // fall distance and the powder-snow type tag can matter. With no powder
+            // snow in the view the tag is irrelevant; with powder snow it is the
+            // same for every exact PrimedTnt of the blast (memoised per capture).
+            if (entity.fallDistance > 2.5) return false;
+            if (!hasPowderSnow) return true;
+            if (!PRIMED_TNT_POWDER_KNOWN) {
+                PRIMED_TNT_POWDER_WALKABLE = PowderSnowBlock.canEntityWalkOnPowderSnow(entity);
+                PRIMED_TNT_POWDER_KNOWN = true;
+            }
+            return !PRIMED_TNT_POWDER_WALKABLE;
+        }
+        if (!hasPowderSnow) {
+            return !(entity instanceof LivingEntity)
+                    && !(entity instanceof FallingBlockEntity)
+                    && !(entity instanceof AbstractMinecart)
+                    && !(entity.fallDistance > 2.5);
+        }
         return !(entity instanceof LivingEntity)
                 && !(entity instanceof FallingBlockEntity)
                 && !(entity instanceof AbstractMinecart)
@@ -558,7 +618,8 @@ public final class ExplosionEntityStage {
      * next capture clears it anyway.</p>
      */
     public static void clearStaticState() {
-        CAPTURE_REFS.clear();
+        java.util.Arrays.fill(CAPTURE_REFS, 0, CAPTURE_REF_COUNT, null);
+        CAPTURE_REF_COUNT = 0;
         applyCtx = null;
         applyEntity = null;
         clearExposureDedup();
