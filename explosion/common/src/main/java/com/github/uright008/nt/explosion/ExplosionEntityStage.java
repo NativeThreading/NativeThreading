@@ -52,6 +52,14 @@ public final class ExplosionEntityStage {
     private static boolean[] UNIT_IS_GROUP = new boolean[8192];
     private static long ENTITY_LAST_UNITS;
     private static long ENTITY_LAST_GROUPED_VICTIMS;
+    private static long ENTITY_LAST_VICTIMS;
+
+    /** Tuning parameter sizes reported by {@code /nt explosion stats}. */
+    static int exposureDedupCapacity() { return EXPOSURE_DEDUP_CAPACITY; }
+    static int groupCapacity() { return GROUP_CAPACITY; }
+    static long lastVictims() { return ENTITY_LAST_VICTIMS; }
+    static long lastUnits() { return ENTITY_LAST_UNITS; }
+    static long lastGroupedVictims() { return ENTITY_LAST_GROUPED_VICTIMS; }
 
     // Group table for the current blast: identical victims (same feet position,
     // eye height and sampled exposure) share one compute unit. Capacity 16; past
@@ -107,6 +115,7 @@ public final class ExplosionEntityStage {
         final double centerX = ctx.center().x;
         final double centerY = ctx.center().y;
         final double centerZ = ctx.center().z;
+        final long captureStart = System.nanoTime();
         CapturedDamage captured;
         try {
             captured = captureEntityDamageSnapshots(ctx, worldView, x0, y0, z0, x1, y1, z1, dr);
@@ -114,37 +123,49 @@ public final class ExplosionEntityStage {
             // Capture is main-thread vanilla calls; a failure here has no
             // usable snapshots, so vanilla hurtEntities must run.
             ++ENTITY_FALLBACKS;
+            ExplosionStats.recordEntitySerialFallback();
             LOGGER.error("Explosion entity capture failed; falling back to vanilla", e);
             return false;
         }
+        final long captureNanos = System.nanoTime() - captureStart;
         List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units = captured.units();
         List<Entity> refs = captured.refs();
-        if (refs.isEmpty()) return true;
+        ENTITY_LAST_UNITS = units.size();
+        ENTITY_LAST_VICTIMS = refs.size();
+        if (refs.isEmpty()) {
+            ExplosionStats.recordEntityStage(captureNanos, 0L, 0L, 0, 0, 0, 0, 0L);
+            return true;
+        }
         int[] unitOfVictim = captured.unitOfVictim();
         boolean[] unitIsGroup = captured.unitIsGroup();
-        ENTITY_LAST_UNITS = units.size();
+        List<ExplosionEntityDamageComputer.EntityDamageResult> results;
+        final long workerStart = System.nanoTime();
         try {
             ++ENTITY_WORKER_BATCHES;
-            List<ExplosionEntityDamageComputer.EntityDamageResult> results =
-                    NtWorker.mapBatched(NtThreadPool.getPool("Explosion"), units,
-                            snapshot -> ExplosionEntityDamageComputer.computeEntityDamage(
-                                    snapshot, centerX, centerY, centerZ, dr, worldView),
-                            NtWorker.autoBatchSize(units.size()), 5);
-            applyCaptureResults(results, refs, unitOfVictim, unitIsGroup, ctx);
+            results = NtWorker.mapBatched(NtThreadPool.getPool("Explosion"), units,
+                    snapshot -> ExplosionEntityDamageComputer.computeEntityDamage(
+                            snapshot, centerX, centerY, centerZ, dr, worldView),
+                    NtWorker.autoBatchSize(units.size()), 5);
         } catch (RuntimeException e) {
             // Workers failed — the units captured on the main thread are still
             // valid, so compute them serially instead of re-running vanilla
             // hurtEntities (which would re-scan the entity sections).
             ++ENTITY_FALLBACKS;
+            ExplosionStats.recordEntitySerialFallback();
             LOGGER.error("Explosion entity workers failed; computing damage serially", e);
-            java.util.List<ExplosionEntityDamageComputer.EntityDamageResult> serial =
-                    new ArrayList<>(units.size());
+            results = new ArrayList<>(units.size());
             for (int i = 0; i < units.size(); i++) {
-                serial.add(ExplosionEntityDamageComputer.computeEntityDamage(
+                results.add(ExplosionEntityDamageComputer.computeEntityDamage(
                         units.get(i), centerX, centerY, centerZ, dr, worldView));
             }
-            applyCaptureResults(serial, refs, unitOfVictim, unitIsGroup, ctx);
         }
+        final long workerNanos = System.nanoTime() - workerStart;
+        final long applyStart = System.nanoTime();
+        applyCaptureResults(results, refs, unitOfVictim, unitIsGroup, ctx);
+        final long applyNanos = System.nanoTime() - applyStart;
+        ExplosionStats.recordEntityStage(captureNanos, workerNanos, applyNanos,
+                refs.size(), captured.liveVictims(), captured.dedupHits(),
+                units.size(), ENTITY_LAST_GROUPED_VICTIMS);
 
         logEntityPathCounters();
         return true;
@@ -193,7 +214,9 @@ public final class ExplosionEntityStage {
             List<ExplosionEntityDamageComputer.EntityDamageSnapshot> units,
             List<Entity> refs,
             int[] unitOfVictim,
-            boolean[] unitIsGroup) {}
+            boolean[] unitIsGroup,
+            int liveVictims,
+            int dedupHits) {}
 
     private static CapturedDamage captureEntityDamageSnapshots(
             ExplosionContext ctx, WorldReadViewImpl worldView,
@@ -210,6 +233,9 @@ public final class ExplosionEntityStage {
                 || ctx.damageCalculator().getClass() == EntityBasedExplosionDamageCalculator.class;
         exposureDedupSize = 0;
         groupSize = 0;
+        // [0] = victims routed to the live vanilla exposure path,
+        // [1] = exposure samples reused through the context-keyed dedup slot.
+        final int[] captureStats = new int[2];
 
         // The flat view resolves collision shapes with the empty collision context,
         // which is vanilla-exact for every entity that cannot observe a
@@ -272,6 +298,7 @@ public final class ExplosionEntityStage {
                         entityContextFlags.hasPowderSnow() && powderSnowMayChangeShape(entity));
             }
             if (liveExposure) {
+                captureStats[0]++;
                 if (damageElided) {
                     shouldDamage = false;
                     knockbackMultiplier = 1.0F;
@@ -290,6 +317,7 @@ public final class ExplosionEntityStage {
                         boolean descending = entity.isDescending();
                         int slot = exposureDedupLookup(bb, feetYNow, descending);
                         if (slot >= 0) {
+                            captureStats[1]++;
                             exposure = EXPOSURE_DEDUP_VALUE[slot];
                         } else {
                             exposure = computeContextAwareExposure(
@@ -354,7 +382,8 @@ public final class ExplosionEntityStage {
             VICTIM_UNITS[victimIndex] = unit;
             return false;
         });
-        return new CapturedDamage(units, refs, VICTIM_UNITS, UNIT_IS_GROUP);
+        return new CapturedDamage(units, refs, VICTIM_UNITS, UNIT_IS_GROUP,
+                captureStats[0], captureStats[1]);
     }
 
     private static void ensureVictimCapacity(int required) {

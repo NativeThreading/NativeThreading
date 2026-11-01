@@ -31,7 +31,9 @@ public final class ExplosionCommand implements NtSubCommand {
                 .then(Commands.literal("reload")
                         .executes(this::reloadConfig))
                 .then(Commands.literal("stats")
-                        .executes(this::showStats));
+                        .executes(this::showStats)
+                        .then(Commands.literal("reset")
+                                .executes(this::resetStats)));
     }
 
     @Override
@@ -52,23 +54,29 @@ public final class ExplosionCommand implements NtSubCommand {
                 "§7  Status:       " + (on ? "§aON" : "§cOFF") + "\n" +
                 "§7  ThreadPool:   §a" + poolSize + " workers\n" +
                 "§7  " + cacheStats + "\n" +
-                "§7Usage: /nt explosion [on|off|reload|stats]"
+                "§7Usage: /nt explosion [on|off|reload|stats [reset]]"
         );
         ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
 
     private int showStats(CommandContext<CommandSourceStack> ctx) {
-        String line = ExplosionChunkGridCache.statsLine();
-        long hits = ExplosionChunkGridCache.hits();
-        long misses = ExplosionChunkGridCache.misses();
-        double missPct = ExplosionChunkGridCache.missRate() * 100.0;
-        Component msg = Component.literal(
-                "§e[Explosion Cache Stats]\n" +
-                "§7  " + line + "\n" +
-                "§7  hits=" + hits + " misses=" + misses + String.format(" miss=%.2f%%", missPct)
-        );
-        ctx.getSource().sendSuccess(() -> msg, false);
+        StringBuilder msg = new StringBuilder("§e[Explosion Stats]\n");
+        for (String line : ExplosionStats.lines()) {
+            msg.append("§7  ").append(line).append('\n');
+        }
+        msg.append("§7  ").append(ExplosionStats.paramsLine()).append('\n');
+        msg.append("§7  reset with §a/nt explosion stats reset");
+        Component component = Component.literal(msg.toString());
+        ctx.getSource().sendSuccess(() -> component, false);
+        return 1;
+    }
+
+    private int resetStats(CommandContext<CommandSourceStack> ctx) {
+        ExplosionStats.reset();
+        ExplosionChunkGridCache.resetStats();
+        ctx.getSource().sendSuccess(
+                () -> Component.literal("§aExplosion stats reset."), false);
         return 1;
     }
 

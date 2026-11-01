@@ -135,8 +135,19 @@
 /nt explosion                    当前状态
 /nt explosion <true|false>       开关
 /nt explosion reload             从 config/nt.json 重载
-/nt explosion stats              ChunkGrid 缓存命中率与两段的路径/task 计数
+/nt explosion stats              运行期计数器/阶段耗时/ChunkGrid 命中率
+/nt explosion stats reset        清零计数器(保留缓存的 grid)
 ```
+
+`stats` 输出(每次 reset 后重新累计)：
+
+- `blasts`: 方块段/实体段各处理多少发,两条线的串行降级次数;
+- `victims`: 实体受害者总数,live / flat 两条曝光路径各多少,曝光去重命中率,分组命中率;
+- `units`: 计算单元数(每发实体段的平均单元数)与方块段每次射线数;
+- `exposure`: clear-region 快速判定命中次数,以及去重/分组槽位容量;
+- `time`: 方块段 capture/worker、实体段 capture/worker/apply 的平均主线程耗时;
+- `chunkgrid`: `ExplosionChunkGridCache` 命中/未命中率;
+- `params`: 当前线程池大小、射线数、去重槽位、分组槽位、clear-region 预算。
 
 ## 5. 测试
 
@@ -145,7 +156,8 @@
   `ExplosionRayBoundsTest`、`ExplosionFlatViewHelperTest`、
   `ExplosionEntityDamageComputationTest`、`ExplosionEntityApplicationTest`、
   `ExplosionKnockbackTest`、`ExplosionEligibilityTest`、`WorldReadViewTest`、
-  `ExplosionCapturedBlockGetterTest`、`ExplosionBlockStageEntityCallbackTest`。
+  `ExplosionCapturedBlockGetterTest`、`ExplosionBlockStageEntityCallbackTest`、
+  `ExplosionStatsTest`(计数器/耗时格式与 reset)。
 - `:fabric:runGameTest`:端到端服务端 gametest;`ExplosionDynamicShapeGameTest` 把
   moving piston / shulker box / bamboo / pointed dripstone / sulfur spike 放进真实的 TNT 爆炸
   包络,并行开关两次都必须跑完(修复前该用例以 `MovingPistonBlock.getBlockEntity` NPE 失败)。

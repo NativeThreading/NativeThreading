@@ -21,6 +21,7 @@ public class ExplosionModule {
      * world must not stay reachable from the module's static caches.
      */
     public static void onServerStopped() {
+        ExplosionStats.reset();
         ExplosionChunkGridCache.clear();
         ExplosionEntityStage.clearStaticState();
         ExplosionVisibilitySnapshot.end();

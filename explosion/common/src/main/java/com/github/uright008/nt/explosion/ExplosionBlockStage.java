@@ -122,6 +122,7 @@ public final class ExplosionBlockStage {
     }
 
     public static Result compute(ExplosionContext ctx, ChunkGrid chunkGrid) {
+        final long captureStart = System.nanoTime();
         List<ExplosionRayParams.RayParam> rays = ExplosionRayParams.RAY_PARAMS;
         int rayCount = rays.size();
         int cpuCores = Runtime.getRuntime().availableProcessors();
@@ -242,6 +243,8 @@ public final class ExplosionBlockStage {
         final int worldMinY = ctx.level().getMinY(), worldMaxY = ctx.level().getMaxY();
         final float radius = ctx.radius();
         BitSet grid = new BitSet(gridSize);
+        final long captureNanos = System.nanoTime() - captureStart;
+        final long workerStart = System.nanoTime();
         try {
             List<BitSet> workerGrids = NtWorker.mapEach(NtThreadPool.getPool("Explosion"),
                     ranges, range -> {
@@ -264,6 +267,7 @@ public final class ExplosionBlockStage {
             // pass and never re-draws the RNG. The captured tables are just as
             // valid serially — they never depended on the worker threads.
             LOGGER.error("Explosion ray workers failed; tracing rays serially", e);
+            ExplosionStats.recordBlockSerialFallback();
             for (int i = 0; i < rayCount; i++)
                 traceRay(rays.get(i), i, grid, minX, minY, minZ, maxX, maxY, maxZ,
                         worldView, strideY, strideZ, pow[i], radius,
@@ -271,6 +275,7 @@ public final class ExplosionBlockStage {
                         resistanceCalc, explodeDecider,
                         entityResistanceDeltas, entityExplodeDecisions);
         }
+        final long workerNanos = System.nanoTime() - workerStart;
 
         List<BlockPos> result = new ArrayList<>(gridSize);
         for (int z = minZ; z <= maxZ; z++) {
@@ -290,6 +295,7 @@ public final class ExplosionBlockStage {
         if (entityResistanceDeltas != null) ENTITY_RESISTANCE_DELTAS_CACHE.set(entityResistanceDeltas);
         if (entityExplodeDecisions != null) ENTITY_EXPLODE_DECISIONS_CACHE.set(entityExplodeDecisions);
 
+        ExplosionStats.recordBlockStage(captureNanos, workerNanos);
         return new Result(result, worldView);
     }
 

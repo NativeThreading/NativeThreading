@@ -17,6 +17,11 @@ public final class ExplosionExposureComputer {
 
     private ExplosionExposureComputer() {}
 
+    /** Clear-region precheck budget, reported by {@code /nt explosion stats}. */
+    static long clearRegionMaxCells() {
+        return CLEAR_REGION_MAX_CELLS;
+    }
+
     /** Sampled exposure for one captured entity, using the precomputed flat
      *  view. Bit-compatible with vanilla's getSeenPercent sampling. */
     static float getSeenPercentFromFlatView(ExplosionEntityDamageComputer.EntityDamageSnapshot snapshot,
@@ -35,6 +40,7 @@ public final class ExplosionExposureComputer {
         if (xs < 0.0 || ys < 0.0 || zs < 0.0) return 0.0F;
         if (isClearExposureRegion(minX, minY, minZ, maxX, maxY, maxZ,
                 centerX, centerY, centerZ, worldView)) {
+            ExplosionStats.recordClearRegionHit();
             return 1.0F;
         }
 

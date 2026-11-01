@@ -57,6 +57,12 @@ public final class ExplosionChunkGridCache {
         MISSES.set(0);
     }
 
+    /** Resets the hit/miss counters but keeps the cached grid (stats reset). */
+    public static void resetStats() {
+        HITS.set(0);
+        MISSES.set(0);
+    }
+
     /** Returns a grid covering exactly the sections the flat view reads, reusing
      *  the cached one when the same level and rectangle are hit again. Only an
      *  identical rectangle may be reused: a larger grid would force-load extra

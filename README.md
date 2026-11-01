@@ -55,8 +55,14 @@ the config file still works):
 /nt explosion                     status
 /nt explosion <true|false>        toggle threaded explosions
 /nt explosion reload              reload config/nt.json
-/nt explosion stats               chunk-grid cache and phase counters
+/nt explosion stats               counters, phase timings, ChunkGrid cache
+/nt explosion stats reset         reset stats counters
 ```
+
+`/nt explosion stats` reports per-stage blasts/victims, exposure-path routing
+(live vs flat), dedup/grouping hits, clear-region fast-path hits, average
+capture/worker/apply timings and the ChunkGrid cache miss rate; `stats reset`
+zeroes the counters without touching the cached grid.
 
 ## Performance
 
