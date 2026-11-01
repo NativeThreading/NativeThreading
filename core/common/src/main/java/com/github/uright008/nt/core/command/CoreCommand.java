@@ -11,6 +11,11 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Consumer;
+
 public final class CoreCommand implements NtSubCommand {
 
     @Override
@@ -43,13 +48,83 @@ public final class CoreCommand implements NtSubCommand {
                 + " x" + NtThreadPool.getParallelism();
     }
 
-    private int showStatus(CommandContext<CommandSourceStack> ctx) {
-        Component msg = Component.literal(
-                "\u00a7e/nt core\n"
+    @Override
+    public void executePaper(Consumer<String> output, String[] args) {
+        if (args.length == 0) {
+            output.accept(statusText());
+            return;
+        }
+        switch (args[0]) {
+            case "reload" -> {
+                CoreConfig.reloadConfig();
+                NtThreadPool.shutdownAll();
+                output.accept("\u00a7aCore config reloaded — pools restarted on next use.");
+            }
+            case "pool" -> {
+                if (args.length < 2) {
+                    output.accept("\u00a7a" + CoreConfig.poolImplementation().name());
+                    return;
+                }
+                PoolImplementation impl;
+                try {
+                    impl = PoolImplementation.valueOf(args[1].toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    output.accept("\u00a7cInvalid pool type: " + args[1]);
+                    return;
+                }
+                CoreConfig.setPoolImplementation(impl);
+                NtThreadPool.shutdownAll();
+                output.accept("\u00a7aPool set to " + impl.name() + " — pools restarted on next use.");
+            }
+            case "parallelism" -> {
+                if (args.length < 2) {
+                    output.accept("\u00a7a" + NtThreadPool.getParallelism() + " workers");
+                    return;
+                }
+                int count;
+                try {
+                    count = Integer.parseInt(args[1]);
+                } catch (NumberFormatException e) {
+                    output.accept("\u00a7cNot a number: " + args[1]);
+                    return;
+                }
+                if (count < 1) {
+                    output.accept("\u00a7cParallelism must be >= 1");
+                    return;
+                }
+                CoreConfig.setPoolParallelism(count);
+                NtThreadPool.shutdownAll();
+                output.accept("\u00a7aParallelism set to " + count + " — pools restarted on next use.");
+            }
+            default -> output.accept("\u00a7cUnknown argument: " + args[0]
+                    + " \u00a77(usage: /nt core [pool <type>|parallelism <n>|reload])");
+        }
+    }
+
+    @Override
+    public List<String> tabCompletePaper(String[] args) {
+        if (args.length <= 1) {
+            return List.of("reload", "pool", "parallelism");
+        }
+        if (args.length == 2 && "pool".equals(args[0])) {
+            List<String> names = new ArrayList<>();
+            for (PoolImplementation impl : PoolImplementation.values()) {
+                names.add(impl.name());
+            }
+            return names;
+        }
+        return List.of();
+    }
+
+    private static String statusText() {
+        return "\u00a7e/nt core\n"
                 + "\u00a77  Pool:          \u00a7a" + CoreConfig.poolImplementation().name() + "\n"
                 + "\u00a77  Parallelism:   \u00a7a" + NtThreadPool.getParallelism() + "\n"
-                + "\u00a77Usage: /nt core [pool <type>|parallelism <n>|reload]"
-        );
+                + "\u00a77Usage: /nt core [pool <type>|parallelism <n>|reload]";
+    }
+
+    private int showStatus(CommandContext<CommandSourceStack> ctx) {
+        Component msg = Component.literal(statusText());
         ctx.getSource().sendSuccess(() -> msg, false);
         return 1;
     }
