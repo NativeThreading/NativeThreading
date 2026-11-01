@@ -8,12 +8,17 @@ Leaves 是通过 [`leavesclip`](https://github.com/LeavesMC/Leaves) 构建的 Pa
 插件以**原生 mixin** 的方式改写服务端类 —— 不需要第三方 mod loader。`leaves/`
 模块就是利用这一点把同一套 `core` + `explosion` 代码跑在 Leaves 上。
 
+模块划分沿用仓库约定：`leaves/` 是**聚合壳**（插件元数据、leaves 专用 mixin 配置、
+插件 main、构建/打包），各模块的 Leaves 平台壳放在 `<module>/leaves/`（与
+`core/fabric`、`core/neoforge` 对齐）。core 平台壳 `core/leaves/` 持有 `/nt` 的
+Bukkit 命令桥和 core 生命周期；`leaves/` 的插件 main 只负责组合模块与生命周期。
+
 ## 1. 形态与打包布局
 
 `leaves/` 是 loader 壳，和 `fabric` / `neoforge` 平级：
 
-- 编译与 mod 版**完全相同**的 `core/common` + `explosion/common` 源码，以及
-  `leaves/src/main/java` 里的插件壳；
+- 编译与 mod 版**完全相同**的 `core/common` + `explosion/common` 源码、模块平台壳
+  `core/leaves/src/main/java`，以及 `leaves/src/main/java` 里的插件 main；
 - 产物不是 mod 而是 Leaves 插件：`build/libs/native-threading-leaves-<version>.jar`；
 - jar 内布局：
 
@@ -21,8 +26,9 @@ Leaves 是通过 [`leavesclip`](https://github.com/LeavesMC/Leaves) 构建的 Pa
 leaves-plugin.json                          # 声明 features.required=["mixin"] + mixin.package-name
 native-threading-core.mixins.json           # ServerChunkCacheMixin（target PREINIT / JAVA_13）
 native-threading-explosion.mixins.json      # ServerExplosionMixin（target PREINIT / JAVA_13）
-com/github/uright008/leaves/...             # 插件壳（JavaPlugin / Bukkit 命令桥），不进 mixin 运行域
-com/github/uright008/nt/...                 # core + explosion 实现类与 mixin 类
+com/github/uright008/leaves/...             # 聚合插件 main（组合模块 + 生命周期），不进 mixin 运行域
+com/github/uright008/nt/...                 # core + explosion 实现类、mixin 类，以及 core 的 Leaves 平台壳
+                                            #   （NativeThreadingCoreLeaves / NtBukkitCommand）
 ```
 
 启动时 leavesclip 把 `mixin.package-name`（`com.github.uright008.nt`）整棵子树抽到
@@ -75,8 +81,11 @@ Paper 系不把 Brigadier dispatcher 暴露给插件，所以 `/nt` 在 Leaves �
 命令表：
 
 - `NtSubCommand` 的 `executePaper(Consumer<String>, String[])` /
-  `tabCompletePaper(String[])` 是平台无关扩展点；`leaves` 壳注册
-  `/nt`（别名 `/native-threading`），把参数转发给对应 subcommand；
+  `tabCompletePaper(String[])` 是平台无关扩展点；
+- core 的 Leaves 平台壳（`core/leaves/` 的 `NativeThreadingCoreLeaves`）在
+  `onEnable` 里初始化 core，并通过 Bukkit `CommandMap` 注册 `/nt`
+  （别名 `/native-threading`），由 `NtBukkitCommand` 把参数转发给对应 subcommand；
+  聚合插件的 `NativeThreadingLeavesPlugin` 只调用模块壳，不自己注册命令；
 - 权限对齐游戏内命令的 gamemaster 级别：控制台、OP、或
   `native-threading.admin`；
 - 输出是 legacy `§` 颜色码字符串，Paper 的 `sendMessage(String)` 会转成 Component；

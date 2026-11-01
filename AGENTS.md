@@ -6,7 +6,7 @@ NativeThreading is a Minecraft 26.3 multi-module mod that parallelizes selected 
 
 - `core` provides shared execution, configuration, commands, and capture primitives. It does not own feature pipelines.
 - `explosion` owns the explosion workload pipeline, including its main-thread capture, pure worker computation, and main-thread application.
-- `fabric`, `neoforge` and `leaves` are aggregate loaders that package the workload modules for their platforms. `leaves` is a plugin shell for Leaves' leavesclip native mixin loader: it compiles the same common sources but ships a Mojang-mapped plugin jar (no Loom remap) with leaves-specific mixin configs.
+- `fabric`, `neoforge` and `leaves` are aggregate loaders that package the workload modules for their platforms. `leaves` is a plugin shell for Leaves' leavesclip native mixin loader: it compiles the same common sources but ships a Mojang-mapped plugin jar (no Loom remap) with leaves-specific mixin configs. Module platform shells live in `<module>/<loader>`: `core/leaves` owns the `/nt` Bukkit command bridge and core lifecycle, mirroring `core/fabric`/`core/neoforge`; the aggregate `leaves/` main only composes modules.
 
 Keep feature-specific complexity in its owning workload module. In particular, explosion logic belongs in `explosion`, not `core`.
 

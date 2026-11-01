@@ -50,6 +50,9 @@ sourceSets {
         java {
             srcDir("../core/common/src/main/java")
             srcDir("../explosion/common/src/main/java")
+            // Platform shells are owned by their modules (like core/fabric and core/neoforge);
+            // core/leaves holds the Bukkit /nt bridge.
+            srcDir("../core/leaves/src/main/java")
         }
     }
 }

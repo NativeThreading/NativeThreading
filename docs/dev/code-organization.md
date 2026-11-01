@@ -77,6 +77,8 @@ fabric/    聚合 loader: 打包 workload 模块。
 neoforge/
 leaves/    聚合 loader(Leaves): 同一批 common 源码包成 leavesclip 原生 mixin 插件
            (Mojang-mapped、无 remap、Leaves 专用 mixins.json),只能跑专用服务端。
+core/leaves/    core 的 Leaves 平台壳(/nt 的 Bukkit 命令桥 + core 生命周期),
+                与 core/fabric、core/neoforge 同级,由 leaves 聚合构建编译。
 ```
 
 ### 3.2 归属判断表

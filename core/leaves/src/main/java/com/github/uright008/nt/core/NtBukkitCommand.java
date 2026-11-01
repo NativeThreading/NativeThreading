@@ -1,4 +1,4 @@
-package com.github.uright008.leaves;
+package com.github.uright008.nt.core;
 
 import com.github.uright008.nt.core.command.NtCommandResponses;
 import com.github.uright008.nt.core.command.NtCommands;
@@ -15,14 +15,14 @@ import java.util.Locale;
  * Bukkit command-map bridge for {@code /nt} and {@code /native-threading}.
  *
  * <p>Paper-family servers do not expose their Brigadier dispatcher to plugins, so
- * the hardware-independent {@link NtSubCommand#executePaper} hook is used instead
+ * the platform-independent {@link NtSubCommand#executePaper} hook is used instead
  * of {@code NtCommandRegistration}. Access mirrors the in-game command's
  * gamemaster requirement: console, ops, or the {@code native-threading.admin}
  * permission node.</p>
  */
 final class NtBukkitCommand extends Command {
 
-    private static final String PERMISSION = "native-threading.admin";
+    private static final String ADMIN_PERMISSION = "native-threading.admin";
 
     NtBukkitCommand() {
         super("nt", "NativeThreading control", "/nt <subsystem>", List.of("native-threading"));
@@ -31,7 +31,7 @@ final class NtBukkitCommand extends Command {
     @Override
     public boolean execute(CommandSender sender, String commandLabel, String[] args) {
         if (!isAdmin(sender)) {
-            sender.sendMessage("§cYou do not have permission to use NativeThreading commands.");
+            send(sender, "§cYou do not have permission to use NativeThreading commands.");
             return true;
         }
         if (args.length == 0) {
@@ -74,7 +74,7 @@ final class NtBukkitCommand extends Command {
     }
 
     private static boolean isAdmin(CommandSender sender) {
-        return sender.isOp() || sender.hasPermission(PERMISSION);
+        return sender.isOp() || sender.hasPermission(ADMIN_PERMISSION);
     }
 
     private static void send(CommandSender sender, String message) {
