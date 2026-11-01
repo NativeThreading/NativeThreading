@@ -7,7 +7,7 @@ plugins {
     id("net.fabricmc.fabric-loom") apply false
 }
 
-val modArchiveName = "core"
+val modArchiveName = "native-threading-core"
 val modVersion = providers.gradleProperty("mod_version")
 
 group = providers.gradleProperty("maven_group").get()

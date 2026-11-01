@@ -16,7 +16,7 @@ dependencies {
     implementation(project(":common"))
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     implementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
-    implementation("com.github.uright008:parallel-core:${providers.gradleProperty("parallel_core_version").get()}")
+    implementation("com.github.uright008:native-threading-core:${providers.gradleProperty("native_threading_core_version").get()}")
 }
 sourceSets {
     main {

@@ -5,8 +5,8 @@ license = "MIT"
 [[mods]]
 modId = "explosion"
 version = "${version}"
-displayName = "Explosion Parallelization"
-description = "Parallelizes Minecraft explosion calculations for improved server TPS."
+displayName = "Native Threading Explosion"
+description = "Native threading for Minecraft explosion calculations, for improved server TPS."
 authors = ["uright008"]
 
 [[mixins]]

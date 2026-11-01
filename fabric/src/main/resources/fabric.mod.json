@@ -3,7 +3,7 @@
   "id": "native-threading",
   "version": "${version}",
   "name": "Native Threading",
-  "description": "Parallel explosion computation for Minecraft servers, including a client's integrated (single-player) server. Use /parallel to control.",
+  "description": "Native threading explosion computation for Minecraft servers, including a client's integrated (single-player) server. Use /nt to control.",
   "authors": [
     "uright008"
   ],
@@ -15,11 +15,11 @@
     ]
   },
   "mixins": [
-    "parallel-core.mixins.json",
+    "core.mixins.json",
     "explosion.mixins.json"
   ],
   "provides": [
-    "parallel-core",
+    "native-threading-core",
     "explosion"
   ],
   "depends": {

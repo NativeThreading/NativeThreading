@@ -38,7 +38,7 @@ tasks.processResources {
     }
 
     val subprojects = listOf(
-        "parallel-core",
+        "core",
         "explosion",
     )
     for (sub in subprojects) {

@@ -3,11 +3,11 @@ loaderVersion = "[4,)"
 license = "MIT"
 
 [[mods]]
-modId = "parallel-core"
+modId = "native_threading_core"
 version = "${version}"
-displayName = "Parallel Core"
-description = "Central thread pool, world management, and /parallel command system for NativeThreading mods."
+displayName = "Native Threading Core"
+description = "Central thread pool, world management, and /nt command system for NativeThreading mods."
 authors = ["uright008"]
 
 [[mixins]]
-config = "parallel-core.mixins.json"
+config = "core.mixins.json"

@@ -1,0 +1,25 @@
+package com.github.uright008.nt.explosion;
+
+import net.minecraft.world.level.ExplosionDamageCalculator;
+import net.minecraft.world.level.EntityBasedExplosionDamageCalculator;
+
+public final class ExplosionEligibility {
+
+    private ExplosionEligibility() {}
+
+    public enum Tier {
+        A,
+        B,
+        C;
+
+        public boolean allowsWorkers() {
+            return this != C;
+        }
+    }
+
+    public static Tier resolveTier(Class<? extends ExplosionDamageCalculator> calculatorType) {
+        if (calculatorType == ExplosionDamageCalculator.class) return Tier.A;
+        if (calculatorType == EntityBasedExplosionDamageCalculator.class) return Tier.B;
+        return Tier.C;
+    }
+}

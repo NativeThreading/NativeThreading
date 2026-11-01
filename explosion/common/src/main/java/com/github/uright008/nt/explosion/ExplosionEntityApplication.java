@@ -1,0 +1,28 @@
+package com.github.uright008.nt.explosion;
+
+import net.minecraft.world.phys.Vec3;
+
+public final class ExplosionEntityApplication {
+    private ExplosionEntityApplication() {
+    }
+
+    public static void apply(ExplosionEntityDamageComputer.EntityDamageResult result, Target target) {
+        if (result.damage() > 0.0F) {
+            target.hurt(result.damage());
+        }
+        Vec3 knockback = result.makeKnockback();
+        target.push(knockback);
+        target.bookkeep(knockback);
+        target.onExplosionHit();
+    }
+
+    public interface Target {
+        void hurt(float damage);
+
+        void push(Vec3 knockback);
+
+        void bookkeep(Vec3 knockback);
+
+        void onExplosionHit();
+    }
+}

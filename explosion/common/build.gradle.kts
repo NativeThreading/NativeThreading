@@ -14,7 +14,7 @@ dependencies {
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     compileOnly("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")
     compileOnly("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
-    compileOnly("com.github.uright008:parallel-core:${providers.gradleProperty("parallel_core_version").get()}")
+    compileOnly("com.github.uright008:native-threading-core:${providers.gradleProperty("native_threading_core_version").get()}")
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("org.assertj:assertj-core:3.27.0")

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "core",
+  "id": "native-threading-core",
   "version": "${version}",
-  "name": "Parallel Core",
-  "description": "Thread pool, safe-zone pattern, and /parallel command framework shared by all NativeThreading modules.",
+  "name": "Native Threading Core",
+  "description": "Thread pool, safe-zone pattern, and /nt command framework shared by all NativeThreading modules.",
   "authors": [
     "uright008"
   ],
@@ -11,11 +11,11 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.github.uright008.pc.ParallelCoreFabric"
+      "com.github.uright008.nt.core.NativeThreadingCoreFabric"
     ]
   },
   "mixins": [
-    "parallel-core.mixins.json"
+    "core.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.5",

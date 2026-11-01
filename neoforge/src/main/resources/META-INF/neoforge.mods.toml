@@ -10,7 +10,7 @@ description = "Native threading optimizations for Minecraft servers"
 authors = ["uright008"]
 
 [[mixins]]
-config = "parallel-core.mixins.json"
+config = "core.mixins.json"
 
 [[mixins]]
 config = "explosion.mixins.json"
