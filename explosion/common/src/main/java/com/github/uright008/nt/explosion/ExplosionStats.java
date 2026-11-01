@@ -32,6 +32,10 @@ public final class ExplosionStats {
     // Main-thread phase timings, in nanoseconds.
     private static final LongAdder BLOCK_CAPTURE_NANOS = new LongAdder();
     private static final LongAdder BLOCK_WORKER_NANOS = new LongAdder();
+    private static final LongAdder BLOCK_RNG_NANOS = new LongAdder();
+    private static final LongAdder BLOCK_FILL_NANOS = new LongAdder();
+    private static final LongAdder BLOCK_BOXES_NANOS = new LongAdder();
+    private static final LongAdder BLOCK_TIER_NANOS = new LongAdder();
     private static final LongAdder ENTITY_CAPTURE_NANOS = new LongAdder();
     private static final LongAdder ENTITY_WORKER_NANOS = new LongAdder();
     private static final LongAdder ENTITY_APPLY_NANOS = new LongAdder();
@@ -42,6 +46,14 @@ public final class ExplosionStats {
         BLOCK_BLASTS.increment();
         BLOCK_CAPTURE_NANOS.add(captureNanos);
         BLOCK_WORKER_NANOS.add(workerNanos);
+    }
+
+    static void recordBlockCaptureBreakdown(long rngNanos, long fillNanos,
+                                            long boxesNanos, long tierNanos) {
+        BLOCK_RNG_NANOS.add(rngNanos);
+        BLOCK_FILL_NANOS.add(fillNanos);
+        BLOCK_BOXES_NANOS.add(boxesNanos);
+        BLOCK_TIER_NANOS.add(tierNanos);
     }
 
     static void recordBlockSerialFallback() {
@@ -84,6 +96,10 @@ public final class ExplosionStats {
         CLEAR_REGION_HITS.reset();
         BLOCK_CAPTURE_NANOS.reset();
         BLOCK_WORKER_NANOS.reset();
+        BLOCK_RNG_NANOS.reset();
+        BLOCK_FILL_NANOS.reset();
+        BLOCK_BOXES_NANOS.reset();
+        BLOCK_TIER_NANOS.reset();
         ENTITY_CAPTURE_NANOS.reset();
         ENTITY_WORKER_NANOS.reset();
         ENTITY_APPLY_NANOS.reset();
@@ -100,7 +116,7 @@ public final class ExplosionStats {
         long units = COMPUTE_UNITS.sum();
         long grouped = GROUPED_VICTIMS.sum();
 
-        List<String> lines = new ArrayList<>(7);
+        List<String> lines = new ArrayList<>(8);
         lines.add(String.format(
                 "blasts: block=%d entity=%d, serial fallbacks: block=%d entity=%d",
                 blockBlasts, entityBlasts, BLOCK_SERIAL_FALLBACKS.sum(), ENTITY_SERIAL_FALLBACKS.sum()));
@@ -115,6 +131,15 @@ public final class ExplosionStats {
                 CLEAR_REGION_HITS.sum(),
                 ExplosionEntityStage.exposureDedupCapacity(),
                 ExplosionEntityStage.groupCapacity()));
+        lines.add(String.format(
+                "block capture detail: rng=%.1fus fill=%.1fus boxes=%.1fus tier=%.1fus other=%.1fus",
+                avgMicros(BLOCK_RNG_NANOS.sum(), blockBlasts),
+                avgMicros(BLOCK_FILL_NANOS.sum(), blockBlasts),
+                avgMicros(BLOCK_BOXES_NANOS.sum(), blockBlasts),
+                avgMicros(BLOCK_TIER_NANOS.sum(), blockBlasts),
+                avgMicros(BLOCK_CAPTURE_NANOS.sum() - BLOCK_RNG_NANOS.sum()
+                        - BLOCK_FILL_NANOS.sum() - BLOCK_BOXES_NANOS.sum()
+                        - BLOCK_TIER_NANOS.sum(), blockBlasts)));
         lines.add(String.format(
                 "time: block capture=%.1fus worker=%.1fus | entity capture=%.1fus worker=%.1fus apply=%.1fus",
                 avgMicros(BLOCK_CAPTURE_NANOS.sum(), blockBlasts),

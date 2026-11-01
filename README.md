@@ -61,7 +61,8 @@ the config file still works):
 
 `/nt explosion stats` reports per-stage blasts/victims, exposure-path routing
 (live vs flat), dedup/grouping hits, clear-region fast-path hits, average
-capture/worker/apply timings and the ChunkGrid cache miss rate; `stats reset`
+capture/worker/apply timings, a block-capture phase breakdown (RNG / flat fill /
+shape boxes / tier capture) and the ChunkGrid cache miss rate; `stats reset`
 zeroes the counters without touching the cached grid.
 
 ## Performance
