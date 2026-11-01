@@ -1,6 +1,6 @@
 # Core
 
-`core` owns shared execution, configuration, commands, and capture primitives for NativeThreading. It does not own workload pipelines. Feature modules own the capture, compute, and application details for their subsystems.
+`core` owns shared execution, configuration, commands, and capture primitives for NativeThreading. It does not own workload pipelines. Repo-wide rules: `docs/dev/`. Feature modules own the capture, compute, and application details for their subsystems.
 
 ## Build and Tests
 
@@ -36,7 +36,9 @@ Register command extensions through `ParallelCommand.registerSubCommand()`. Defi
 
 ## Compatibility
 
-Core supports the Fabric and NeoForge aggregate loaders. Keep it server-side and avoid client code or client mixins.
+Core supports the Fabric and NeoForge aggregate loaders, on dedicated servers
+and in a client's integrated server. Keep the code server-side in behaviour
+(threading boundary above); do not add client-only code or client-side mixins.
 
 ## No Cross-Dependency
 

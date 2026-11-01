@@ -164,17 +164,22 @@ public final class ExplosionBlockStage {
 
         BlockState[] flatBlocks = FLAT_BLOCKS_CACHE.getAndSet(null);
         if (flatBlocks == null || flatBlocks.length < gridSize) flatBlocks = new BlockState[gridSize];
-        boolean hasEntityContextBlocks = ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
-                strideY, strideZ, chunkGrid);
+        final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags =
+                ExplosionFlatViewHelper.fillSectionedWithContext(flatBlocks, minX, minY, minZ, maxX, maxY, maxZ,
+                        strideY, strideZ, chunkGrid);
 
-        // Collision boxes are resolved from the per-BlockState cache — the same
-        // getCollisionShape(null, null) call the previous per-cell loop made,
-        // but one map hit per distinct block state instead of per cell. Workers
-        // never touch BlockState objects; the box table alone drives the DDA.
+        // Collision boxes are resolved on the main thread against the live level
+        // and the real cell position. Static (!hasDynamicShape) states share the
+        // per-BlockState box cache; dynamicShape states (moving piston, shulker
+        // box, bamboo, ...) depend on their block entity and/or position and are
+        // resolved per cell, never cached. Workers never touch BlockState
+        // objects or the level; only the immutable box table crosses the
+        // boundary and drives the exposure DDA.
         final WorldReadViewImpl worldView = new WorldReadViewImpl(
                 flatBlocks,
-                ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, null, gridSize, SHAPE_BOXES_CACHE),
-                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, hasEntityContextBlocks);
+                ExplosionShapeBoxes.flattenShapeBoxesReused(flatBlocks, ctx.level(),
+                        minX, minY, minZ, strideY, strideZ, gridSize, SHAPE_BOXES_CACHE),
+                minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ, entityContextFlags);
 
         final ServerExplosion self = ctx.self();
         final boolean isDefaultCalc = ctx.damageCalculator().getClass() == ExplosionDamageCalculator.class;

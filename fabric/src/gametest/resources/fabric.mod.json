@@ -6,10 +6,13 @@
   "environment": "server",
   "entrypoints": {
     "fabric-gametest": [
+      "com.github.uright008.ep.ExplosionContextParityGameTest",
+      "com.github.uright008.ep.ExplosionDynamicShapeGameTest",
       "com.github.uright008.ep.ExplosionFlatViewParityGameTest",
       "com.github.uright008.ep.MinecartTntParityGameTest",
       "com.github.uright008.ep.TntChamberParityGameTest",
-      "com.github.uright008.ep.TntPrimedExplosionParityGameTest"
+      "com.github.uright008.ep.TntPrimedExplosionParityGameTest",
+      "com.github.uright008.ep.ChunkGridCacheReloadGameTest"
     ]
   }
 }

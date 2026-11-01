@@ -84,7 +84,12 @@ public final class TntPrimedExplosionParityGameTest {
     /** Clears every entity (previous run's zombie, block drops, unused TNT). */
     private static void clearEntities(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        level.getAllEntities().forEach(Entity::discard);
+        // getAllEntities() is a live view over the entity lookup map. Discarding
+        // while iterating mutates that map (NPE/flaky once the level holds
+        // entities from another concurrently running gametest). Snapshot first.
+        java.util.List<Entity> entities = new java.util.ArrayList<>();
+        level.getAllEntities().forEach(entities::add);
+        entities.forEach(Entity::discard);
     }
 
     /** Spawns a frozen, tanky zombie on a clear line of sight to the TNT. */

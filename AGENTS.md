@@ -18,17 +18,20 @@ Submitted `ParallelWorker` tasks enter a reentrant `SafeLevelAccess` scope. It i
 
 ## Architecture Discipline
 
-Hard rules in `docs/architecture-discipline.md` apply to every change; violate one and the change does not land. Highlights:
+Hard rules in `docs/dev/architecture-discipline.md` apply to every change; violate one and the change does not land. Highlights:
 
 - **M1/M2**: mixins are injection points only (no pipeline logic), single mixin class ≤ 250 lines.
 - **C1/C2**: cross-blast reuse must be `static`; any cache bound to a world must key on the `ServerLevel` identity.
+- **C5**: a cache holding live chunk/section references must validate object identity on a hit (or invalidate on unload); `ServerLevel` + rectangle is not a complete key.
 - **T3**: on worker failure, degrade serially with already-drawn/captured data — never let vanilla re-run work that consumed RNG or did partial work.
 - **R1/R2**: RNG consumption must match vanilla draw-for-draw; the same RNG work must never run twice.
 - **V1/V2**: optimizations default to bit-identical vanilla behavior; numeric paths need differential tests.
 - **D1/D2**: no data without a consumer; no optimization without a profile basis and a test.
 - **B1/B2**: benchmarks use fixed warmup and same-commit comparisons; judge by profile self-time, not allocation bytes.
 
-**Code organization** (`docs/code-organization.md`, binding for any new feature): files split by thread domain + state ownership (Context / Stage / Cache / Helper / Mixin shell, template in §2.4); modules are core (primitives only) → workload (one pipeline each, zero cross-workload deps) → loader shells (§3); thread-safety layer is capture → worker-pure (immutable values / read-only views only) → apply, static caches answer the four questions (§4); §5 is the new-feature landing checklist. Agent-facing copy: `.agents/skills/native-threading-architecture/`.
+**Code organization** (`docs/dev/code-organization.md`, binding for any new feature): files split by thread domain + state ownership (Context / Stage / Cache / Helper / Mixin shell, template in §2.4); modules are core (primitives only) → workload (one pipeline each, zero cross-workload deps) → loader shells (§3); thread-safety layer is capture → worker-pure (immutable values / read-only views only) → apply, static caches answer the four questions (§4); §5 is the new-feature landing checklist. Agent-facing copy: `.agents/skills/native-threading-architecture/`.
+
+Rules and checklists are the published part. The incidents and measured rejections behind them are archived locally in `docs/archive/` (gitignored, not project documentation).
 
 ## Worker Phase Discipline
 
@@ -59,18 +62,8 @@ Output: `build/libs/native-threading-*.jar`
 
 ## Commit Convention
 
-[Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <description>
-
-perf(core): add shared capture primitive
-perf(explosion): improve ray tracing
-fix(redstone): honor wire threshold override
-chore(build): update Gradle wrapper
-```
-
-Scopes: `core`, `explosion`, `build`, `docs`
+[Conventional Commits](https://www.conventionalcommits.org/) with scopes `core`,
+`explosion`, `build`, `docs`. Workflow and examples: `docs/dev/README.md`.
 
 ## No Cross-Dependency
 

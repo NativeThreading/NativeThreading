@@ -30,7 +30,15 @@ public final class ParallelThreadPool {
         return (T) (pool != null ? pool : POOLS.computeIfAbsent(name, ParallelThreadPool::createPool));
     }
 
-    public static void recreateAll() {
+    /**
+     * Shuts down every pool and drops them; the next {@link #getPool(String)} lazily
+     * creates a fresh pool with the current configuration.
+     *
+     * <p>Called when a server stops. On a dedicated server the process ends right
+     * after, but on a client the worker threads must not outlive the integrated
+     * server session — the client keeps running and may open another world.</p>
+     */
+    public static void shutdownAll() {
         POOLS.values().forEach(pool -> {
             pool.shutdown();
             try {

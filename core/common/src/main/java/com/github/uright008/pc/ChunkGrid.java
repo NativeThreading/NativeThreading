@@ -29,10 +29,19 @@ public final class ChunkGrid {
      *  computed once in {@code ExplosionRayBounds.sectionRange}) so the
      *  coverage physics lives in one place. */
     public ChunkGrid(ServerLevel level, int centerSectionX, int centerSectionZ, int range) {
-        this.sizeX = range * 2 + 1;
-        this.sizeZ = range * 2 + 1;
-        this.minSectionX = centerSectionX - range;
-        this.minSectionZ = centerSectionZ - range;
+        this(level, centerSectionX - range, centerSectionX + range,
+                centerSectionZ - range, centerSectionZ + range);
+    }
+
+    /** Rectangular variant: covers exactly the sections the flat view reads,
+     *  instead of the padded centred square. Geometry is otherwise identical —
+     *  same capture, same lazy section fill. */
+    public ChunkGrid(ServerLevel level, int minSectionX, int maxSectionX,
+                     int minSectionZ, int maxSectionZ) {
+        this.sizeX = maxSectionX - minSectionX + 1;
+        this.sizeZ = maxSectionZ - minSectionZ + 1;
+        this.minSectionX = minSectionX;
+        this.minSectionZ = minSectionZ;
         int totalChunks = sizeX * sizeZ;
         this.chunks = new ChunkAccess[totalChunks];
         this.sections = new LevelChunkSection[totalChunks][];
@@ -64,6 +73,24 @@ public final class ChunkGrid {
                 }
             }
         }
+    }
+
+    /** True iff every captured chunk is still the chunk object the level currently
+     *  has loaded at that position. An unload/reload replaces the {@code LevelChunk};
+     *  later edits only reach the new object, so a grid still pointing at the old
+     *  one would keep serving the saved pre-unload sections. Cross-blast cache reuse
+     *  must validate this before handing the grid out again. Costs one chunk lookup
+     *  per captured chunk — small next to the flat-view fill that consumes the grid. */
+    public boolean stillCurrent(ChunkSafeAccessor accessor) {
+        for (int dx = 0; dx < sizeX; dx++) {
+            for (int dz = 0; dz < sizeZ; dz++) {
+                int idx = dx * sizeZ + dz;
+                if (accessor.parallelCore$getChunkSafe(minSectionX + dx, minSectionZ + dz) != chunks[idx]) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     public BlockState getBlockState(int sectionX, int sectionZ, int blockY, int localX, int localY, int localZ) {

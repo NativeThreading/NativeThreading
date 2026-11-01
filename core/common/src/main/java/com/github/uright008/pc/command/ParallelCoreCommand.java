@@ -70,9 +70,9 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
             return 0;
         }
         ParallelCoreConfig.setPoolImplementation(impl);
-        ParallelThreadPool.recreateAll();
+        ParallelThreadPool.shutdownAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aPool set to " + impl.name() + " — all pools recreated."), false);
+                () -> Component.literal("\u00a7aPool set to " + impl.name() + " — pools restarted on next use."), false);
         return 1;
     }
 
@@ -85,17 +85,17 @@ public final class ParallelCoreCommand implements ParallelSubCommand {
     private int setParallelism(CommandContext<CommandSourceStack> ctx) {
         int count = IntegerArgumentType.getInteger(ctx, "count");
         ParallelCoreConfig.setPoolParallelism(count);
-        ParallelThreadPool.recreateAll();
+        ParallelThreadPool.shutdownAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aParallelism set to " + count + " — all pools recreated."), false);
+                () -> Component.literal("\u00a7aParallelism set to " + count + " — pools restarted on next use."), false);
         return 1;
     }
 
     private int reloadConfig(CommandContext<CommandSourceStack> ctx) {
         ParallelCoreConfig.reloadConfig();
-        ParallelThreadPool.recreateAll();
+        ParallelThreadPool.shutdownAll();
         ctx.getSource().sendSuccess(
-                () -> Component.literal("\u00a7aCore config reloaded — all pools recreated."), false);
+                () -> Component.literal("\u00a7aCore config reloaded — pools restarted on next use."), false);
         return 1;
     }
 }

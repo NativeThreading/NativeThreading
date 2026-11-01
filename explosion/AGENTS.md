@@ -9,7 +9,7 @@
 ## Role
 
 `explosion` owns parallel explosion processing. Keep its full control flow in
-this module: eligibility checks, main-thread snapshot capture, pure worker
+this module (pipeline overview: `docs/dev/explosion-pipeline.md`): eligibility checks, main-thread snapshot capture, pure worker
 computation, main-thread world and entity application, and the vanilla fallback
 path. Do not move this coordination into `core`.
 
