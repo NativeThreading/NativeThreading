@@ -6,7 +6,7 @@ NativeThreading is a Minecraft 26.3 multi-module mod that parallelizes selected 
 
 - `core` provides shared execution, configuration, commands, and capture primitives. It does not own feature pipelines.
 - `explosion` owns the explosion workload pipeline, including its main-thread capture, pure worker computation, and main-thread application.
-- `fabric` and `neoforge` are aggregate loaders that package the workload modules for their platforms.
+- `fabric`, `neoforge` and `leaves` are aggregate loaders that package the workload modules for their platforms. `leaves` is a plugin shell for Leaves' leavesclip native mixin loader: it compiles the same common sources but ships a Mojang-mapped plugin jar (no Loom remap) with leaves-specific mixin configs.
 
 Keep feature-specific complexity in its owning workload module. In particular, explosion logic belongs in `explosion`, not `core`.
 
@@ -51,19 +51,24 @@ the exception and may continue asynchronously.
 ./gradlew build                 # compile + unit tests + validateMixinDiscipline
 ./gradlew :core:test
 ./gradlew :explosion:test
+./gradlew :leaves:jar           # Leaves plugin jar (compile only; no Loom remap)
 ./gradlew :fabric:runGameTest   # separate on purpose: boots a server, ~50s
 ```
 
 `build`/`check` deliberately do **not** run the gametests — they launch a full
 dedicated server, so they are an explicit task and a separate CI job. Run
-`:fabric:runGameTest` whenever a change touches mixin wiring.
+`:fabric:runGameTest` whenever a change touches mixin wiring. The Leaves plugin
+is validated by compiling + `validateMixinDiscipline` in `build`; its runtime
+lever is a real Leaves server started with `-Dleavesclip.enable.mixin=true`
+(procedure: `docs/dev/leaves-platform.md`).
 
-Output: `build/libs/native-threading-*.jar`
+Output: `build/libs/native-threading-*.jar` (Fabric aggregate) and
+`build/libs/native-threading-leaves-*.jar` (Leaves plugin).
 
 ## Commit Convention
 
 [Conventional Commits](https://www.conventionalcommits.org/) with scopes `core`,
-`explosion`, `build`, `docs`. Workflow and examples: `docs/dev/README.md`.
+`explosion`, `leaves`, `build`, `docs`. Workflow and examples: `docs/dev/README.md`.
 
 ## No Cross-Dependency
 

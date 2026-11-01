@@ -15,12 +15,16 @@
 ./gradlew build                 # 编译 + 单元测试 + validateMixinDiscipline
 ./gradlew :core:test
 ./gradlew :explosion:test
+./gradlew :leaves:jar           # Leaves 插件 jar(只编译,不做 Loom remap)
 ./gradlew :fabric:runGameTest   # 完整服务端 gametest,故意独立:约 50s
 ```
 
 - `build` / `check` 故意**不**跑 gametest(它会起完整专用服务器);改动 mixin 接线后手动跑 `:fabric:runGameTest`。
-- `validateMixinDiscipline` 校验 M2/M4:mixin 配置是严格 JSON、列出的类存在、单类 ≤ 250 行。
-- 产物:`build/libs/native-threading-*.jar`;Fabric 与 NeoForge 各一个。
+- `validateMixinDiscipline` 校验 M2/M4:mixin 配置是严格 JSON、列出的类存在、单类 ≤ 250 行;从 Leaves 平台起还校验
+  `leaves-plugin.json` 的打包约束(required feature、`mixin.package-name`、main class 是否会被抽取、`target == @env(PREINIT)`)。
+- 产物:`build/libs/native-threading-*.jar`(Fabric 聚合 jar)和
+  `build/libs/native-threading-leaves-*.jar`(Leaves 插件);NeoForge 由发布流水线另行打包。
+- Leaves 运行时约束、打包布局、命令桥和验证方法见 [`leaves-platform.md`](leaves-platform.md)。
 
 ## 3. 基准
 
@@ -40,7 +44,7 @@ fix(core): keep fallback on drawn RNG
 chore(build): update Gradle wrapper
 ```
 
-- Scope:`core`、`explosion`、`build`、`docs`。
+- Scope:`core`、`explosion`、`leaves`、`build`、`docs`。
 - 一次提交做一件事;失败/回退的尝试单独提交并写清结论,不混进优化提交。
 - 发布标签只在 `main` 上有效(`.github/workflows/build.yml` 会校验)。
 
@@ -74,6 +78,7 @@ chore(build): update Gradle wrapper
 | [`architecture-discipline.md`](architecture-discipline.md) | 硬规则(M/C/T/R/V/F/D/B)与提交前清单 |
 | [`code-organization.md`](code-organization.md) | 文件拆分、模块划分、线程安全层、新功能模板 |
 | [`explosion-pipeline.md`](explosion-pipeline.md) | 当前爆炸管线的三段式实现 |
+| [`leaves-platform.md`](leaves-platform.md) | Leaves/leavesclip 原生 mixin 外壳：打包、运行时约束、命令桥、验证 |
 | [`../../AGENTS.md`](../../AGENTS.md) | agent 入口(线程边界 + 规则摘要) |
 | [`../../core/AGENTS.md`](../../core/AGENTS.md)、[`../../explosion/AGENTS.md`](../../explosion/AGENTS.md) | 模块局部说明 |
 | [`../../.agents/skills/native-threading-architecture/`](../../.agents/skills/native-threading-architecture/) | agent 侧规则副本(与 architecture-discipline 同步) |

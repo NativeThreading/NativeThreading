@@ -7,9 +7,11 @@ workloads off the main thread through mixins, while keeping
 vanilla-observable results identical. It currently offloads explosion
 computation — TNT chain reactions and other large blasts — to worker threads.
 
-Releases ship a Fabric jar and a NeoForge jar. The same jar runs inside a
-dedicated server or a client's integrated (single-player) server; there is no
-client-side code or protocol change.
+Releases ship a Fabric/NeoForge mod jar and, separately, a Leaves plugin jar.
+The mod jar runs inside a dedicated server or a client's integrated
+(single-player) server; there is no client-side code or protocol change. The
+Leaves plugin uses Leaves' leavesclip native mixin loader and is
+dedicated-server only.
 
 ## Features
 
@@ -26,12 +28,21 @@ client-side code or protocol change.
 
 ## Installation
 
-Drop the jar matching your loader into `mods/`:
+For Fabric and NeoForge, drop `native-threading-<version>.jar` into `mods/`:
 
 | Loader | Requirement |
 |---|---|
 | Fabric | Fabric Loader ≥ 0.19.5 + Fabric API |
 | NeoForge | NeoForge 26.3 (tested with 26.3.0.41-beta) |
+
+For Leaves, drop `native-threading-leaves-<version>.jar` into `plugins/` and
+start the server with `-Dleavesclip.enable.mixin=true`. This needs a
+leavesclip-enabled Leaves build (`leaves_api_version`, currently 26.2); plain
+Paper servers and non-leavesclip Leaves builds do not load mixin plugins. The
+plugin compiles the same `core`/`explosion` sources and injects the same two
+mixins through leavesclip's native mixin loader; constraints and the
+verification procedure live in
+[`docs/dev/leaves-platform.md`](docs/dev/leaves-platform.md).
 
 The same jar can also be installed on a Fabric or NeoForge client to run in
 the integrated server of a single-player world. World state captured by the
@@ -59,6 +70,9 @@ the config file still works):
 /nt explosion stats reset         reset stats counters
 ```
 
+The same `/nt` tree works on Leaves through the Bukkit command map (console,
+ops, or the `native-threading.admin` permission node).
+
 `/nt explosion stats` reports per-stage blasts/victims, exposure-path routing
 (live vs flat), dedup/grouping hits, clear-region fast-path hits, average
 capture/worker/apply timings, a block-capture phase breakdown (RNG / flat fill /
@@ -81,6 +95,13 @@ frame-time effect has not been measured and is not claimed here.
 | + NativeThreading | 47.2 ms |
 | + NotEnoughPalette + NativeThreading | **45.7 ms** |
 
+On Leaves 26.2 (leavesclip native mixins, no Fabric API/Lithium) the same 125-TNT
+chamber with `max-tnt-per-tick: 0` measured ~5.9 TPS / 169 ms MSPT with vanilla
+explosion handling and ~14.5 TPS / 69 ms with the plugin (tick p50 170 ms → 64 ms,
+same session, fixed warmup); an earlier build measured 6.5-6.8 → ~15.5 TPS. The
+Paper-family default TNT cap of 100 masks most of the chain reaction, so pin it
+to 0 (or ≥ the scene's TNT count) for parity or benchmarks.
+
 ## Behavior notes
 
 - The RNG is consumed draw-for-draw like vanilla, from the same `level.random`
@@ -97,11 +118,13 @@ Details and rationale: [`docs/dev/explosion-pipeline.md`](docs/dev/explosion-pip
 
 ```bash
 ./gradlew build                 # compile + unit tests + validateMixinDiscipline
+./gradlew :leaves:jar           # Leaves plugin only (no Loom remap)
 ./gradlew :fabric:runGameTest   # full-server gametests (explicit; boots a server)
 ```
 
-Output: `build/libs/native-threading-*.jar`. Requires JDK 25 (the benchmark kits
-also use a Java 26 runtime).
+Output: `build/libs/native-threading-<version>.jar` (Fabric/NeoForge aggregate)
+and `build/libs/native-threading-leaves-<version>.jar` (Leaves plugin). Requires
+JDK 25 (the benchmark kits also use a Java 26 runtime).
 
 ## Development
 
