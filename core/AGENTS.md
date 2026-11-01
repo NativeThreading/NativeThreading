@@ -11,9 +11,9 @@
 
 ## Ownership
 
-- `ParallelWorker` and `ParallelThreadPool` provide shared execution primitives.
-- `ParallelConfig` and its storage types provide shared configuration sections in `config/nt.json`.
-- `ParallelCommand` provides shared command registration.
+- `NtWorker` and `NtThreadPool` provide shared execution primitives.
+- `NtConfig` and its storage types provide shared configuration sections in `config/nt.json`.
+- `NtCommands` provides shared command registration.
 - Capture helpers such as `ChunkGrid` and deferred-write primitives support subsystem pipelines.
 
 Keep explosion behavior in its module. Do not move feature-specific scheduling, state, or computation into `core`.
@@ -28,11 +28,11 @@ Each subsystem follows this boundary:
 
 Generic `Level` access is not supported in worker code. Do not pass live levels, containers, block entities, entities, or arbitrary mod callbacks to workers. Deferred writes must be drained and applied on the main thread.
 
-Submitted `ParallelWorker` tasks enter a reentrant `SafeLevelAccess` scope. It is only a controlled worker-phase marker, not synchronization or permission for generic `Level`, container, entity, block-entity, or mod callback access. `runSafe` establishes the scope and always cleans it up when the task finishes.
+Submitted `NtWorker` tasks enter a reentrant `SafeLevelAccess` scope. It is only a controlled worker-phase marker, not synchronization or permission for generic `Level`, container, entity, block-entity, or mod callback access. `runSafe` establishes the scope and always cleans it up when the task finishes.
 
 ## Commands and Configuration
 
-Register command extensions through `ParallelCommand.registerSubCommand()`. Define each configuration section with `ParallelConfig` and keep its data under `config/nt.json`.
+Register command extensions through `NtCommands.registerSubCommand()`. Define each configuration section with `NtConfig` and keep its data under `config/nt.json`.
 
 ## Compatibility
 

@@ -7,7 +7,7 @@ plugins {
 
 version = providers.gradleProperty("mod_version").get()
 group = providers.gradleProperty("maven_group").get()
-base { archivesName = "core-neoforge" }
+base { archivesName = "native-threading-core-neoforge" }
 
 neoForge {
     version = providers.gradleProperty("neoforge_version").get()

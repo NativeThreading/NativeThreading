@@ -1,6 +1,6 @@
 # 爆炸并行管线
 
-> 代码在 `explosion/common/src/main/java/com/github/uright008/ep/`。
+> 代码在 `explosion/common/src/main/java/com/github/uright008/nt/explosion/`。
 > 行为规则见 [`architecture-discipline.md`](architecture-discipline.md),文件角色与模块归属见
 > [`code-organization.md`](code-organization.md)。本文描述当前实现;旧方案(已被替代)只存在于本地归档。
 
@@ -15,7 +15,7 @@
 
 - `ExplosionContext`(record)在主线程把 mixin 的 shadow 字段打包成一次爆炸的不可变输入;
   BlockStage / EntityStage 都是它的纯函数。
-- `ExplosionParallelEligibility` 分三档:Tier A(`ExplosionDamageCalculator`)、
+- `ExplosionEligibility` 分三档:Tier A(`ExplosionDamageCalculator`)、
   Tier B(`EntityBasedExplosionDamageCalculator`)允许并行;Tier C(mod 自定义计算器)与
   配置关闭时直接走原版。
 - 方块段在触碰世界**之前**调用 `ExplosionVisibilitySnapshot.begin(...)`,记录当前尚未加载的
@@ -68,7 +68,7 @@
   每发爆炸按 key 复用一次 live 采样(上限 8 组,见 `EXPOSURE_DEDUP_CAPACITY`)。
   TNT 单点堆积/物品堆这类大量同位置受害者的场景,曝光调用从 O(n)/发降到 O(1)/发。
   同时 `PrimedTnt#hurtServer` 是 `final` 且恒返回 false(无副作用),
-  在 parallel 允许的 Tier A/B 伤害计算器实体钩子继承自默认纯实现的前提下,
+  在 worker 路径允许的 Tier A/B 伤害计算器实体钩子继承自默认纯实现的前提下,
   纯 TNT 受害者的整段伤害计算/调用被跳过(仅保留可观察的击退);
   物品/落方块/矿车等有真实伤害副作用的非生存实体不适用。
 - **分组捕获(P2-C)**: 精确 `PrimedTnt` 类、伤害已省略、live 路径且 exposure 已采样的实体
@@ -132,11 +132,22 @@
 | `aabbIndex` | false | 实体宽相 AABB 索引(实验,默认关) |
 
 ```
-/parallel explosion                当前状态
-/parallel explosion <true|false>   开关
-/parallel explosion reload         从 config/nt.json 重载
-/parallel explosion stats          ChunkGrid 缓存命中率与两段的路径/task 计数
+/nt explosion                    当前状态
+/nt explosion <true|false>       开关
+/nt explosion reload             从 config/nt.json 重载
+/nt explosion stats              运行期计数器/阶段耗时/ChunkGrid 命中率
+/nt explosion stats reset        清零计数器(保留缓存的 grid)
 ```
+
+`stats` 输出(每次 reset 后重新累计)：
+
+- `blasts`: 方块段/实体段各处理多少发,两条线的串行降级次数;
+- `victims`: 实体受害者总数,live / flat 两条曝光路径各多少,曝光去重命中率,分组命中率;
+- `units`: 计算单元数(每发实体段的平均单元数)与方块段每次射线数;
+- `exposure`: clear-region 快速判定命中次数,以及去重/分组槽位容量;
+- `time`: 方块段 capture/worker、实体段 capture/worker/apply 的平均主线程耗时;
+- `chunkgrid`: `ExplosionChunkGridCache` 命中/未命中率;
+- `params`: 当前线程池大小、射线数、去重槽位、分组槽位、clear-region 预算。
 
 ## 5. 测试
 
@@ -144,8 +155,9 @@
   `ExplosionShapeBoxesLiveTest`(全注册表默认状态 + dynamicShape 逐格解析/缓存不变量)、
   `ExplosionRayBoundsTest`、`ExplosionFlatViewHelperTest`、
   `ExplosionEntityDamageComputationTest`、`ExplosionEntityApplicationTest`、
-  `ExplosionKnockbackTest`、`ExplosionParallelEligibilityTest`、`WorldReadViewTest`、
-  `ExplosionCapturedBlockGetterTest`、`ExplosionBlockStageEntityCallbackTest`。
+  `ExplosionKnockbackTest`、`ExplosionEligibilityTest`、`WorldReadViewTest`、
+  `ExplosionCapturedBlockGetterTest`、`ExplosionBlockStageEntityCallbackTest`、
+  `ExplosionStatsTest`(计数器/耗时格式与 reset)。
 - `:fabric:runGameTest`:端到端服务端 gametest;`ExplosionDynamicShapeGameTest` 把
   moving piston / shulker box / bamboo / pointed dripstone / sulfur spike 放进真实的 TNT 爆炸
   包络,并行开关两次都必须跑完(修复前该用例以 `MovingPistonBlock.getBlockEntity` NPE 失败)。

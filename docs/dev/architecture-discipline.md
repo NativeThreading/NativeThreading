@@ -19,7 +19,7 @@ mixin 类只允许出现:注入注解(`@Inject` / `@Redirect` / `@Modify*` / `@O
 超限的唯一出路是抽实现类,不是删注释。250 行是硬上限,不是目标。
 
 **M3 — 命名与签名约定。**
-mixin 类 `*Mixin`,访问器 `*Accessor`,调用器 `*Invoker`。所有 `@Unique` 成员以模块前缀开头(`explosion$` / `parallelCore$`),避免跨 mixin 冲突。内部类 mixin 用 `$` 连接(`FooMixin$InnerMixin`)。
+mixin 类 `*Mixin`,访问器 `*Accessor`,调用器 `*Invoker`。所有 `@Unique` 成员以模块前缀开头(`explosion$` / `ntCore$`),避免跨 mixin 冲突。内部类 mixin 用 `$` 连接(`FooMixin$InnerMixin`)。
 
 **M4 — mixin 配置是严格 JSON。**
 `*.mixins.json` 必须通过严格解析(尾逗号即失败),且 `mixins` 数组列出的每个类必须真实存在。构建期/测试期自动校验。

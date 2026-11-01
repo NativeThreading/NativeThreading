@@ -2,8 +2,8 @@
 	"schemaVersion": 1,
 	"id": "explosion",
 	"version": "${version}",
-	"name": "Explosion Parallelization",
-	"description": "Parallel explosion raycasting and entity damage. Use /parallel explosion to control.",
+	"name": "Native Threading Explosion",
+	"description": "Native threading explosion raycasting and entity damage. Use /nt explosion to control.",
 	"authors": [
 		"uright008"
 	],
@@ -11,7 +11,7 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-           "com.github.uright008.ep.ExplosionParallelizationFabric"
+           "com.github.uright008.nt.explosion.ExplosionModuleFabric"
 		]
 	},
 	"mixins": [
@@ -22,6 +22,6 @@
 		"minecraft": "~26.3",
 		"java": ">=25",
 		"fabric-api": "*",
-		"parallel-core": "*"
+		"native-threading-core": "*"
 	}
 }

@@ -30,7 +30,7 @@ EntityStage(主线程捕获与应用)/ ChunkGridCache(缓存持有者),每个文
 | 管线段 | `*Stage` | 主线程或 worker,单一 | 静态缓存(若有)+ 计算 | `ExplosionBlockStage` / `ExplosionEntityStage` |
 | 缓存持有者 | `*Cache` | 主线程写,worker 只读 | 静态复用 | `ExplosionChunkGridCache` |
 | 纯函数 | `*Helper` | 任意 | 无 | `ExplosionHelper` / `ExplosionFlatViewBuilder` |
-| 配置 | `*Config` | 主线程 | 配置项 | `ExplosionParallelConfig` |
+| 配置 | `*Config` | 主线程 | 配置项 | `ExplosionConfig` |
 | mixin 访问器 | `*Accessor` / `*Invoker` | — | 无 | `ServerLevelEntityAccessor` |
 
 ### 2.2 拆分规则
@@ -83,7 +83,7 @@ neoforge/
 
 | 它是什么 | 放哪 |
 |---|---|
-| 通用并行执行原语(`ParallelWorker`/池/`SafeLevelAccess`) | core |
+| 通用并行执行原语(`NtWorker`/池/`SafeLevelAccess`) | core |
 | 配置/命令框架、配置读写 | core |
 | 通用世界读取视图(不绑定特性的 chunk 访问) | core |
 | 某特性的管线逻辑(捕获/计算/应用) | 该特性的 workload 模块 |

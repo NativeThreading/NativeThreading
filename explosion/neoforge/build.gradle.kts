@@ -30,7 +30,7 @@ sourceSets {
         java {
             srcDir("../common/src/main/java")
             srcDir("../../core/common/src/main/java")
-            exclude("**/ParallelCommandFabric.java")
+            exclude("**/NtCommandsFabric.java")
         }
     }
 }

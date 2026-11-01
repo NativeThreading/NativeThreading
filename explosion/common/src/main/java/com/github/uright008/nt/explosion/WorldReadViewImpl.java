@@ -1,0 +1,129 @@
+package com.github.uright008.nt.explosion;
+
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
+
+public final class WorldReadViewImpl implements WorldReadView<BlockState> {
+
+    private final BlockState[] states;
+    /** Per-cell axis-aligned box list (6 doubles per box, [minX,minY,minZ,maxX,maxY,maxZ]
+     *  relative to the cell origin), or null for air cells; full-block cells use the shared
+     *  unit box. Resolved on the main thread from the live level + real cell position
+     *  ({@link ExplosionShapeBoxes}) so the worker DDA can do exact box tests without
+     *  toAabbs() allocation and without touching a level or block-shape API. Null only on
+     *  test views built without a box table. */
+    private final double[][] shapeBoxes;
+    private final int minX;
+    private final int minY;
+    private final int minZ;
+    private final int maxX;
+    private final int maxY;
+    private final int maxZ;
+    private final int strideY;
+    private final int strideZ;
+    /** Entity-context block profile of this view, classified during the main-thread
+     *  fill; the entity stage uses it to route each entity to the flat-view or the
+     *  live vanilla exposure. Immutable value, safe to read from workers. */
+    private final ExplosionFlatViewHelper.EntityContextFlags entityContextFlags;
+
+    public WorldReadViewImpl(
+            BlockState[] states,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ) {
+        this(states, null, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ,
+                ExplosionFlatViewHelper.EntityContextFlags.NONE);
+    }
+
+    public WorldReadViewImpl(
+            BlockState[] states, double[][] shapeBoxes,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ) {
+        this(states, shapeBoxes, minX, minY, minZ, maxX, maxY, maxZ, strideY, strideZ,
+                ExplosionFlatViewHelper.EntityContextFlags.NONE);
+    }
+
+    public WorldReadViewImpl(
+            BlockState[] states, double[][] shapeBoxes,
+            int minX, int minY, int minZ,
+            int maxX, int maxY, int maxZ,
+            int strideY, int strideZ, ExplosionFlatViewHelper.EntityContextFlags entityContextFlags) {
+        this.states = states;
+        this.shapeBoxes = shapeBoxes;
+        this.minX = minX;
+        this.minY = minY;
+        this.minZ = minZ;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.maxZ = maxZ;
+        this.strideY = strideY;
+        this.strideZ = strideZ;
+        this.entityContextFlags = entityContextFlags;
+    }
+
+    @Override
+    public BlockState getBlockState(int x, int y, int z) {
+        if (x < minX || x > maxX || y < minY || y > maxY || z < minZ || z > maxZ) {
+            return Blocks.AIR.defaultBlockState();
+        }
+        int index = (x - minX) + (y - minY) * strideY + (z - minZ) * strideZ;
+        return states[index];
+    }
+
+    /**
+     * Reads without the bounds check. Caller must have already verified the
+     * coordinates are inside [min..max] on every axis (traceRay's loop break
+     * guarantees this before each read).
+     */
+    public BlockState getBlockStateUnchecked(int x, int y, int z) {
+        return states[(x - minX) + (y - minY) * strideY + (z - minZ) * strideZ];
+    }
+
+    public ExplosionFlatViewHelper.EntityContextFlags entityContextFlags() {
+        return entityContextFlags;
+    }
+
+    // ── Package-private accessors for the fast ray path ──
+
+    BlockState[] states() {
+        return states;
+    }
+
+    public double[][] shapeBoxes() {
+        return shapeBoxes;
+    }
+
+    int minX() {
+        return minX;
+    }
+
+    int minY() {
+        return minY;
+    }
+
+    int minZ() {
+        return minZ;
+    }
+
+    int maxX() {
+        return maxX;
+    }
+
+    int maxY() {
+        return maxY;
+    }
+
+    int maxZ() {
+        return maxZ;
+    }
+
+    int strideY() {
+        return strideY;
+    }
+
+    int strideZ() {
+        return strideZ;
+    }
+}

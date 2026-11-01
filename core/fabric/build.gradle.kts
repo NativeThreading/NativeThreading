@@ -1,13 +1,13 @@
 import org.gradle.api.file.DuplicatesStrategy
 plugins { id("net.fabricmc.fabric-loom") }
 version = providers.gradleProperty("mod_version").get()
-base { archivesName = "core-fabric" }
+base { archivesName = "native-threading-core-fabric" }
 group = providers.gradleProperty("maven_group").get()
 repositories {
     mavenLocal()
     maven { name = "JitPack"; url = uri("https://jitpack.io") }
 }
-loom { mods { register("core") { sourceSet(sourceSets.main.get()) } } }
+loom { mods { register("native-threading-core") { sourceSet(sourceSets.main.get()) } } }
 dependencies {
     minecraft("com.mojang:minecraft:${providers.gradleProperty("minecraft_version").get()}")
     implementation("net.fabricmc:fabric-loader:${providers.gradleProperty("loader_version").get()}")

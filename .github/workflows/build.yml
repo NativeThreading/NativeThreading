@@ -120,4 +120,10 @@ jobs:
           changelog: ${{ steps.changelog.outputs.changelog }}
           game-versions: 26.3
           loaders: fabric neoforge
+          # Server-side only: no client code, vanilla clients can join untouched.
+          # It still works in singleplayer because it runs in the integrated server,
+          # so fabric.mod.json keeps environment "*" (the jar must load on a client
+          # for that case). Without this line mc-publish infers "client_and_server"
+          # from the metadata and Modrinth marks the release as required on both.
+          environment: server
           files: build/libs/native-threading-*.jar
