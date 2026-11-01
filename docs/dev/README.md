@@ -48,7 +48,7 @@ chore(build): update Gradle wrapper
 
 - Java 25,4 空格缩进。
 - **不依赖 NotEnoughPalette**;两个 mod 独立测试。
-- 并行派发优先用 `ParallelWorker.mapEach` / `mapBatched`。
+- 并行派发优先用 `NtWorker.mapEach` / `mapBatched`。
 - 新并行化特性 = 新 subproject,带 `build.included.gradle.kts`;mixin 注册在模块级
   `*.mixins.json`;Fabric entrypoint 注册在 `fabric/src/main/resources/fabric.mod.json`
   的 `"provides"` 里。

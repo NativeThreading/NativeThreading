@@ -30,7 +30,7 @@ description: "Hard architecture rules for the NativeThreading Minecraft mod code
 
 **M2 — 单个 mixin 类 ≤ 250 行**(含注释注解)。超限只能抽实现类;构建期校验,超限即失败。
 
-**M3 — 命名**:`*Mixin` / `*Accessor` / `*Invoker`;`@Unique` 成员带模块前缀(`explosion$`/`parallelCore$`);内部类 mixin 用 `$` 连接。
+**M3 — 命名**:`*Mixin` / `*Accessor` / `*Invoker`;`@Unique` 成员带模块前缀(`explosion$`/`ntCore$`);内部类 mixin 用 `$` 连接。
 
 **M4 — mixin 配置是严格 JSON**(无尾逗号),`mixins` 列出的类必须真实存在。校验任务自动查。
 

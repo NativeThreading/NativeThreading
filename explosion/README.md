@@ -1,6 +1,6 @@
-# Explosion Parallelization
+# Native Threading — Explosion
 
-Module of [NativeThreading](../README.md): parallel explosion computation for
+Module of [NativeThreading](../README.md): threaded explosion computation for
 Minecraft 26.3 servers. Ray tracing and entity damage/exposure run on worker
 threads; chunk reads and all world/entity writes stay on the main thread.
 

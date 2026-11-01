@@ -1,11 +1,11 @@
 # NativeThreading
 
-*Parallelize selected heavy server workloads in Minecraft.*
+*Thread selected heavy server workloads off the main thread in Minecraft.*
 
 NativeThreading is a Minecraft 26.3 mod that moves selected vanilla server
 workloads off the main thread through mixins, while keeping
-vanilla-observable results identical. It currently parallelizes explosion
-computation — TNT chain reactions and other large blasts.
+vanilla-observable results identical. It currently offloads explosion
+computation — TNT chain reactions and other large blasts — to worker threads.
 
 Releases ship a Fabric jar and a NeoForge jar. The same jar runs inside a
 dedicated server or a client's integrated (single-player) server; there is no
@@ -18,7 +18,7 @@ client-side code or protocol change.
 - **Vanilla-identical results** — the per-ray power draws come from
   `level.random` in vanilla order, so the destroyed block set and blast shape
   match vanilla for the same world and seed.
-- **One switch per module** — `/parallel explosion` or `config/nt.json`; no
+- **One switch per module** — `/nt explosion` or `config/nt.json`; no
   per-optimization knobs.
 - **Dedicated or integrated servers** — the same jar works in a dedicated
   server and in a client's single-player world; no client code, no protocol
@@ -52,10 +52,10 @@ Commands (OP level 2; in single-player, cheats must be enabled — without them
 the config file still works):
 
 ```
-/parallel explosion                 status
-/parallel explosion <true|false>    toggle parallel explosions
-/parallel explosion reload          reload config/nt.json
-/parallel explosion stats           chunk-grid cache and phase counters
+/nt explosion                     status
+/nt explosion <true|false>        toggle threaded explosions
+/nt explosion reload              reload config/nt.json
+/nt explosion stats               chunk-grid cache and phase counters
 ```
 
 ## Performance
